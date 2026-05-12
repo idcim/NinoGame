@@ -2,13 +2,15 @@
 
 用法:
     cd G:\\DEL_GAME
-    python agent/set_pin.py
+    python agent/set_pin.py            # 交互式 (两次输入校验, 屏幕不显示)
+    python agent/set_pin.py 1234       # 非交互式 (直接传 PIN, 用于脚本)
 
-会要求输入两次新 PIN，验证一致后写入 config/settings.json
-(pin_hash + pin_salt, PBKDF2-SHA256 加盐)。
+会用 PBKDF2-SHA256 + 16 字节随机 salt 加密后写入 config/settings.json
+(pin_hash + pin_salt 字段)。
 
-如果忘了 PIN: 把 settings.json 里 pin_hash / pin_salt 清空,
-然后再跑这个脚本设置新 PIN。
+提示：你也可以**直接在 settings.json 写明文 PIN** 到 pin_hash 字段,
+Agent 启动时会检测到非 hex 格式自动迁移加密 (PinManager._auto_migrate_plaintext_pin)。
+但用本脚本更稳妥，立即生效。
 """
 from __future__ import annotations
 
@@ -30,6 +32,15 @@ def main() -> int:
         print(f"[error] {settings_path} 不存在；先跑一次 agent 让它生成默认配置。")
         return 1
 
+    # 非交互式：python set_pin.py <pin>
+    if len(sys.argv) >= 2:
+        new_pin = sys.argv[1].strip()
+        if len(new_pin) < 4:
+            print("[error] PIN 至少 4 位。")
+            return 1
+        return _save(settings_path, new_pin)
+
+    # 交互式
     print("=" * 56)
     print(" NinoGame 家长 PIN 设置")
     print("=" * 56)
@@ -44,14 +55,17 @@ def main() -> int:
     if pin1 != pin2:
         print("[error] 两次输入不一致。")
         return 1
+    return _save(settings_path, pin1)
 
+
+def _save(settings_path: Path, new_pin: str) -> int:
     db_path = _HERE / "data" / "ninogame.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = open_db(db_path)
     pm = PinManager(settings_path, SqliteEventSink(conn), default_bus())
-    pm.set_pin(pin1)
-    print()
-    print("[ok] PIN 已设置。下次托盘点"退出"会要求验证此 PIN。")
+    pm.set_pin(new_pin)
+    print("[ok] PIN 已设置 (PBKDF2-SHA256 + 16 字节 salt)。")
+    print("    下次托盘点"退出"会要求验证此 PIN。")
     return 0
 
 

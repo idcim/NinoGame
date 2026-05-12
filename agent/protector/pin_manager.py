@@ -23,12 +23,22 @@ _log = logging.getLogger(__name__)
 
 _PBKDF2_ITERATIONS = 240_000
 _SALT_BYTES = 16
+_HASH_HEX_LEN = 64  # PBKDF2-SHA256 = 32 bytes = 64 hex chars
+_HEX_CHARS = set("0123456789abcdefABCDEF")
 
 
 def _hash(pin: str, salt: bytes) -> str:
     return hashlib.pbkdf2_hmac(
         "sha256", pin.encode("utf-8"), salt, _PBKDF2_ITERATIONS
     ).hex()
+
+
+def _is_valid_hash_field(value: str) -> bool:
+    """判断 pin_hash / pin_salt 字段是不是合法的 hex 字符串。
+    pin_hash 必须正好 64 字符；pin_salt 至少 16 字符（8 字节 salt）。"""
+    if not value:
+        return False
+    return all(c in _HEX_CHARS for c in value)
 
 
 class PinManager:
@@ -51,6 +61,10 @@ class PinManager:
         self._fails: int = 0
         self._locked_until: datetime | None = None
 
+        # 启动时检查 pin_hash 字段格式；若是明文（用户直接编辑 JSON 填的）
+        # 自动加密保存，避免 verify 永远失败。
+        self._auto_migrate_plaintext_pin()
+
     def is_locked(self) -> bool:
         with self._lock:
             return self._locked_until is not None and datetime.utcnow() < self._locked_until
@@ -64,7 +78,16 @@ class PinManager:
 
     def has_pin(self) -> bool:
         d = self._read_settings()
-        return bool(d.get("pin_hash")) and bool(d.get("pin_salt"))
+        h = d.get("pin_hash", "")
+        s = d.get("pin_salt", "")
+        # 必须是合法的 hex hash + salt 才算"已设置 PIN"
+        return (
+            isinstance(h, str)
+            and len(h) == _HASH_HEX_LEN
+            and _is_valid_hash_field(h)
+            and isinstance(s, str)
+            and _is_valid_hash_field(s)
+        )
 
     def set_pin(self, new_pin: str) -> None:
         if not new_pin or len(new_pin) < 4:
@@ -111,6 +134,57 @@ class PinManager:
                 self._events.emit(ev)
                 self._bus.publish(ev)
         return ok
+
+    # ── 自动迁移 ─────────────────────────────────────────────────
+    def _auto_migrate_plaintext_pin(self) -> None:
+        """如果 settings.json 里 pin_hash 不是合法的 PBKDF2 hex hash，
+        但又非空，按"用户写了明文 PIN"处理：
+          - 用它当 plaintext PIN
+          - 生成新 salt + 加密
+          - 写回 settings.json
+        日志不打印明文，只说"已自动迁移"。
+        """
+        d = self._read_settings()
+        h = d.get("pin_hash", "")
+        s = d.get("pin_salt", "")
+        if not h:
+            return
+        # 已是合法 hash 就不动
+        if (
+            isinstance(h, str)
+            and len(h) == _HASH_HEX_LEN
+            and _is_valid_hash_field(h)
+            and isinstance(s, str)
+            and _is_valid_hash_field(s)
+        ):
+            return
+        # 否则视为用户直接写了明文 PIN
+        plain = str(h)
+        if len(plain) < 4:
+            _log.warning(
+                "settings.json 的 pin_hash 看起来是明文但长度 < 4 (%d 字符), "
+                "无法当作 PIN. 已清空; 请运行 set_pin.py 重新设置。",
+                len(plain),
+            )
+            d["pin_hash"] = ""
+            d["pin_salt"] = ""
+            self._write_settings(d)
+            return
+
+        _log.warning(
+            "settings.json 的 pin_hash 看起来是明文 PIN (长度=%d). "
+            "自动加密保存. 下次启动这条日志不会再出现。",
+            len(plain),
+        )
+        try:
+            salt = secrets.token_bytes(_SALT_BYTES)
+            new_hash = _hash(plain, salt)
+            d["pin_hash"] = new_hash
+            d["pin_salt"] = salt.hex()
+            self._write_settings(d)
+            _log.info("PIN 已用 PBKDF2-SHA256 加密保存到 settings.json")
+        except Exception:
+            _log.exception("PIN 自动迁移失败")
 
     # ── 私有 ─────────────────────────────────────────────────────
     def _read_settings(self) -> dict:

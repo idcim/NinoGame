@@ -149,22 +149,30 @@ Agent 启动后默认进入 `child` 模式，闲置 10 分钟自动 Lock。在 `
 
 #### 设置家长 PIN
 
-```powershell
-cd G:\DEL_GAME
-python agent/set_pin.py
-```
+三种方式都可以：
 
-会让你输两次 PIN，校验一致后用 PBKDF2-SHA256 + 16 字节 salt 加密写入 `agent/config/settings.json`。
+```powershell
+# 方式 1: 交互式 (两次校验，屏幕不显字符)
+python agent/set_pin.py
+
+# 方式 2: 一行命令
+python agent/set_pin.py 1234
+
+# 方式 3: 直接编辑 agent/config/settings.json, 把 pin_hash 写成明文 PIN
+#         Agent 下次启动会自动加密保存
+{
+  ...
+  "pin_hash": "1234",
+  ...
+}
+```
 
 PIN 设置后：
 - 托盘"退出"会弹 PinDialog，需要正确 PIN 才能关 Agent
 - 3 次错误自动锁定 30 分钟
 - 未设 PIN 时，"退出"只弹普通确认对话框（开发/初始化阶段方便）
 
-> ⚠ **不要手动改 `pin_hash` / `pin_salt` 字段** —— 那是加密哈希值，
-> 直接写明文 PIN 会让验证失败。必须用 `set_pin.py`。
->
-> 忘了 PIN：清空 `pin_hash` 和 `pin_salt` 两个字段，再跑 `set_pin.py`。
+> 忘了 PIN：清空 settings.json 里 `pin_hash` 和 `pin_salt` 两个字段，再跑 `set_pin.py`。
 
 > 注：`settings.json` 和 `child_profile.json` 不在 git 跟踪范围（含 PIN / 个人信息）。
 > 首次启动 Agent 时由 [`agent/store/seed_data.py`](agent/store/seed_data.py) 自动生成默认模板。
