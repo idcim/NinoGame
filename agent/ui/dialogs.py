@@ -61,6 +61,72 @@ def _load_logo_image(tk_root, asset_path: str | Path, size: int = 96):
         return None
 
 
+def _apply_window_icon(root, png_path: str | Path | None) -> None:
+    """设置 Tk 窗口标题栏 / 任务栏图标。
+
+    用 iconphoto + PIL 直接加载 PNG，跨 Windows / Linux 都好使。
+    PhotoImage 必须挂在 root 上防 GC。
+    """
+    if not png_path:
+        return
+    try:
+        from PIL import Image, ImageTk
+        img = Image.open(str(png_path)).convert("RGBA").resize((32, 32), Image.LANCZOS)
+        photo = ImageTk.PhotoImage(img, master=root)
+        root.iconphoto(False, photo)
+        root._ninogame_icon_ref = photo  # 防 GC
+    except Exception:
+        _log.debug("iconphoto 设置失败 path=%s", png_path)
+
+
+def _grab_focus(root, entry_widget=None) -> None:
+    """从 pystray 线程 / 后台线程创建的 Tk 窗口需要主动夺焦点，
+    否则用户看到窗口但 Entry 收不到键盘输入。
+
+    顺序：
+      1. update_idletasks → 让窗口被 map
+      2. lift + focus_force
+      3. 配合 Windows SetForegroundWindow (允许跨线程激活前台)
+      4. entry.focus_set + 延迟再 set 一次（兜底）
+    """
+    try:
+        root.update_idletasks()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+    except Exception:
+        pass
+
+    # Windows: 强制把窗口拉到前台。SetForegroundWindow 在某些条件下
+    # 会被 OS 拒绝（只闪烁任务栏），但配合 lift+focus_force 通常成功。
+    try:
+        import sys
+        if sys.platform == "win32":
+            import ctypes
+            hwnd = root.winfo_id()
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+
+    if entry_widget is not None:
+        try:
+            entry_widget.focus_set()
+        except Exception:
+            pass
+
+        def _delayed():
+            try:
+                if entry_widget.winfo_exists():
+                    entry_widget.focus_force()
+                    entry_widget.focus_set()
+            except Exception:
+                pass
+        try:
+            root.after(100, _delayed)
+        except Exception:
+            pass
+
+
 # ────────────────────────────────────────────────────────────────
 # Warning Dialog
 # ────────────────────────────────────────────────────────────────
@@ -132,6 +198,7 @@ class WarningDialog:
         except tk.TclError:
             pass
         _center(root, W, H)
+        _apply_window_icon(root, self.logo_path)
 
         # 顶部 accent bar
         bar = tk.Frame(root, bg=self.accent, height=6)
@@ -199,7 +266,7 @@ class WarningDialog:
         # Esc / Enter 关闭
         root.bind("<Escape>", lambda _e: root.destroy())
         root.bind("<Return>", lambda _e: root.destroy())
-        btn.focus_set()
+        _grab_focus(root, btn)
 
     def _tick_countdown(self, root) -> None:
         if self._countdown_label is None:
@@ -297,6 +364,7 @@ class PinDialog:
         root.resizable(False, False)
         root.attributes("-topmost", True)
         _center(root, W, H)
+        _apply_window_icon(root, self.logo_path)
 
         bar = tk.Frame(root, bg=COLOR_PRIMARY, height=6)
         bar.pack(fill="x", side="top")
@@ -395,6 +463,9 @@ class PinDialog:
         # 进入时先看是否已锁
         self._check_locked_state(root, entry, confirm)
 
+        # 从 pystray 线程创建的窗口默认拿不到键盘焦点 —— 强制抢
+        _grab_focus(root, entry)
+
     def _check_locked_state(self, root, entry, confirm) -> None:
         if self._is_locked():
             mins = max(1, self._seconds_until_unlock() // 60)
@@ -479,6 +550,7 @@ class ConfirmDialog:
         root.resizable(False, False)
         root.attributes("-topmost", True)
         _center(root, W, H)
+        _apply_window_icon(root, self.logo_path)
 
         tk.Frame(root, bg=self.accent, height=6).pack(fill="x", side="top")
 
@@ -518,14 +590,17 @@ class ConfirmDialog:
             self._result = True
             root.destroy()
 
-        tk.Button(
+        confirm_btn = tk.Button(
             btn_row, text=self.confirm_text,
             font=("Microsoft YaHei UI", 10, "bold"),
             fg="white", bg=self.accent,
             activebackground=COLOR_BUTTON_HOVER, activeforeground="white",
             relief="flat", padx=22, pady=6, cursor="hand2",
             command=_confirm,
-        ).pack(side="left", padx=6)
+        )
+        confirm_btn.pack(side="left", padx=6)
 
         root.bind("<Escape>", lambda _e: root.destroy())
         root.bind("<Return>", lambda _e: _confirm())
+
+        _grab_focus(root, confirm_btn)
