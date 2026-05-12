@@ -1,0 +1,20 @@
+{
+  "maturity_mode": "negotiable",
+  "quota_package": "balanced",
+  "quota_overrides": {
+    "weekday_base_tokens": 30,
+    "weekend_base_tokens": 90,
+    "daily_credit_cap": 120,
+    "daily_hard_cap_minutes": 120,
+    "high_consumption_rate": 1.5
+  },
+  "pin_hash": "",
+  "pin_salt": "",
+  "device_type": "child_primary",
+  "idle_lock_minutes": 10,
+  "activity_min_event_window_seconds": 60,
+  "consumption_active_window_seconds": 120,
+  "monitor_scan_interval_seconds": 2,
+  "billing_tick_seconds": 60,
+  "token_to_minute_ratio": 1.0
+}

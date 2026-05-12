@@ -1,0 +1,56 @@
+[
+  {
+    "id": "task_clean_desk",
+    "name": "整理书桌",
+    "category": "responsibility",
+    "reward_tokens": 0,
+    "schedule": "daily",
+    "active": true
+  },
+  {
+    "id": "task_take_trash",
+    "name": "倒垃圾",
+    "category": "responsibility",
+    "reward_tokens": 0,
+    "schedule": "daily",
+    "active": true
+  },
+  {
+    "id": "task_make_bed",
+    "name": "自己叠被子",
+    "category": "responsibility",
+    "reward_tokens": 0,
+    "schedule": "daily",
+    "active": true
+  },
+  {
+    "id": "task_homework",
+    "name": "完成今日作业",
+    "category": "incentive",
+    "reward_tokens": 30,
+    "schedule": "daily",
+    "verification": "parent_approve",
+    "active": true
+  },
+  {
+    "id": "task_reading_30",
+    "name": "阅读 30 分钟",
+    "category": "incentive",
+    "reward_tokens": 30,
+    "schedule": "daily",
+    "verification": "auto",
+    "auto_app_category": "productive",
+    "auto_sub_type": "reading",
+    "auto_threshold_minutes": 30,
+    "active": true
+  },
+  {
+    "id": "task_practice_instrument",
+    "name": "练琴 30 分钟",
+    "category": "incentive",
+    "reward_tokens": 25,
+    "schedule": "daily",
+    "verification": "parent_approve",
+    "active": true
+  }
+]

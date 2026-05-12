@@ -1,0 +1,198 @@
+[
+  {
+    "id": "rule_pvz_all",
+    "name": "PvZ 全家桶",
+    "enabled": true,
+    "matchers": [
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "plantsvszombies"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "plantsvszombies"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "plantsvszombies"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "plants vs zombies"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "plants vs zombies"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "plants vs zombies"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "plants_vs_zombies"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "plants_vs_zombies"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "plants_vs_zombies"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "pvz"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "pvz"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "pvz"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "popcapgame1"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "popcapgame1"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "popcapgame1"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "植物大战僵尸"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "植物大战僵尸"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "植物大战僵尸"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "pvzhe"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "pvzhe"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "pvzhe"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "pvzrh"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "pvzrh"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "pvzrh"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "pvzcz"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "pvzcz"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "pvzcz"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "zwdzjs"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "zwdzjs"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "zwdzjs"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "zhiwudazhanjiangshi"
+      },
+      {
+        "field": "exe_path",
+        "op": "icontains",
+        "value": "zhiwudazhanjiangshi"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "zhiwudazhanjiangshi"
+      }
+    ],
+    "matcher_logic": "OR",
+    "exclude_processes": [
+      "obs64.exe",
+      "obs32.exe",
+      "obs.exe",
+      "bandicam.exe",
+      "ocam.exe",
+      "chrome.exe",
+      "msedge.exe",
+      "firefox.exe",
+      "code.exe",
+      "notepad.exe",
+      "explorer.exe"
+    ],
+    "schedule": {
+      "mode": "always",
+      "windows": []
+    },
+    "action": {
+      "type": "kill_and_warn",
+      "message": "不要想着玩不在我授权的游戏!"
+    },
+    "category_link": "consumption_game_pvz",
+    "notify_parent": true
+  }
+]

@@ -1,0 +1,79 @@
+[
+  {
+    "app_identifier": "plantsvszombies.exe",
+    "category": "consumption",
+    "sub_type": "game",
+    "rate_multiplier": 1.5,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "popcapgame1.exe",
+    "category": "consumption",
+    "sub_type": "game",
+    "rate_multiplier": 1.5,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "chrome.exe",
+    "category": "neutral",
+    "sub_type": "browser",
+    "rate_multiplier": 0.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "msedge.exe",
+    "category": "neutral",
+    "sub_type": "browser",
+    "rate_multiplier": 0.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "firefox.exe",
+    "category": "neutral",
+    "sub_type": "browser",
+    "rate_multiplier": 0.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "explorer.exe",
+    "category": "neutral",
+    "sub_type": "system",
+    "rate_multiplier": 0.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "code.exe",
+    "category": "productive",
+    "sub_type": "create",
+    "rate_multiplier": 1.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "scratch.exe",
+    "category": "productive",
+    "sub_type": "create",
+    "rate_multiplier": 1.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "kindle.exe",
+    "category": "productive",
+    "sub_type": "reading",
+    "rate_multiplier": 1.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "bilibili.exe",
+    "category": "consumption",
+    "sub_type": "video",
+    "rate_multiplier": 1.0,
+    "source": "seed"
+  },
+  {
+    "app_identifier": "douyin.exe",
+    "category": "consumption",
+    "sub_type": "short_video",
+    "rate_multiplier": 1.5,
+    "source": "seed"
+  }
+]
