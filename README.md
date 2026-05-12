@@ -185,7 +185,19 @@ cd agent
 pyinstaller_build.bat
 ```
 
-产物：`agent/dist/NinoGameAgent.exe` + `agent/dist/Watchdog.exe`
+产物：
+- `agent/dist/NinoGameAgent.exe` (~270 MB，含 Qt6 + Python 运行时 + 所有依赖)
+- `agent/dist/Watchdog.exe` (~7 MB，纯 stdlib)
+
+> ⚠ **pathlib backport 冲突**：如果 PyInstaller 报 `'pathlib' is an obsolete backport`，
+> 跑 `pip uninstall -y pathlib` 后重试。Anaconda 老版本里 pathlib 是 standalone 包，
+> 跟新 PyInstaller 不兼容。
+
+打包验证过的事项：
+- exe 双击启动 → 自动在旁边建 `data/` + `config/`
+- 自动启动: activity / session / token engine / self_protector / tray / overlay
+- self_protector 发现 Watchdog.exe 不在 → 自动 Popen 拉起
+- 心跳文件 `agent.alive` / `watchdog.alive` 正常更新
 
 ### 5. 注册为 Windows Service（NSSM）
 
