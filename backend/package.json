@@ -12,9 +12,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "migrate:up": "node-pg-migrate -j sql -d DATABASE_URL up",
-    "migrate:down": "node-pg-migrate -j sql -d DATABASE_URL down",
-    "migrate:status": "node-pg-migrate -j sql -d DATABASE_URL status"
+    "migrate:up": "node-pg-migrate -j sql -m sql -d DATABASE_URL up",
+    "migrate:down": "node-pg-migrate -j sql -m sql -d DATABASE_URL down",
+    "migrate:status": "node-pg-migrate -j sql -m sql -d DATABASE_URL status"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
