@@ -47,10 +47,15 @@ DEL_GAME/
 │   └── install_service.bat   # NSSM 服务注册
 │
 ├── backend/                  # P2 Backend (Node + Fastify + Postgres)
-│   ├── src/                  # config / db / server / index
+│   ├── src/                  # config / db / server / index / routes / ws
 │   ├── sql/                  # node-pg-migrate SQL migrations
-│   ├── package.json
+│   ├── Dockerfile            # multi-stage build
 │   └── README.md             # 启动 / migration / 部署说明
+│
+├── frontend/                 # P2 家长后台 (React + Vite + Tailwind)
+│   ├── src/                  # pages / components / lib (api + auth)
+│   ├── public/               # logo + favicon
+│   └── README.md             # 启动 / 构建说明
 │
 └── infra/                    # 本地基础设施
     ├── docker-compose.yml    # Postgres 15（P2 后端用）
@@ -266,7 +271,16 @@ install_service.bat
 
 ## 家长操作: 临时放行 PvZ
 
-PvZ 默认硬拦（`kill_and_warn`），要让孩子能玩需要**家长 push 临时解锁命令**。从家长设备：
+**推荐方式**：浏览器打开家长后台。先起 backend + frontend：
+
+```powershell
+cd infra && docker compose up -d        # backend + db
+cd ..\frontend && npm install && npm run dev    # 前端 dev server :5173
+```
+
+打开 http://127.0.0.1:5173/ → 注册家长 → 创建孩子 → 生成配对码 → Agent 端 `pair.py` 兑换 → 设备列表点进去 → 「放行 30 分钟」按钮一点即可。
+
+### 或: 用 curl (无 UI 时)
 
 ```powershell
 # 1) 登录拿 token
