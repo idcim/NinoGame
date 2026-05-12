@@ -90,16 +90,22 @@ def _is_excluded(snap: ProcessSnapshot, exclude: list[str]) -> bool:
 def evaluate(
     snapshots: Iterable[ProcessSnapshot],
     rules: Iterable[Rule],
+    unlocked_rule_ids: set[str] | None = None,
 ) -> list[MatchResult]:
     """对每个 snapshot 评估所有规则，返回所有命中。
 
+    unlocked_rule_ids: 当前处于临时解锁状态的规则 ID 集合 (家长批准的
+    temporary_unlock 期间, 跳过这些规则; token 扣费仍照常进行)。
     同一进程命中多条规则会返回多个 MatchResult（killer 去重）。
     """
     snapshots_list = list(snapshots)
     out: list[MatchResult] = []
+    unlocked = unlocked_rule_ids or set()
     for rule in rules:
         if not rule.enabled:
             continue
+        if rule.id in unlocked:
+            continue  # 解锁窗口内, 该规则暂停拦截
         if not _schedule_allows(rule):
             continue
         logic = rule.matcher_logic or MatcherLogic.OR.value

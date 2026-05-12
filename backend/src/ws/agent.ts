@@ -28,12 +28,25 @@ interface AgentConnection {
   child_id: string | null;
   remote: string;
   connected_at: number;
+  socket: import("@fastify/websocket").WebSocket;
 }
 
 const _connections = new Map<string, AgentConnection>(); // device_id → meta
 
-export function getConnectedDevices(): AgentConnection[] {
-  return Array.from(_connections.values());
+export function getConnectedDevices(): Array<Omit<AgentConnection, "socket">> {
+  return Array.from(_connections.values()).map(({ socket, ...rest }) => rest);
+}
+
+/** 服务端主动推消息到指定设备; 设备没在线返回 false (调用方走 DB pending 兜底)。 */
+export function pushToDevice(device_id: string, message: object): boolean {
+  const conn = _connections.get(device_id);
+  if (!conn) return false;
+  try {
+    conn.socket.send(JSON.stringify(message));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function registerAgentWebSocket(app: FastifyInstance) {
@@ -99,6 +112,7 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
         child_id: dev.child_id,
         remote: req.ip,
         connected_at: Date.now(),
+        socket,
       };
       _connections.set(dev.device_id, meta);
       app.log.info(

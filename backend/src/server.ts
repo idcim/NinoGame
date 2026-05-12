@@ -8,6 +8,7 @@ import { pool, ping } from "./db.js";
 import { registerParentAuth } from "./auth/middleware.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChildrenRoutes } from "./routes/children.js";
+import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 
@@ -39,6 +40,7 @@ export async function buildServer() {
   await registerAuthRoutes(app);
   await registerChildrenRoutes(app);
   await registerDeviceRoutes(app);
+  await registerCommandRoutes(app);
   await registerAgentWebSocket(app);
 
   // ── 基础 ────────────────────────────────────────────────
@@ -66,6 +68,8 @@ export async function buildServer() {
       "POST /api/devices/pair        (Bearer)",
       "POST /api/devices/pair/redeem",
       "GET  /api/devices             (Bearer)",
+      "POST /api/commands            (Bearer)",
+      "GET  /api/commands?device_id  (Bearer)",
       "WS   /ws/agent?token=<agent_token>",
     ],
   }));

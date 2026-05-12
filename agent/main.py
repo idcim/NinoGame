@@ -197,6 +197,10 @@ class Agent:
         self._overlay_enabled = bool(self.settings.get("overlay_enabled", True))
         self.overlay: FloatingOverlay | None = None  # run() 创建
         self.panel: StatusPanel | None = None        # run() 创建
+        # 临时解锁: rule_id -> 失效时刻 (utc datetime)
+        # 家长 push temporary_unlock command 后填; rule_engine.evaluate
+        # 会跳过这些规则; token_engine 仍按 consumption 扣费
+        self._unlocked_until: dict[str, "datetime"] = {}
 
         # 托盘
         self.tray = TrayController(
@@ -440,7 +444,8 @@ class Agent:
                 self.rules_repo.reload_if_changed()
                 snaps, scan_ms = scan_processes_timed()
                 rules = self.rules_repo.get_all()
-                matches = evaluate(snaps, rules)
+                unlocked_ids = self._active_unlocked_ids()
+                matches = evaluate(snaps, rules, unlocked_rule_ids=unlocked_ids)
                 ticks_since_heartbeat += 1
                 ms_sum += scan_ms
                 if scan_ms > ms_max:
@@ -513,6 +518,9 @@ class Agent:
             self._apply_server_rules(rules)
             if balance is not None:
                 self._apply_server_wallet(balance)
+            # 处理离线期间积压的 commands
+            for cmd in pending:
+                self._handle_command(cmd)
 
         def on_rules_update(msg):
             rules = (msg.get("payload") or {}).get("rules") or []
@@ -526,8 +534,7 @@ class Agent:
                 self._apply_server_wallet(balance)
 
         def on_command(msg):
-            cmd = msg.get("payload") or {}
-            _log.info("收到 command: %s (P3 待执行)", cmd.get("command_type"))
+            self._handle_command(msg.get("payload") or {})
 
         self.transport.subscribe("_connected", on_connected)
         self.transport.subscribe("hello_ack", on_hello_ack)
@@ -626,6 +633,64 @@ class Agent:
             _log.info("server rules 已写入本地: %d 条", len(parsed))
         except Exception:
             _log.exception("应用 server rules 失败")
+
+    def _handle_command(self, cmd: dict) -> None:
+        """处理 server 推过来的 command 消息。
+
+        支持类型 (CLAUDE.md §19.5):
+          - temporary_unlock: payload {rule_id, duration_seconds | duration_minutes}
+              → 在 self._unlocked_until 记录, rule_engine 跳过该规则
+          - lock_device: 立即切换 Lock 模式
+          - end_free_pass: (P3) 结束限免
+          - request_status / request_photo: P3 + 实现
+        """
+        from datetime import datetime, timedelta
+        ctype = cmd.get("command_type") or cmd.get("type") or ""
+        payload = cmd.get("payload") or {}
+        _log.info("处理 command: type=%s payload=%s", ctype, payload)
+
+        if ctype == "temporary_unlock":
+            rule_id = payload.get("rule_id")
+            if not rule_id:
+                _log.warning("temporary_unlock 缺 rule_id")
+                return
+            secs = int(payload.get("duration_seconds") or 0)
+            mins = int(payload.get("duration_minutes") or 0)
+            duration = secs if secs > 0 else mins * 60
+            if duration <= 0:
+                _log.warning("temporary_unlock 缺 duration")
+                return
+            expires_at = datetime.utcnow() + timedelta(seconds=duration)
+            self._unlocked_until[rule_id] = expires_at
+            _log.info(
+                "★ 临时解锁: rule_id=%s 直到 %s (持续 %d 秒)",
+                rule_id, expires_at.isoformat(timespec="seconds"), duration,
+            )
+            return
+
+        if ctype == "lock_device":
+            self.session_manager.change_mode(
+                SessionMode.LOCK.value, SessionEndReason.SWITCHED.value,
+            )
+            return
+
+        if ctype == "end_free_pass":
+            _log.info("end_free_pass: P3 待实现")
+            return
+
+        _log.warning("未知 command type: %s", ctype)
+
+    def _active_unlocked_ids(self) -> set[str]:
+        """rule_engine 用; 过滤掉已过期项 + 返回当前活跃的 unlock id 集合。"""
+        if not self._unlocked_until:
+            return set()
+        from datetime import datetime
+        now = datetime.utcnow()
+        expired = [rid for rid, t in self._unlocked_until.items() if t <= now]
+        for rid in expired:
+            _log.info("临时解锁到期, 恢复拦截: rule_id=%s", rid)
+            self._unlocked_until.pop(rid, None)
+        return set(self._unlocked_until.keys())
 
     def _apply_server_wallet(self, server_balance: int) -> None:
         try:

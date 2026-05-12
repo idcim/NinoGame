@@ -264,6 +264,44 @@ install_service.bat
 
 ------
 
+## 家长操作: 临时放行 PvZ
+
+PvZ 默认硬拦（`kill_and_warn`），要让孩子能玩需要**家长 push 临时解锁命令**。从家长设备：
+
+```powershell
+# 1) 登录拿 token
+$BASE = "http://127.0.0.1:8088"      # 或线上 https://ninogame.你的域名
+$resp = curl -s -X POST $BASE/auth/parent/login -H "Content-Type: application/json" -d '{"username":"你","password":"密码"}' | ConvertFrom-Json
+$TOKEN = $resp.token
+
+# 2) 找孩子的设备 id
+$DEVICE_ID = (curl -s "$BASE/api/devices" -H "Authorization: Bearer $TOKEN" | ConvertFrom-Json).devices[0].id
+
+# 3) 推送 "解锁 PvZ 30 分钟"
+curl -X POST "$BASE/api/commands" `
+  -H "Content-Type: application/json" `
+  -H "Authorization: Bearer $TOKEN" `
+  -d "{\"device_id\":\"$DEVICE_ID\",\"command_type\":\"temporary_unlock\",\"payload\":{\"rule_id\":\"rule_pvz_all\",\"duration_seconds\":1800}}"
+```
+
+Agent 日志会看到：
+```
+处理 command: type=temporary_unlock payload={'rule_id':'rule_pvz_all','duration_seconds':1800}
+★ 临时解锁: rule_id=rule_pvz_all 直到 ... (持续 1800 秒)
+```
+
+解锁期间：
+- PvZ 不再被 kill
+- token_engine 按 consumption + 1.5x 费率**实时扣 token**（PvZ 每分钟 1.5 token）
+- 到期后规则自动恢复拦截
+
+其它 command 类型：
+| command_type | 作用 |
+|---|---|
+| `temporary_unlock` | 临时解锁一条规则（payload: rule_id + duration_seconds/minutes）|
+| `lock_device` | 立即切到 Lock 模式 |
+| `start_free_pass` / `end_free_pass` | P3 限免活动 |
+
 ## Agent ↔ Backend 联机
 
 P2 已打通 Agent 端的 `WebSocketTransport`。配对流程：
