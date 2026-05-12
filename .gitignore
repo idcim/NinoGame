@@ -36,7 +36,10 @@ desktop.ini
 infra/pgdata/
 infra/postgres-data/
 
-# 用户本地覆盖（生产 PIN/agent_token 等不进库）
+# 用户本地配置（含 PIN / 孩子个人信息 / 自定义文案）
+# 首次启动 seed_data 会按默认模板生成
+agent/config/settings.json
+agent/config/child_profile.json
 agent/config/settings.local.json
 agent/config/child_profile.local.json
 

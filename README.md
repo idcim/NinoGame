@@ -144,17 +144,25 @@ Agent 启动后默认进入 `child` 模式，闲置 10 分钟自动 Lock。在 `
 
 #### 设置家长 PIN
 
-PIN 加密保存在 `settings.json` 里。临时用 Python 设置：
-
 ```powershell
-cd G:\DEL_GAME\agent
-python -c "import sys; sys.path.insert(0,'.'); from protector.pin_manager import PinManager; from comms.event_bus import default_bus; from store.local_sqlite import open_db, SqliteEventSink; conn=open_db('data/ninogame.db'); ev=SqliteEventSink(conn); PinManager('config/settings.json', ev, default_bus()).set_pin(input('新 PIN: ').strip()); print('OK')"
+cd G:\DEL_GAME
+python agent/set_pin.py
 ```
+
+会让你输两次 PIN，校验一致后用 PBKDF2-SHA256 + 16 字节 salt 加密写入 `agent/config/settings.json`。
 
 PIN 设置后：
 - 托盘"退出"会弹 PinDialog，需要正确 PIN 才能关 Agent
 - 3 次错误自动锁定 30 分钟
 - 未设 PIN 时，"退出"只弹普通确认对话框（开发/初始化阶段方便）
+
+> ⚠ **不要手动改 `pin_hash` / `pin_salt` 字段** —— 那是加密哈希值，
+> 直接写明文 PIN 会让验证失败。必须用 `set_pin.py`。
+>
+> 忘了 PIN：清空 `pin_hash` 和 `pin_salt` 两个字段，再跑 `set_pin.py`。
+
+> 注：`settings.json` 和 `child_profile.json` 不在 git 跟踪范围（含 PIN / 个人信息）。
+> 首次启动 Agent 时由 [`agent/store/seed_data.py`](agent/store/seed_data.py) 自动生成默认模板。
 
 ### 4. 打包 EXE
 

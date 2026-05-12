@@ -62,11 +62,7 @@ def _load_logo_image(tk_root, asset_path: str | Path, size: int = 96):
 
 
 def _apply_window_icon(root, png_path: str | Path | None) -> None:
-    """设置 Tk 窗口标题栏 / 任务栏图标。
-
-    用 iconphoto + PIL 直接加载 PNG，跨 Windows / Linux 都好使。
-    PhotoImage 必须挂在 root 上防 GC。
-    """
+    """设置任务栏图标（自绘 chrome 时只对 alt-tab / 任务栏可见）。"""
     if not png_path:
         return
     try:
@@ -79,15 +75,88 @@ def _apply_window_icon(root, png_path: str | Path | None) -> None:
         _log.debug("iconphoto 设置失败 path=%s", png_path)
 
 
-def _grab_focus(root, entry_widget=None) -> None:
-    """从 pystray 线程 / 后台线程创建的 Tk 窗口需要主动夺焦点，
-    否则用户看到窗口但 Entry 收不到键盘输入。
+def _hex_to_colorref(hex_color: str) -> int:
+    """#1ea7c4 → 0x00C4A71E (Windows COLORREF: BGR, 0x00BBGGRR)。"""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (b << 16) | (g << 8) | r
 
-    顺序：
-      1. update_idletasks → 让窗口被 map
-      2. lift + focus_force
-      3. 配合 Windows SetForegroundWindow (允许跨线程激活前台)
-      4. entry.focus_set + 延迟再 set 一次（兜底）
+
+def _apply_win11_chrome(root, caption_hex: str = "#1ea7c4", text_hex: str = "#ffffff") -> None:
+    """Windows 11 22000+ 让原生 title bar 用品牌色。
+
+    用 DwmSetWindowAttribute:
+      - DWMWA_CAPTION_COLOR (35): 标题栏背景色
+      - DWMWA_TEXT_COLOR    (36): 标题文字色
+      - DWMWA_BORDER_COLOR  (34): 窗口边框色
+      - DWMWA_WINDOW_CORNER_PREFERENCE (33) = 2: 圆角
+
+    Win10 / 非 Win 平台静默失败。"""
+    try:
+        import sys
+        if sys.platform != "win32":
+            return
+        import ctypes
+
+        root.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+
+        def _set(attr: int, value: int) -> None:
+            try:
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(ctypes.c_int(value)), 4
+                )
+            except Exception:
+                pass
+
+        # 圆角
+        _set(33, 2)  # DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND
+        # 标题栏 / 文字 / 边框
+        _set(35, _hex_to_colorref(caption_hex))
+        _set(36, _hex_to_colorref(text_hex))
+        _set(34, _hex_to_colorref(caption_hex))
+    except Exception:
+        pass
+
+
+
+
+def _force_foreground_win(hwnd: int) -> None:
+    """Windows 跨进程 SetForegroundWindow 的标准绕过手法：
+    把当前线程的输入队列附加到前台窗口的线程，再 SetForegroundWindow。"""
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        fg = user32.GetForegroundWindow()
+        if fg and fg != hwnd:
+            fg_tid = user32.GetWindowThreadProcessId(fg, None)
+            my_tid = kernel32.GetCurrentThreadId()
+            attached = False
+            if fg_tid and my_tid and fg_tid != my_tid:
+                if user32.AttachThreadInput(fg_tid, my_tid, True):
+                    attached = True
+            try:
+                user32.BringWindowToTop(hwnd)
+                user32.SetForegroundWindow(hwnd)
+                user32.SetActiveWindow(hwnd)
+                user32.SetFocus(hwnd)
+            finally:
+                if attached:
+                    user32.AttachThreadInput(fg_tid, my_tid, False)
+        else:
+            user32.SetForegroundWindow(hwnd)
+            user32.SetActiveWindow(hwnd)
+    except Exception:
+        pass
+
+
+def _grab_focus(root, entry_widget=None) -> None:
+    """从 pystray 线程 / 后台线程创建的 Tk 窗口需要主动夺焦点。
+
+    Windows 跨线程 SetForegroundWindow 会被 OS 拒绝, 用
+    AttachThreadInput 绕过限制 (_force_foreground_win)。
     """
     try:
         root.update_idletasks()
@@ -97,14 +166,13 @@ def _grab_focus(root, entry_widget=None) -> None:
     except Exception:
         pass
 
-    # Windows: 强制把窗口拉到前台。SetForegroundWindow 在某些条件下
-    # 会被 OS 拒绝（只闪烁任务栏），但配合 lift+focus_force 通常成功。
     try:
         import sys
         if sys.platform == "win32":
             import ctypes
-            hwnd = root.winfo_id()
-            ctypes.windll.user32.SetForegroundWindow(hwnd)
+            root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+            _force_foreground_win(hwnd)
     except Exception:
         pass
 
@@ -119,10 +187,11 @@ def _grab_focus(root, entry_widget=None) -> None:
                 if entry_widget.winfo_exists():
                     entry_widget.focus_force()
                     entry_widget.focus_set()
+                    entry_widget.icursor("end")
             except Exception:
                 pass
         try:
-            root.after(100, _delayed)
+            root.after(120, _delayed)
         except Exception:
             pass
 
@@ -192,17 +261,13 @@ class WarningDialog:
         root.configure(bg=COLOR_BG)
         root.resizable(False, False)
         root.attributes("-topmost", True)
-        # 移除最大化按钮（仅留最小化 + 关闭）
-        try:
-            root.attributes("-toolwindow", False)
-        except tk.TclError:
-            pass
         _center(root, W, H)
         _apply_window_icon(root, self.logo_path)
+        # Win11: 染色 + 圆角原生 title bar
+        _apply_win11_chrome(root, caption_hex=COLOR_PRIMARY, text_hex="#ffffff")
 
-        # 顶部 accent bar
-        bar = tk.Frame(root, bg=self.accent, height=6)
-        bar.pack(fill="x", side="top")
+        # 头部下的 accent strip（按 dialog 类型变色）
+        tk.Frame(root, bg=self.accent, height=4).pack(fill="x", side="top")
 
         body = tk.Frame(root, bg=COLOR_BG)
         body.pack(fill="both", expand=True, padx=24, pady=(20, 16))
@@ -365,9 +430,9 @@ class PinDialog:
         root.attributes("-topmost", True)
         _center(root, W, H)
         _apply_window_icon(root, self.logo_path)
+        _apply_win11_chrome(root, caption_hex=COLOR_PRIMARY, text_hex="#ffffff")
 
-        bar = tk.Frame(root, bg=COLOR_PRIMARY, height=6)
-        bar.pack(fill="x", side="top")
+        tk.Frame(root, bg=COLOR_ACCENT, height=4).pack(fill="x", side="top")
 
         body = tk.Frame(root, bg=COLOR_BG)
         body.pack(fill="both", expand=True, padx=24, pady=(16, 16))
@@ -551,8 +616,9 @@ class ConfirmDialog:
         root.attributes("-topmost", True)
         _center(root, W, H)
         _apply_window_icon(root, self.logo_path)
+        _apply_win11_chrome(root, caption_hex=COLOR_PRIMARY, text_hex="#ffffff")
 
-        tk.Frame(root, bg=self.accent, height=6).pack(fill="x", side="top")
+        tk.Frame(root, bg=self.accent, height=4).pack(fill="x", side="top")
 
         body = tk.Frame(root, bg=COLOR_BG)
         body.pack(fill="both", expand=True, padx=24, pady=(16, 16))
