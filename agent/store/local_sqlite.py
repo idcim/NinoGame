@@ -287,9 +287,21 @@ class SqliteWalletService(WalletService):
             row = self._conn.execute(
                 "SELECT last_daily_grant_date FROM wallet WHERE id = 1"
             ).fetchone()
-            last = row["last_daily_grant_date"] if row else None
+            last_raw = row["last_daily_grant_date"] if row else None
+            # 关键: sqlite3 用 detect_types=PARSE_DECLTYPES, DATE 列
+            # 读出来是 datetime.date 对象, 不是 str。统一规范化成
+            # date 后再比, 避免 date == "2026-05-13" 永远 False
+            # 导致每次启动都重发。
+            last_date: date | None = None
+            if isinstance(last_raw, date):
+                last_date = last_raw
+            elif isinstance(last_raw, str) and last_raw:
+                try:
+                    last_date = date.fromisoformat(last_raw)
+                except ValueError:
+                    last_date = None
             today_str = today.isoformat()
-            if last == today_str:
+            if last_date == today:
                 return 0
             if base_amount > 0:
                 self._conn.execute("BEGIN")
