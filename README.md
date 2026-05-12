@@ -200,24 +200,40 @@ PIN 设置后：
 > 注：`settings.json` 和 `child_profile.json` 不在 git 跟踪范围（含 PIN / 个人信息）。
 > 首次启动 Agent 时由 [`agent/store/seed_data.py`](agent/store/seed_data.py) 自动生成默认模板。
 
-### 4. 打包 EXE
+### 4. 打包
 
 ```powershell
 cd agent
 pyinstaller_build.bat
 ```
 
-产物：
-- `agent/dist/NinoGameAgent.exe` (~270 MB，含 Qt6 + Python 运行时 + 所有依赖)
-- `agent/dist/Watchdog.exe` (~7 MB，纯 stdlib)
+产物（**folder 模式**，启动瞬时不解压）：
+
+```
+agent/dist/NinoGameAgent/
+├── NinoGameAgent.exe         # ~3 MB 引导
+├── Watchdog.exe              # ~7 MB 单文件
+├── _internal/                # ~120 MB Qt + 依赖
+└── assets/                   # 图标
+```
+
+**安装方式**：把整个 `dist/NinoGameAgent/` 文件夹拷到 `C:\Program Files\NinoGame\`（或别处）。整个文件夹要原样保留，**不能只拷 .exe**。
 
 > ⚠ **pathlib backport 冲突**：如果 PyInstaller 报 `'pathlib' is an obsolete backport`，
 > 跑 `pip uninstall -y pathlib` 后重试。Anaconda 老版本里 pathlib 是 standalone 包，
 > 跟新 PyInstaller 不兼容。
 
+> 为什么不用 `--onefile`：单文件版每次启动都要把 270MB 解压到 `%TEMP%\_MEIxxxxx\`，
+> 启动需要 2-3 秒，且产生孤儿临时文件夹。folder 模式启动近瞬时。
+
+### 单实例
+
+Agent 用 Windows 命名 mutex (`Local\NinoGameAgent_SingleInstance_v1`) 防止双击启动出两个进程。第二次启动会立即退出（控制台打印 `已有一个 Agent 实例在运行`），托盘里依然只有第一个进程。Watchdog 同理用 `Local\NinoGameWatchdog_SingleInstance_v1`。
+
 打包验证过的事项：
 - exe 双击启动 → 自动在旁边建 `data/` + `config/`
-- 自动启动: activity / session / token engine / self_protector / tray / overlay
+- 启动只 1 个 NinoGameAgent.exe 进程（onefile 模式会有 bootloader + 子进程 2 个）
+- 第二次双击被 mutex 挡掉，进程列表不变
 - self_protector 发现 Watchdog.exe 不在 → 自动 Popen 拉起
 - 心跳文件 `agent.alive` / `watchdog.alive` 正常更新
 

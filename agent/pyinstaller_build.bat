@@ -1,9 +1,16 @@
 @echo off
 REM ──────────────────────────────────────────────────────────────
 REM NinoGame Agent 打包脚本 (Windows)
-REM 输出：
-REM   dist\NinoGameAgent.exe
-REM   dist\Watchdog.exe
+REM
+REM 输出 (onedir 模式, 启动瞬时, 不解压到 %TEMP%):
+REM   dist\NinoGameAgent\
+REM     ├── NinoGameAgent.exe   (~1MB 引导)
+REM     ├── _internal\          (~270MB Qt + Python + 业务模块)
+REM     ├── assets\             (logo / icon / tray 等)
+REM     └── Watchdog.exe        (~7MB 单文件)
+REM
+REM 安装: 把整个 dist\NinoGameAgent\ 文件夹复制到 C:\Program Files\NinoGame\
+REM 或别的位置. 整个文件夹要原样保留, 不能只拷 .exe。
 REM ──────────────────────────────────────────────────────────────
 setlocal
 cd /d "%~dp0"
@@ -23,12 +30,10 @@ echo [build] cleaning ...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
-echo [build] building Agent ...
-REM PySide6 不 collect-submodules; 让 PyInstaller 静态分析自动选我们 import 的部分
-REM (只用 QtCore / QtGui / QtWidgets), 避免 QtQuick / QtWebEngine 等几百 MB
+echo [build] building Agent (onedir mode) ...
 pyinstaller ^
+    --noconfirm ^
     --noconsole ^
-    --onefile ^
     --name NinoGameAgent ^
     --icon assets\icon.ico ^
     --paths . ^
@@ -41,6 +46,11 @@ pyinstaller ^
     --collect-submodules protector ^
     --collect-submodules pynput ^
     --collect-submodules pystray ^
+    --exclude-module numpy ^
+    --exclude-module scipy ^
+    --exclude-module pandas ^
+    --exclude-module matplotlib ^
+    --exclude-module sklearn ^
     --exclude-module PySide6.QtQuick ^
     --exclude-module PySide6.QtQuick3D ^
     --exclude-module PySide6.QtQml ^
@@ -68,20 +78,29 @@ pyinstaller ^
     main.py
 if errorlevel 1 goto :fail
 
-echo [build] building Watchdog ...
+echo [build] building Watchdog (onefile, only 7 MB) ...
+REM Watchdog 不带 PySide6, 单文件没启动延迟也方便; 直接放到 Agent 目录里
 pyinstaller ^
+    --noconfirm ^
     --noconsole ^
     --onefile ^
     --name Watchdog ^
     --icon assets\icon.ico ^
     --paths . ^
     --collect-submodules protector ^
+    --distpath dist\NinoGameAgent ^
     watchdog_main.py
 if errorlevel 1 goto :fail
 
+echo.
 echo [build] done. Outputs:
-echo   dist\NinoGameAgent.exe
-echo   dist\Watchdog.exe
+echo   dist\NinoGameAgent\NinoGameAgent.exe  (启动入口)
+echo   dist\NinoGameAgent\_internal\         (依赖)
+echo   dist\NinoGameAgent\assets\            (图标)
+echo   dist\NinoGameAgent\Watchdog.exe       (互守进程)
+echo.
+echo 安装: 把整个 dist\NinoGameAgent 文件夹拷到 C:\Program Files\NinoGame\
+echo       然后 (管理员) 跑 install_service.bat
 exit /b 0
 
 :fail

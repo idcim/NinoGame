@@ -46,15 +46,28 @@ def _agent_cmd(root: Path) -> list[str]:
     return [sys.executable, str(root / "main.py")]
 
 
+_INSTANCE_LOCK_NAME = "Local\\NinoGameWatchdog_SingleInstance_v1"
+
+
 def main() -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from protector.single_instance import SingleInstanceLock  # noqa: E402
+
+    instance_lock = SingleInstanceLock(_INSTANCE_LOCK_NAME)
+    if not instance_lock.acquire():
+        print("[NinoGame] Watchdog 已在运行, 本次启动退出。", flush=True)
+        return 0
+
     root = _resolve_root()
     data_dir = root / "data"
     log_dir = data_dir / "logs"
     _setup_logging(log_dir)
 
-    sys.path.insert(0, str(root))
     from protector.watchdog import run as run_watchdog  # noqa: E402
-    run_watchdog(data_dir=data_dir, agent_launch_cmd=_agent_cmd(root))
+    try:
+        run_watchdog(data_dir=data_dir, agent_launch_cmd=_agent_cmd(root))
+    finally:
+        instance_lock.release()
     return 0
 
 

@@ -39,6 +39,7 @@ from core.session_manager import SessionManager  # noqa: E402
 from core.token_engine import TokenEngine, TokenEngineConfig  # noqa: E402
 from protector.pin_manager import PinManager  # noqa: E402
 from protector.self_protector import SelfProtector  # noqa: E402
+from protector.single_instance import SingleInstanceLock  # noqa: E402
 from store.local_sqlite import (  # noqa: E402
     JsonRuleRepository,
     SqliteAppCategoryRepository,
@@ -554,7 +555,21 @@ class Agent:
         _log.info("Agent exited")
 
 
+_INSTANCE_LOCK_NAME = "Local\\NinoGameAgent_SingleInstance_v1"
+
+
 def main() -> int:
+    # 先抢单实例锁 (Windows 命名 mutex). 第二次双击立即退出, 不进入 Qt
+    instance_lock = SingleInstanceLock(_INSTANCE_LOCK_NAME)
+    if not instance_lock.acquire():
+        # 此时 logging 还没建好, print 兜底
+        print(
+            "[NinoGame] 已有一个 Agent 实例在运行, 本次启动退出。\n"
+            "           如果托盘里看不到, 用任务管理器结束 NinoGameAgent.exe 再试。",
+            flush=True,
+        )
+        return 0
+
     root = _resolve_root()
 
     # Qt 必须在所有 widget 创建前在主线程上初始化
@@ -563,7 +578,10 @@ def main() -> int:
     qt_app.setQuitOnLastWindowClosed(False)  # 弹窗关了不退应用
     init_bridge()  # DialogBridge 注册到主线程
 
-    Agent(root).run(qt_app)
+    try:
+        Agent(root).run(qt_app)
+    finally:
+        instance_lock.release()
     return 0
 
 
