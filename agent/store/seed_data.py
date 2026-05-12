@@ -172,6 +172,8 @@ def default_settings() -> dict:
         # ── UI 行为 ──────────────────────────────────────────
         # 警告弹窗自动关闭秒数；0 表示需要手动点击
         "warning_dialog_auto_close_seconds": 0,
+        # 玩游戏时的浮层 (§15.3, §22 #17 默认开)
+        "overlay_enabled": True,
 
         # ── 文案模板 (P2 后台可改) ─────────────────────────────
         # 不在这里列出的 key 会回退到 core/messages.py 的 DEFAULTS。

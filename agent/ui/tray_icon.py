@@ -135,6 +135,8 @@ class TrayController:
         on_check_tick: Callable[[str, bool], None] | None = None,
         get_tooltip: Callable[[], str] | None = None,
         tray_image_path: str | Path | None = None,
+        is_overlay_enabled: Callable[[], bool] | None = None,
+        toggle_overlay: Callable[[], None] | None = None,
         refresh_seconds: int = 5,
     ) -> None:
         self._get_balance = get_balance
@@ -146,6 +148,8 @@ class TrayController:
         self._get_checklist = get_checklist
         self._on_check_tick = on_check_tick
         self._get_tooltip = get_tooltip
+        self._is_overlay_enabled = is_overlay_enabled
+        self._toggle_overlay = toggle_overlay
 
         self._base_image = _load_base_image(tray_image_path)
 
@@ -204,6 +208,19 @@ class TrayController:
             pystray.MenuItem("回到 Child 模式", lambda icon, item: self._safe(self._on_resume)),
             pystray.Menu.SEPARATOR,
         ]
+        # 浮层切换
+        if self._is_overlay_enabled is not None and self._toggle_overlay is not None:
+            enabled = False
+            try:
+                enabled = bool(self._is_overlay_enabled())
+            except Exception:
+                pass
+            label = ("[x] " if enabled else "[ ] ") + "Token 浮层"
+            items.append(pystray.MenuItem(
+                label, lambda icon, item: self._safe(self._toggle_overlay)
+            ))
+            items.append(pystray.Menu.SEPARATOR)
+
         if self._get_checklist is not None and self._on_check_tick is not None:
             for item, done in self._get_checklist():
                 items.append(self._build_check_item(item.id, item.name, done))

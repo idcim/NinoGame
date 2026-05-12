@@ -55,6 +55,7 @@ from ui.assets import (  # noqa: E402
     tray_image_path,
 )
 from ui.notifier import Notifier  # noqa: E402
+from ui.overlay import FloatingOverlay  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
 
@@ -185,6 +186,13 @@ class Agent:
             peer_launch_cmd=self._peer_launch_cmd(),
         )
 
+        # 浮层 (§15.3) —— Qt 主线程实例; QApplication 必须先建好
+        # 这里只准备依赖, 真正 new FloatingOverlay 放到 run() 的主线程
+        self._daily_credit_cap = int(overrides.get("daily_credit_cap", 120))
+        self._daily_hard_cap_minutes = int(overrides.get("daily_hard_cap_minutes", 120))
+        self._overlay_enabled = bool(self.settings.get("overlay_enabled", True))
+        self.overlay: FloatingOverlay | None = None  # run() 创建
+
         # 托盘
         self.tray = TrayController(
             get_balance=self.wallet.get_balance,
@@ -205,6 +213,8 @@ class Agent:
                 balance=self.wallet.get_balance(),
             ),
             tray_image_path=str(tray_image_path()) if tray_image_path().exists() else None,
+            is_overlay_enabled=lambda: self._overlay_enabled,
+            toggle_overlay=self._toggle_overlay,
         )
 
         self._stop = False
@@ -327,6 +337,18 @@ class Agent:
         if not HAS_TRAY:
             _log.info("  → tray 不可用 (依赖未装)，仅命令行模式")
 
+        # 浮层 (§15.3): 在 Qt 主线程上创建
+        _log.info("启动 overlay (默认%s) ...", "开" if self._overlay_enabled else "关")
+        self.overlay = FloatingOverlay(
+            get_balance=self.wallet.get_balance,
+            get_mode=lambda: self.session_manager.mode,
+            get_foreground_rate=self._foreground_consumption_rate,
+            get_remaining_cap_minutes=self._remaining_cap_minutes,
+            is_active=self.activity.is_active_consumption,
+            daily_credit_cap=self._daily_credit_cap,
+        )
+        self.overlay.set_enabled(self._overlay_enabled)
+
         # 扫描循环：单独 worker 线程
         scan_interval = int(self.settings.get("monitor_scan_interval_seconds", 2))
         _log.info("-" * 60)
@@ -399,6 +421,46 @@ class Agent:
             return int(overrides.get("weekend_base_tokens", 90))
         return int(overrides.get("weekday_base_tokens", 30))
 
+    def _toggle_overlay(self) -> None:
+        """tray 菜单切换浮层开关。注意 tray 在 pystray 线程,
+        而 overlay 是 QWidget; 通过 invokeMethod 派发到主线程。"""
+        new_state = not self._overlay_enabled
+        self._overlay_enabled = new_state
+        _log.info("浮层切换: %s", "开" if new_state else "关")
+        if self.overlay is None:
+            return
+        try:
+            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+            QMetaObject.invokeMethod(
+                self.overlay, "set_enabled", Qt.QueuedConnection,
+                Q_ARG(bool, new_state),
+            )
+        except Exception:
+            _log.exception("toggle overlay 失败")
+
+    def _foreground_consumption_rate(self) -> float | None:
+        """返回当前前台进程的 consumption 费率；非 consumption 返回 None。
+        浮层用它判断是否该出现。"""
+        try:
+            snap = get_foreground_process_snapshot()
+            if snap is None:
+                return None
+            cat = self.classifier.classify(snap)
+            if cat.category != "consumption":
+                return None
+            return float(cat.rate_multiplier or 1.0)
+        except Exception:
+            _log.exception("foreground rate query failed")
+            return None
+
+    def _remaining_cap_minutes(self) -> int:
+        """今日剩余可玩分钟数 (考虑 daily_hard_cap_minutes)。"""
+        try:
+            used = self.sessions_repo.today_consumption_seconds()
+            return max(0, self._daily_hard_cap_minutes - used // 60)
+        except Exception:
+            return self._daily_hard_cap_minutes
+
     def _initial_mode(self) -> str:
         device_type = self.settings.get("device_type", "child_primary")
         if device_type == "shared":
@@ -447,6 +509,12 @@ class Agent:
 
     def _shutdown(self) -> None:
         _log.info("Agent shutdown sequence")
+        try:
+            if self.overlay is not None:
+                self.overlay.hide()
+                self.overlay.deleteLater()
+        except Exception:
+            pass
         try:
             self.tray.stop()
         except Exception:
