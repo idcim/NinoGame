@@ -1,43 +1,44 @@
 @echo off
-chcp 65001 >nul
-REM ==============================================================
-REM  NinoGame Agent 打包脚本 (Windows)
+REM ============================================================
+REM  NinoGame Agent build script (Windows)
 REM
-REM  输出 (onedir 模式, 启动瞬时, 不解压到 %TEMP%):
+REM  Output (onedir mode, instant startup, no %TEMP% extraction):
 REM    dist\NinoGameAgent\
-REM      NinoGameAgent.exe   (启动入口, 约 3 MB)
-REM      _internal\          (依赖, 约 120 MB)
-REM      assets\             (图标资源)
-REM      Watchdog.exe        (互守进程, 约 7 MB)
+REM      NinoGameAgent.exe   (entry, ~3 MB)
+REM      _internal\          (deps, ~120 MB)
+REM      assets\             (icons)
+REM      Watchdog.exe        (peer process, ~7 MB)
 REM
-REM  用法: 双击本脚本; 跑完或报错都会停在 "按任意键关闭"
-REM ==============================================================
+REM  Usage: just double-click. Window stays open on done/error.
+REM  All output is English to avoid Chinese codepage issues
+REM  (GBK vs UTF-8 on Chinese Windows mangles bat parsing).
+REM ============================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
-echo ==============================================================
-echo  NinoGame Agent 打包
+echo ============================================================
+echo  NinoGame Agent build
 echo  cwd = %CD%
-echo ==============================================================
+echo ============================================================
 echo.
 
-REM ---- 0) 检查 python ----
+REM ---- 0) check python ----
 where python >nul 2>nul
 if errorlevel 1 (
-    echo [error] python 不在 PATH 里。
-    echo         需要 Python 3.10 或更高, 把 python.exe 所在目录加进 PATH;
-    echo         或先在 cmd 里跑 conda activate / venv activate 再来。
+    echo [error] python not on PATH.
+    echo         Install Python 3.10+ and add to PATH, OR run
+    echo         "conda activate" / "venv activate" first.
     echo.
     goto :end
 )
 for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo [build] %%i
 
-REM ---- 1) venv (可选) ----
+REM ---- 1) optional venv ----
 if exist .venv\Scripts\python.exe (
     echo [build] using existing .venv
     call .venv\Scripts\activate.bat
 ) else (
-    echo [build] no .venv found; using system Python
+    echo [build] no .venv, using system Python
 )
 echo.
 
@@ -46,17 +47,17 @@ echo [build] installing requirements ...
 python -m pip install --upgrade pip >nul
 python -m pip install -r requirements.txt
 if errorlevel 1 (
-    echo [error] pip install -r requirements.txt 失败
+    echo [error] pip install -r requirements.txt failed
     goto :end
 )
 python -m pip install pyinstaller
 if errorlevel 1 (
-    echo [error] pip install pyinstaller 失败
+    echo [error] pip install pyinstaller failed
     goto :end
 )
 echo.
 
-REM ---- 3) 清理旧产物 ----
+REM ---- 3) clean old build/dist ----
 echo [build] cleaning old build/dist ...
 if exist build rmdir /s /q build 2>nul
 if exist dist  rmdir /s /q dist  2>nul
@@ -114,7 +115,7 @@ pyinstaller ^
     --exclude-module PySide6.QtRemoteObjects ^
     main.py
 if errorlevel 1 (
-    echo [error] 构建 NinoGameAgent 失败 ^(查上面输出^)
+    echo [error] NinoGameAgent build failed, see PyInstaller output above
     goto :end
 )
 echo.
@@ -133,25 +134,25 @@ pyinstaller ^
     --distpath dist\NinoGameAgent ^
     watchdog_main.py
 if errorlevel 1 (
-    echo [error] 构建 Watchdog 失败
+    echo [error] Watchdog build failed
     goto :end
 )
 echo.
 
-REM ---- 6) 完成 ----
-echo ==============================================================
-echo  [done] 输出:
-echo    dist\NinoGameAgent\NinoGameAgent.exe   (启动入口)
-echo    dist\NinoGameAgent\_internal\          (依赖)
-echo    dist\NinoGameAgent\assets\             (图标)
-echo    dist\NinoGameAgent\Watchdog.exe        (互守进程)
+REM ---- 6) done ----
+echo ============================================================
+echo  [done] outputs:
+echo    dist\NinoGameAgent\NinoGameAgent.exe   (entry)
+echo    dist\NinoGameAgent\_internal\          (deps)
+echo    dist\NinoGameAgent\assets\             (icons)
+echo    dist\NinoGameAgent\Watchdog.exe        (peer)
 echo.
-echo  安装: 把 dist\NinoGameAgent\ 整个文件夹拷到目标位置
-echo        (例如 C:\Program Files\NinoGame\)
-echo ==============================================================
+echo  Install: copy the whole dist\NinoGameAgent\ folder to
+echo           C:\Program Files\NinoGame\  (or wherever you want)
+echo ============================================================
 
 :end
 echo.
-echo (按任意键关闭此窗口)
+echo (Press any key to close)
 pause >nul
 endlocal

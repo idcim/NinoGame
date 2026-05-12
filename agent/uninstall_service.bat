@@ -1,13 +1,12 @@
 @echo off
-chcp 65001 >nul
-REM ==============================================================
-REM  卸载 NinoGame services (需要管理员)
-REM ==============================================================
+REM ============================================================
+REM  Uninstall NinoGame services (needs admin)
+REM ============================================================
 setlocal
 
 where nssm >nul 2>nul
 if errorlevel 1 (
-    echo [error] nssm 不在 PATH 里
+    echo [error] nssm not on PATH
     goto :end
 )
 
@@ -15,10 +14,10 @@ nssm stop NinoGameMonitorSvc
 nssm stop NinoGameWatchdogSvc
 nssm remove NinoGameMonitorSvc confirm
 nssm remove NinoGameWatchdogSvc confirm
-echo [done] 服务已卸载
+echo [done] services removed
 
 :end
 echo.
-echo (按任意键关闭此窗口)
+echo (Press any key to close)
 pause >nul
 endlocal

@@ -1,22 +1,22 @@
 @echo off
-chcp 65001 >nul
-REM ==============================================================
-REM  注册 Agent + Watchdog 为 Windows Service (需要管理员权限)
+REM ============================================================
+REM  Register Agent + Watchdog as Windows Service (needs admin)
 REM
-REM  先决条件:
-REM    1) 已运行 pyinstaller_build.bat 生成 dist\NinoGameAgent\
-REM    2) 已下载 NSSM (https://nssm.cc) 并放在 PATH 里
-REM    3) 把整个 dist\NinoGameAgent\ 文件夹复制到 C:\Program Files\NinoGame\
-REM       最终目录:
-REM         C:\Program Files\NinoGame\NinoGameAgent.exe
-REM         C:\Program Files\NinoGame\_internal\...
-REM         C:\Program Files\NinoGame\assets\...
-REM         C:\Program Files\NinoGame\Watchdog.exe
+REM  Prerequisites:
+REM    1) pyinstaller_build.bat produced dist\NinoGameAgent\
+REM    2) NSSM (https://nssm.cc) on PATH
+REM    3) Copied dist\NinoGameAgent\ folder to C:\Program Files\NinoGame\
 REM
-REM  重要: Agent 需要交互会话才能枚举窗口标题 / 监听键鼠 / 弹窗。
-REM    NSSM 默认以 LocalSystem 启动, 改成 "以当前用户登录"
-REM    (NSSM GUI: Log on 标签 -> This account)。
-REM ==============================================================
+REM  Final layout:
+REM    C:\Program Files\NinoGame\NinoGameAgent.exe
+REM    C:\Program Files\NinoGame\_internal\...
+REM    C:\Program Files\NinoGame\assets\...
+REM    C:\Program Files\NinoGame\Watchdog.exe
+REM
+REM  IMPORTANT: Agent needs an interactive session to enumerate
+REM    window titles / listen to mouse+kbd / show popups.
+REM    Set NSSM "Log on as" to your user account (not LocalSystem).
+REM ============================================================
 setlocal
 
 set INSTALL_DIR=C:\Program Files\NinoGame
@@ -25,30 +25,30 @@ set WATCHDOG=%INSTALL_DIR%\Watchdog.exe
 
 where nssm >nul 2>nul
 if errorlevel 1 (
-    echo [error] nssm 不在 PATH 里, 从 https://nssm.cc 下载后把 nssm.exe
-    echo         放到 PATH 上的目录 (例如 C:\Windows) 再跑本脚本。
+    echo [error] nssm not on PATH. Download from https://nssm.cc
+    echo         and place nssm.exe in a folder on PATH (e.g. C:\Windows).
     goto :end
 )
 
 if not exist "%AGENT%" (
-    echo [error] %AGENT% 不存在。
-    echo         请先 pyinstaller_build.bat 然后把 dist\NinoGameAgent\ 整个
-    echo         文件夹拷到 %INSTALL_DIR%
+    echo [error] %AGENT% missing.
+    echo         Run pyinstaller_build.bat first, then copy
+    echo         dist\NinoGameAgent\ folder to %INSTALL_DIR%
     goto :end
 )
 if not exist "%WATCHDOG%" (
-    echo [error] %WATCHDOG% 不存在.
+    echo [error] %WATCHDOG% missing.
     goto :end
 )
 
-echo [install] 注册 NinoGameMonitorSvc ...
+echo [install] registering NinoGameMonitorSvc ...
 nssm install NinoGameMonitorSvc "%AGENT%"
 nssm set NinoGameMonitorSvc Start SERVICE_AUTO_START
 nssm set NinoGameMonitorSvc AppRestartDelay 5000
 nssm set NinoGameMonitorSvc AppExit Default Restart
 nssm set NinoGameMonitorSvc Description "NinoGame Agent: process monitor + token economy"
 
-echo [install] 注册 NinoGameWatchdogSvc ...
+echo [install] registering NinoGameWatchdogSvc ...
 nssm install NinoGameWatchdogSvc "%WATCHDOG%"
 nssm set NinoGameWatchdogSvc Start SERVICE_AUTO_START
 nssm set NinoGameWatchdogSvc AppRestartDelay 5000
@@ -56,15 +56,16 @@ nssm set NinoGameWatchdogSvc AppExit Default Restart
 nssm set NinoGameWatchdogSvc Description "NinoGame Watchdog: keeps Agent alive"
 
 echo.
-echo [install] 服务已注册。启动:
+echo [install] services registered. start with:
 echo   nssm start NinoGameMonitorSvc
 echo   nssm start NinoGameWatchdogSvc
 echo.
-echo 别忘了把 NSSM GUI 里两个服务的 "Log on as" 改成当前用户,
-echo 否则 LocalSystem 看不到桌面会话, 窗口标题匹配 / pynput / 弹窗都会失效。
+echo Remember to set each service's "Log on as" to your user account
+echo in NSSM GUI; LocalSystem cannot see the desktop session, so
+echo window-title matching / pynput / popups will all fail.
 
 :end
 echo.
-echo (按任意键关闭此窗口)
+echo (Press any key to close)
 pause >nul
 endlocal
