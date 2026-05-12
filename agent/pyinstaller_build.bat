@@ -32,6 +32,8 @@ pyinstaller ^
     --add-data "assets;assets" ^
     --collect-submodules pynput ^
     --collect-submodules pystray ^
+    --collect-submodules PySide6 ^
+    --collect-data PySide6 ^
     main.py
 if errorlevel 1 goto :fail
 

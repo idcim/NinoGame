@@ -54,8 +54,8 @@ from ui.assets import (  # noqa: E402
     dialog_image_path,
     tray_image_path,
 )
-from ui.dialogs import ConfirmDialog, PinDialog  # noqa: E402
 from ui.notifier import Notifier  # noqa: E402
+from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
 
 _log = logging.getLogger(__name__)
@@ -220,39 +220,37 @@ class Agent:
         return [sys.executable, str(_AGENT_DIR / "watchdog_main.py")]
 
     def _handle_quit_request(self) -> None:
-        """托盘"退出"被点击。
+        """托盘"退出"被点击 (从 pystray 线程触发)。
 
-        - 已设 PIN: 弹 PinDialog；只有验证通过才真退
-        - 未设 PIN: 弹 ConfirmDialog "确定退出?"
+        通过 DialogBridge marshal 到 Qt 主线程渲染弹窗。
         """
         _log.info("收到退出请求 (托盘)")
         logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+        bridge = get_bridge()
 
         if not self.pin.has_pin():
-            ok = ConfirmDialog(
+            ok = bridge.ask_confirm(
                 title=self.messages.get("quit_dialog_title"),
                 message=self.messages.get("quit_confirm_no_pin"),
                 logo_path=logo,
                 confirm_text=self.messages.get("quit_button_confirm"),
                 cancel_text=self.messages.get("quit_button_cancel"),
-            ).ask()
+            )
             if ok:
                 _log.info("无 PIN, 用户已确认退出")
-                self._stop = True
+                self._request_quit()
             else:
                 _log.info("退出取消")
             return
 
-        # 有 PIN
         def _on_wrong(_max: int) -> str:
-            # PinManager 已经累加 self._fails；剩余次数 = max - fails
             remaining = max(0, self.pin._max_fails - self.pin._fails)  # noqa: SLF001
             return self.messages.get("quit_pin_wrong", remaining=remaining)
 
         def _on_locked(mins: int) -> str:
             return self.messages.get("quit_pin_locked", minutes=mins)
 
-        ok = PinDialog(
+        ok = bridge.ask_pin(
             title=self.messages.get("quit_dialog_title"),
             prompt=self.messages.get("quit_prompt_pin"),
             logo_path=logo,
@@ -264,15 +262,30 @@ class Agent:
             max_attempts=3,
             confirm_text=self.messages.get("quit_button_confirm"),
             cancel_text=self.messages.get("quit_button_cancel"),
-        ).ask()
+        )
         if ok:
             _log.info("PIN 校验通过, 退出 Agent")
-            self._stop = True
+            self._request_quit()
         else:
             _log.info("PIN 校验未通过 / 用户取消, 继续运行")
 
+    def _request_quit(self) -> None:
+        """工作线程触发退出: 标记 stop + 通知 Qt 主线程结束 exec()。"""
+        self._stop = True
+        try:
+            from PySide6.QtCore import QCoreApplication, QTimer
+            app = QCoreApplication.instance()
+            if app is not None:
+                QTimer.singleShot(0, app.quit)
+        except Exception:
+            pass
+
     # ── 启动 / 主循环 ────────────────────────────────────────────
-    def run(self) -> None:
+    def run(self, qt_app) -> None:
+        """主线程跑 Qt 事件循环；扫描 / token / session / tray 都放后台线程。
+
+        qt_app: 已经创建好的 QApplication 实例 (由 main() 持有)
+        """
         _log.info("=" * 60)
         _log.info("NinoGame Agent 启动中; root=%s", self.root)
         _log.info("=" * 60)
@@ -308,14 +321,36 @@ class Agent:
         if not HAS_TRAY:
             _log.info("  → tray 不可用 (依赖未装)，仅命令行模式")
 
+        # 扫描循环：单独 worker 线程
         scan_interval = int(self.settings.get("monitor_scan_interval_seconds", 2))
         _log.info("-" * 60)
         _log.info("Agent 已就绪 | 规则数=%d | 扫描间隔=%ds | Ctrl+C 退出",
                   len(self.rules_repo.get_all()), scan_interval)
         _log.info("-" * 60)
 
-        # 主循环：规则评估 + 拦截
         self._install_signal_handlers()
+        import threading
+        self._scan_thread = threading.Thread(
+            target=self._scan_loop, args=(scan_interval,),
+            name="scan-loop", daemon=True,
+        )
+        self._scan_thread.start()
+
+        # 主线程: Qt 事件循环 (弹窗都在这里渲染)
+        try:
+            qt_app.exec()
+        except KeyboardInterrupt:
+            pass
+
+        # exec 返回后清理
+        self._stop = True
+        try:
+            self._scan_thread.join(timeout=3)
+        except Exception:
+            pass
+        self._shutdown()
+
+    def _scan_loop(self, scan_interval: int) -> None:
         last_heartbeat = time.monotonic()
         ticks_since_heartbeat = 0
         kills_since_heartbeat = 0
@@ -331,12 +366,9 @@ class Agent:
                 if matches:
                     handled = self.killer.handle(matches)
                     kills_since_heartbeat += handled
-            except KeyboardInterrupt:
-                break
             except Exception:
                 _log.exception("scan loop iteration failed")
 
-            # 周期性心跳
             now_mono = time.monotonic()
             if now_mono - last_heartbeat >= heartbeat_period_seconds:
                 _log.info(
@@ -352,8 +384,6 @@ class Agent:
                 kills_since_heartbeat = 0
 
             time.sleep(scan_interval)
-
-        self._shutdown()
 
     def _today_base_grant(self) -> int:
         from datetime import date as _date
@@ -374,7 +404,7 @@ class Agent:
     def _install_signal_handlers(self) -> None:
         def _handler(_signum, _frame):
             _log.info("signal received; shutting down")
-            self._stop = True
+            self._request_quit()
 
         try:
             signal.signal(signal.SIGINT, _handler)
@@ -440,7 +470,14 @@ class Agent:
 
 def main() -> int:
     root = _resolve_root()
-    Agent(root).run()
+
+    # Qt 必须在所有 widget 创建前在主线程上初始化
+    from PySide6.QtWidgets import QApplication
+    qt_app = QApplication.instance() or QApplication(sys.argv)
+    qt_app.setQuitOnLastWindowClosed(False)  # 弹窗关了不退应用
+    init_bridge()  # DialogBridge 注册到主线程
+
+    Agent(root).run(qt_app)
     return 0
 
 

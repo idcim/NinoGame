@@ -36,11 +36,12 @@ DEL_GAME/
 │   ├── core/                 # 业务模块（monitor / rule_engine / killer / token_engine / messages / ...）
 │   ├── store/                # 存储层（ABC 接口 + SQLite 实现 + schema.sql）
 │   ├── comms/                # 消息类型 + 事件总线 + Transport 抽象
-│   ├── ui/                   # 托盘图标 + Tkinter 弹窗 (dialogs.py)
+│   ├── ui/                   # 托盘图标 + Qt 弹窗 (qt_dialogs.py + qt_bridge.py)
 │   ├── protector/            # Watchdog + PIN
 │   ├── assets/               # 图标资源（从 design/logo.png 生成）
 │   ├── config/               # 用户可编辑配置（rules / app_categories / tasks / settings）
-│   ├── main.py               # Agent 入口
+│   ├── main.py               # Agent 入口 (Qt 事件循环主线程)
+│   ├── set_pin.py            # 家长 PIN 设置脚本
 │   ├── watchdog_main.py      # Watchdog 入口
 │   ├── pyinstaller_build.bat # 打包脚本
 │   └── install_service.bat   # NSSM 服务注册
@@ -67,9 +68,13 @@ pip install -r agent/requirements.txt
 | 包 | 用途 | 不装的后果 |
 |---|---|---|
 | `psutil` | 进程枚举 | **必需，不装无法启动** |
+| `PySide6 6.6.x` | 弹窗 UI (PIN 输入 / 警告 / 确认) | **必需** |
 | `pywin32` | 窗口标题 / 前台进程检测 | 窗口标题匹配失效 + 前台扣分失效 |
 | `pynput` | 严格活跃判定（防鼠标抖动器） | 退化为系统级输入检测 |
 | `pystray` + `Pillow` | 系统托盘图标 | 无托盘 UI，仅日志可见 |
+
+> ⚠ **PySide6 版本钉到 6.6.x**：6.11+ 在 Anaconda / 部分 Win10 环境有 DLL load 问题。
+> 如果 `pip install PySide6` 装的是 6.11 报错，回退到 `pip install "PySide6==6.6.3"`。
 
 ### 2. 运行
 
