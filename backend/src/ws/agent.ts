@@ -43,7 +43,7 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
     const url = new URL(req.url || "/", "http://x");
     const token = url.searchParams.get("token");
     if (!token) {
-      app.log.warn({ ip: req.ip }, "/ws/agent 拒绝: 缺 token");
+      app.log.warn({ ip: req.ip }, "/ws/agent rejected: missing token");
       socket.send(JSON.stringify({ type: "error", payload: { reason: "missing_token" } }));
       socket.close(4001, "missing_token");
       return;
@@ -59,7 +59,7 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
         return;
       }
       void handleMessage(app, socket, meta, msg).catch((err) => {
-        app.log.error({ err, device_id: meta!.device_id }, "ws message 处理失败");
+        app.log.error({ err, device_id: meta!.device_id }, "ws message handler failed");
       });
     };
 
@@ -77,19 +77,19 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
     socket.on("close", () => {
       if (meta) {
         _connections.delete(meta.device_id);
-        app.log.info({ device_id: meta.device_id }, "/ws/agent 连接关闭");
+        app.log.info({ device_id: meta.device_id }, "/ws/agent disconnected");
       }
     });
 
     socket.on("error", (err: Error) => {
-      app.log.warn({ err }, "/ws/agent 连接错误");
+      app.log.warn({ err }, "/ws/agent socket error");
     });
 
-    // 2) 后台异步验证 token
+    // background async token validation
     void (async () => {
       const dev = await lookupDeviceByToken(token);
       if (!dev) {
-        app.log.warn({ ip: req.ip }, "/ws/agent 拒绝: token 无效");
+        app.log.warn({ ip: req.ip }, "/ws/agent rejected: invalid token");
         socket.send(JSON.stringify({ type: "error", payload: { reason: "invalid_token" } }));
         socket.close(4002, "invalid_token");
         return;
@@ -103,20 +103,20 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
       _connections.set(dev.device_id, meta);
       app.log.info(
         { device_id: dev.device_id, child_id: dev.child_id },
-        "/ws/agent 连接建立",
+        "/ws/agent connected",
       );
       pool
         .query(`UPDATE "NinoGame".devices SET last_seen_at = NOW() WHERE id = $1`, [
           dev.device_id,
         ])
         .catch((err: Error) => {
-          app.log.warn({ err, device_id: dev.device_id }, "last_seen 更新失败");
+          app.log.warn({ err, device_id: dev.device_id }, "last_seen update failed");
         });
 
-      // 重放在 token 验证前到的消息
+      // replay messages buffered before auth completed
       for (const m of pendingBeforeAuth) {
         void handleMessage(app, socket, meta, m).catch((err) => {
-          app.log.error({ err, device_id: meta!.device_id }, "ws message 处理失败");
+          app.log.error({ err, device_id: meta!.device_id }, "ws message handler failed");
         });
       }
       pendingBeforeAuth.length = 0;
@@ -141,11 +141,11 @@ async function handleMessage(
       await onEvent(meta, msg);
       break;
     case "usage_report":
-      // 留到下一轮实现
-      app.log.debug({ device_id: meta.device_id }, "usage_report 收到, 待实现");
+      // TODO: implement aggregation into app_sessions
+      app.log.debug({ device_id: meta.device_id }, "usage_report received (TODO)");
       break;
     default:
-      app.log.warn({ device_id: meta.device_id, type: msg.type }, "未知 ws 消息类型");
+      app.log.warn({ device_id: meta.device_id, type: msg.type }, "unknown ws message type");
   }
 }
 
@@ -192,7 +192,7 @@ async function onHello(
   );
   app.log.info(
     { device_id: meta.device_id, rules: rules.rows.length, cmds: cmds.rows.length },
-    "hello_ack 已发送",
+    "hello_ack sent",
   );
 }
 
