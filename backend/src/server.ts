@@ -1,8 +1,15 @@
 import Fastify from "fastify";
 import sensible from "@fastify/sensible";
 import cors from "@fastify/cors";
+import jwt from "@fastify/jwt";
+import websocket from "@fastify/websocket";
 import { config } from "./config.js";
 import { pool, ping } from "./db.js";
+import { registerParentAuth } from "./auth/middleware.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerChildrenRoutes } from "./routes/children.js";
+import { registerDeviceRoutes } from "./routes/devices.js";
+import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 
 export async function buildServer() {
   const app = Fastify({
@@ -18,10 +25,23 @@ export async function buildServer() {
     trustProxy: true,
   });
 
+  // ── 插件 ─────────────────────────────────────────────────
   await app.register(sensible);
   await app.register(cors, { origin: true, credentials: true });
+  await app.register(jwt, {
+    secret: config.jwtSecret,
+    sign: { expiresIn: config.jwtExpiresIn },
+  });
+  await app.register(websocket);
 
-  // ── 健康检查 ─────────────────────────────────────────────
+  // ── 业务路由 ────────────────────────────────────────────
+  await registerParentAuth(app);
+  await registerAuthRoutes(app);
+  await registerChildrenRoutes(app);
+  await registerDeviceRoutes(app);
+  await registerAgentWebSocket(app);
+
+  // ── 基础 ────────────────────────────────────────────────
   app.get("/health", async () => {
     const db = await ping();
     return {
@@ -29,14 +49,25 @@ export async function buildServer() {
       env: config.env,
       uptime_seconds: Math.round(process.uptime()),
       db: { time: db.now, version: db.version.split(" ").slice(0, 2).join(" ") },
+      agents_connected: getConnectedDevices().length,
     };
   });
 
-  // ── 根路径友好提示 ───────────────────────────────────────
   app.get("/", async () => ({
     service: "NinoGame Backend",
     version: "0.1.0",
-    docs: "见 CLAUDE.md §18-§19; 接口 P2 实施中",
+    docs: "见 CLAUDE.md §18-§19",
+    endpoints: [
+      "POST /auth/parent/register",
+      "POST /auth/parent/login",
+      "GET  /auth/parent/me  (Bearer)",
+      "POST /api/children    (Bearer)",
+      "GET  /api/children    (Bearer)",
+      "POST /api/devices/pair        (Bearer)",
+      "POST /api/devices/pair/redeem",
+      "GET  /api/devices             (Bearer)",
+      "WS   /ws/agent?token=<agent_token>",
+    ],
   }));
 
   app.addHook("onClose", async () => {
