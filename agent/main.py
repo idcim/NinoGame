@@ -270,13 +270,19 @@ class Agent:
             _log.info("PIN 校验未通过 / 用户取消, 继续运行")
 
     def _request_quit(self) -> None:
-        """工作线程触发退出: 标记 stop + 通知 Qt 主线程结束 exec()。"""
+        """工作线程触发退出: 标记 stop + 通知 Qt 主线程结束 exec()。
+
+        必须用 QMetaObject.invokeMethod + QueuedConnection 跨线程；
+        QTimer.singleShot 只能在 Qt 线程里调用 (否则会打:
+        "QObject::startTimer: Timers can only be used with threads
+         started with QThread")。
+        """
         self._stop = True
         try:
-            from PySide6.QtCore import QCoreApplication, QTimer
+            from PySide6.QtCore import QCoreApplication, QMetaObject, Qt
             app = QCoreApplication.instance()
             if app is not None:
-                QTimer.singleShot(0, app.quit)
+                QMetaObject.invokeMethod(app, "quit", Qt.QueuedConnection)
         except Exception:
             pass
 
