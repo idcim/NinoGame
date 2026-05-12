@@ -131,6 +131,7 @@ class TrayController:
         on_lock: Callable[[], None],
         on_resume: Callable[[], None],
         on_quit_request: Callable[[], None],
+        on_show_panel: Callable[[], None] | None = None,
         get_checklist: Callable[[], list[tuple[object, bool]]] | None = None,
         on_check_tick: Callable[[str, bool], None] | None = None,
         get_tooltip: Callable[[], str] | None = None,
@@ -144,7 +145,8 @@ class TrayController:
         self._get_cap = get_daily_credit_cap
         self._on_lock = on_lock
         self._on_resume = on_resume
-        self._on_quit_request = on_quit_request  # 注意：含 PIN 校验，不一定真退
+        self._on_quit_request = on_quit_request
+        self._on_show_panel = on_show_panel
         self._get_checklist = get_checklist
         self._on_check_tick = on_check_tick
         self._get_tooltip = get_tooltip
@@ -203,11 +205,23 @@ class TrayController:
         return f"NinoGame · {mode} · {bal} token"
 
     def _menu(self) -> "pystray.Menu":
-        items = [
-            pystray.MenuItem("锁定", lambda icon, item: self._safe(self._on_lock)),
-            pystray.MenuItem("回到 Child 模式", lambda icon, item: self._safe(self._on_resume)),
+        items: list = []
+
+        # 默认项: 单击托盘 = 打开状态面板
+        if self._on_show_panel is not None:
+            items.append(pystray.MenuItem(
+                "打开状态面板",
+                lambda icon, item: self._safe(self._on_show_panel),
+                default=True,
+            ))
+            items.append(pystray.Menu.SEPARATOR)
+
+        items.extend([
+            pystray.MenuItem("立即锁定", lambda icon, item: self._safe(self._on_lock)),
+            pystray.MenuItem("解锁使用", lambda icon, item: self._safe(self._on_resume)),
             pystray.Menu.SEPARATOR,
-        ]
+        ])
+
         # 浮层切换
         if self._is_overlay_enabled is not None and self._toggle_overlay is not None:
             enabled = False
@@ -215,7 +229,7 @@ class TrayController:
                 enabled = bool(self._is_overlay_enabled())
             except Exception:
                 pass
-            label = ("[x] " if enabled else "[ ] ") + "Token 浮层"
+            label = ("[√] " if enabled else "[  ] ") + "余额浮层"
             items.append(pystray.MenuItem(
                 label, lambda icon, item: self._safe(self._toggle_overlay)
             ))
@@ -226,12 +240,12 @@ class TrayController:
                 items.append(self._build_check_item(item.id, item.name, done))
             items.append(pystray.Menu.SEPARATOR)
         items.append(
-            pystray.MenuItem("退出（需家长 PIN）", lambda icon, item: self._safe(self._on_quit_request))
+            pystray.MenuItem("退出（家长验证）", lambda icon, item: self._safe(self._on_quit_request))
         )
         return pystray.Menu(*items)
 
     def _build_check_item(self, task_id: str, name: str, done: bool):
-        label = ("[x] " if done else "[ ] ") + name
+        label = ("[√] " if done else "[  ] ") + name
 
         def _on_click(icon, item) -> None:
             self._safe(lambda: self._on_check_tick(task_id, not done))

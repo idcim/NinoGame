@@ -6,3 +6,6 @@ Pillow>=10.0
 # Qt6 弹窗（替代 Tkinter；解决跨线程焦点问题 + 更现代外观）
 # 6.6.x 兼容性最好；6.11+ 在部分 Win10/Anaconda 环境有 DLL 问题
 PySide6>=6.6,<6.11
+# 图标字体 (FontAwesome / Material Icons via QIcon)
+qtawesome>=1.4
+qtpy>=2.4

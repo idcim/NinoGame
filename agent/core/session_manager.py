@@ -109,6 +109,7 @@ class SessionManager:
     def change_mode(self, new_mode: str, end_reason: str) -> None:
         with self._lock:
             if self._mode == new_mode and self._session_id is not None:
+                _log.info("模式切换跳过: 当前已在 %s 模式", new_mode)
                 return
             old_mode = self._mode
 
@@ -124,6 +125,7 @@ class SessionManager:
 
         # publish 不在 lock 内（避免回调死锁）
         if new_mode != old_mode:
+            _log.info("模式切换: %s → %s (原因: %s)", old_mode, new_mode, end_reason)
             ev = Event(
                 type=EventType.STATUS.value,
                 payload={

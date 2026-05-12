@@ -57,6 +57,7 @@ from ui.assets import (  # noqa: E402
 )
 from ui.notifier import Notifier  # noqa: E402
 from ui.overlay import FloatingOverlay  # noqa: E402
+from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
 
@@ -194,6 +195,7 @@ class Agent:
         self._daily_hard_cap_minutes = int(overrides.get("daily_hard_cap_minutes", 120))
         self._overlay_enabled = bool(self.settings.get("overlay_enabled", True))
         self.overlay: FloatingOverlay | None = None  # run() 创建
+        self.panel: StatusPanel | None = None        # run() 创建
 
         # 托盘
         self.tray = TrayController(
@@ -217,6 +219,7 @@ class Agent:
             tray_image_path=str(tray_image_path()) if tray_image_path().exists() else None,
             is_overlay_enabled=lambda: self._overlay_enabled,
             toggle_overlay=self._toggle_overlay,
+            on_show_panel=self._request_show_panel,
         )
 
         self._stop = False
@@ -351,6 +354,25 @@ class Agent:
         )
         self.overlay.set_enabled(self._overlay_enabled)
 
+        # 状态面板 (托盘双击触发)
+        _log.info("启动 status panel ...")
+        self.panel = StatusPanel(
+            logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
+            get_balance=self.wallet.get_balance,
+            get_mode=lambda: self.session_manager.mode,
+            get_daily_consumed=self.wallet.get_daily_consumed,
+            get_daily_credited=self.wallet.get_daily_credited,
+            get_today_consumption_minutes=lambda: self.sessions_repo.today_consumption_seconds() // 60,
+            get_checklist_progress=self._checklist_progress,
+            on_lock=lambda: self.session_manager.change_mode(
+                SessionMode.LOCK.value, SessionEndReason.MANUAL_LOCK.value
+            ),
+            on_resume=lambda: self.session_manager.change_mode(
+                SessionMode.CHILD.value, SessionEndReason.SWITCHED.value
+            ),
+            daily_credit_cap=self._daily_credit_cap,
+        )
+
         # 扫描循环：单独 worker 线程
         scan_interval = int(self.settings.get("monitor_scan_interval_seconds", 2))
         _log.info("-" * 60)
@@ -433,6 +455,24 @@ class Agent:
         if is_weekend:
             return int(overrides.get("weekend_base_tokens", 90))
         return int(overrides.get("weekday_base_tokens", 30))
+
+    def _checklist_progress(self) -> tuple[int, int]:
+        try:
+            items = self.checklist.list_today()
+            done = sum(1 for _, ok in items if ok)
+            return (done, len(items))
+        except Exception:
+            return (0, 0)
+
+    def _request_show_panel(self) -> None:
+        """tray 单击/双击 → 跨线程触发 panel 显示。"""
+        if self.panel is None:
+            return
+        try:
+            from PySide6.QtCore import QMetaObject, Qt
+            QMetaObject.invokeMethod(self.panel, "show_panel", Qt.QueuedConnection)
+        except Exception:
+            _log.exception("show panel 失败")
 
     def _toggle_overlay(self) -> None:
         """tray 菜单切换浮层开关。注意 tray 在 pystray 线程,
@@ -520,6 +560,12 @@ class Agent:
 
     def _shutdown(self) -> None:
         _log.info("Agent shutdown sequence")
+        try:
+            if self.panel is not None:
+                self.panel.hide()
+                self.panel.deleteLater()
+        except Exception:
+            pass
         try:
             if self.overlay is not None:
                 self.overlay.hide()

@@ -46,6 +46,8 @@ pyinstaller ^
     --collect-submodules protector ^
     --collect-submodules pynput ^
     --collect-submodules pystray ^
+    --collect-submodules qtawesome ^
+    --collect-data qtawesome ^
     --exclude-module numpy ^
     --exclude-module scipy ^
     --exclude-module pandas ^
