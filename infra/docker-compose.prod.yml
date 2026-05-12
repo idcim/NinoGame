@@ -1,0 +1,49 @@
+# NinoGame 生产部署 (1Panel 兼容)
+#
+# 假设: 1Panel 已经管理一个 Postgres 容器 (建议从 1Panel 应用商店装),
+#       连接方式通过环境变量 DATABASE_URL 传入。
+#
+# 部署:
+#   1. 在 1Panel 服务器上 git clone 本仓库 (或拷贝 backend/ + infra/)
+#   2. 拷 infra/.env.prod.example -> infra/.env.prod, 填实际值
+#   3. cd infra && docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#   4. 1Panel 后台建网站 (反向代理) 指向 http://ninogame-backend:8088
+#      务必勾选 WebSocket 支持
+#   5. 1Panel 申请 Let's Encrypt 证书 -> https://ninogame.{域名} 即可
+#
+# 网络说明:
+#   - 默认加入 1panel-network (1Panel 自动创建的 bridge), 让 OpenResty 反代能找到
+#   - 如果你的 1Panel 网络叫别的, 改 NETWORK_NAME 环境变量
+#   - 不暴露 host port; 走 1Panel 反代
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: ninogame-backend:latest
+    container_name: ninogame-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8088
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_PRETTY: "false"
+      TZ: ${TZ:-Asia/Shanghai}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8088/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # 不开 host port 映射; 走 1Panel 反代
+
+networks:
+  default:
+    # 1Panel 默认 bridge 网络; 若你的不叫这个改 NETWORK_NAME
+    name: ${NETWORK_NAME:-1panel-network}
+    external: true

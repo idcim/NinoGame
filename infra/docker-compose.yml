@@ -1,17 +1,16 @@
-# NinoGame 本地开发数据库
+# NinoGame 本地开发 Docker compose
 #
-# 启动：
+# 同时拉起 Postgres + Backend, 一条命令搞定:
 #   cd infra && docker compose up -d
-# 停止：
-#   docker compose down            # 保留数据
-#   docker compose down -v         # 连同 volume 一起清掉
 #
-# 连接串（Backend / psql 用）：
-#   postgresql://ninogame:ninogame_dev@localhost:5433/ninogame
+# 验证:
+#   curl http://127.0.0.1:8088/health
 #
-# schema = NinoGame (大小写敏感，需用双引号；与生产 1Panel 上的 schema 同名)
+# 改 backend 代码:
+#   docker compose up -d --build backend
+#   (或者本地 npm run dev 跑代码热重启; 把 compose 里的 backend 停了即可)
 #
-# 端口选 5433 避开常用 5432，避免和本机已有 Postgres 冲突。
+# 1Panel 生产部署用另一个文件: docker-compose.prod.yml
 
 services:
   postgres:
@@ -22,11 +21,10 @@ services:
       POSTGRES_DB: ninogame
       POSTGRES_USER: ninogame
       POSTGRES_PASSWORD: ninogame_dev
-      # 容器内时区
       TZ: Asia/Shanghai
       PGTZ: Asia/Shanghai
     ports:
-      - "127.0.0.1:5433:5432"   # 只绑本机，不暴露公网
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -36,8 +34,35 @@ services:
       timeout: 5s
       retries: 10
 
-  # pgAdmin 可选，需要图形客户端时打开
-  # 启动：docker compose --profile gui up -d
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: ninogame-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8088
+      # 容器内通过 docker DNS 找 postgres
+      DATABASE_URL: postgresql://ninogame:ninogame_dev@postgres:5432/ninogame
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-in-prod}
+      JWT_EXPIRES_IN: 7d
+      LOG_LEVEL: info
+      LOG_PRETTY: "false"
+      TZ: Asia/Shanghai
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8088:8088"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8088/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: ninogame-pgadmin

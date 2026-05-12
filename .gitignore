@@ -35,6 +35,9 @@ desktop.ini
 # Docker 数据卷
 infra/pgdata/
 infra/postgres-data/
+# 生产 env (含 DATABASE_URL / JWT_SECRET) 不进库
+infra/.env.prod
+infra/.env.prod.local
 
 # 用户本地配置（含 PIN / 孩子个人信息 / 自定义文案）
 # 首次启动 seed_data 会按默认模板生成

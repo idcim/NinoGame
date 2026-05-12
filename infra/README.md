@@ -1,8 +1,10 @@
-# NinoGame 本地基础设施
+# NinoGame 基础设施
 
-P2 Backend 用的 PostgreSQL 通过 Docker 提供。生产环境复用 三个管家 服务器的 1Panel 管理的 Postgres，本地 Docker 仅用于开发。
+支持两种部署：
+- **本地开发**：docker-compose 一起拉起 Postgres + Backend
+- **1Panel 生产**：Backend 容器加入 `1panel-network`，复用 1Panel 的 Postgres + 反向代理 + TLS
 
-## 启动数据库
+## 本地开发
 
 ```powershell
 cd G:\DEL_GAME\infra
@@ -11,52 +13,151 @@ docker compose up -d
 
 启动后：
 
-- 监听 `127.0.0.1:5433`（只绑本机）
-- 数据库 `ninogame`，用户 `ninogame`，密码 `ninogame_dev`
-- 业务 schema `NinoGame`（大小写敏感，SQL 里用双引号）
-- 数据卷 `ninogame-pgdata`（停容器不删数据）
+| 服务 | 监听 | 用途 |
+|---|---|---|
+| `ninogame-postgres` | `127.0.0.1:5433` | 数据库 |
+| `ninogame-backend` | `127.0.0.1:8088` | Fastify + WebSocket |
 
-## 连接验证
-
+验证：
 ```powershell
-docker exec -it ninogame-postgres psql -U ninogame -d ninogame -c "\dn"
+curl http://127.0.0.1:8088/health
 ```
 
-应看到 `NinoGame` schema 已建。
+第一次启动时 backend 容器的 entrypoint 会自动跑 schema migration（21 张表）。后续启动幂等。
 
-或用本机 psql：
+### 改代码后
 
+代码改完要 rebuild：
 ```powershell
-psql "postgresql://ninogame:ninogame_dev@localhost:5433/ninogame" -c "SHOW search_path;"
+docker compose up -d --build backend
 ```
 
-## pgAdmin（可选 GUI）
+或者本地用 `npm run dev` 热重启（把 compose 里 backend 停了避免端口冲突）：
+```powershell
+docker compose stop backend
+cd ..\backend
+npm run dev
+```
+
+### pgAdmin（可选 GUI）
 
 ```powershell
 docker compose --profile gui up -d
 ```
 
-浏览器打开 http://127.0.0.1:5050，登录：
+浏览器：http://127.0.0.1:5050（`admin@ninogame.local` / `ninogame_dev`）
 
-- 邮箱：`admin@ninogame.local`
-- 密码：`ninogame_dev`
-
-新建 Server：Host `postgres`（容器名）、Port `5432`、User/Pass 同上。
-
-## 关停
+### 停 / 重置
 
 ```powershell
-docker compose down            # 保留数据
-docker compose down -v         # 连数据一起清（小心）
+docker compose down              # 保留数据
+docker compose down -v           # 数据一起删（小心）
 ```
 
-## 与生产的差异
+---
 
-| 项 | 本地 Docker | 生产（1Panel） |
-|---|---|---|
-| 端口 | 5433 | 1Panel 内部端口，OpenResty 反代 |
-| 密码 | `ninogame_dev`（写死，仅本机） | 强密码，存 1Panel 凭据 |
-| TLS | 无（仅 127.0.0.1） | 1Panel 终结 |
-| 备份 | 无 | 1Panel 计划任务 |
+## 1Panel 生产部署
 
-迁移到生产时只换连接串，schema/表结构走同一套迁移脚本。
+前提：你的 1Panel 已经装好，并有一个 Postgres 容器（应用商店一键装）。
+
+### 1) 拷代码 + 配置
+
+```bash
+# SSH 到服务器
+cd /opt
+git clone https://github.com/idcim/NinoGame.git
+cd NinoGame/infra
+cp .env.prod.example .env.prod
+nano .env.prod  # 填实际 DATABASE_URL 和 JWT_SECRET
+```
+
+`.env.prod` 关键字段：
+
+```ini
+DATABASE_URL=postgresql://ninogame:你的强密码@1panel-postgresql:5432/ninogame
+JWT_SECRET=$(openssl rand -hex 32 生成的长字符串)
+NETWORK_NAME=1panel-network
+```
+
+> **Postgres 准备**：在 1Panel 后台的 Postgres 容器里：
+> 1. 建数据库 `ninogame`
+> 2. 建用户 `ninogame` 并授权该库
+> 3. 1Panel 里看 Postgres 容器名（通常是 `1panel-postgresql-{n}`），改到 DATABASE_URL host 部分
+
+### 2) 启动 Backend 容器
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+容器自动：
+- 加入 `1panel-network`（跟 1Panel 反代和其他 1Panel 容器同网络）
+- entrypoint 跑一次 migration
+- 起 Fastify on `0.0.0.0:8088`
+- 容器名 `ninogame-backend`（1Panel 反代用这个 hostname）
+
+### 3) 1Panel 后台配反向代理
+
+进 1Panel → 网站 → 创建网站 → 反向代理：
+
+| 字段 | 值 |
+|---|---|
+| 域名 | `ninogame.你的域名` |
+| 代理 URL | `http://ninogame-backend:8088` |
+| **WebSocket** | ✅ 务必勾选 |
+
+然后申请 Let's Encrypt 证书。完成后 `https://ninogame.你的域名/health` 应该能返回 JSON。
+
+### 4) Agent 端连线上 Backend
+
+```powershell
+# 在家长端先后台 curl 取配对码:
+curl -X POST https://ninogame.你的域名/api/devices/pair \
+  -H "Authorization: Bearer 家长token" \
+  -d '{"child_id":"..."}'
+
+# Agent 端 (孩子电脑) 跑 pair.py:
+python agent\pair.py https://ninogame.你的域名 8位配对码
+```
+
+Agent 会用 `wss://ninogame.你的域名/ws/agent` 连后端。
+
+### 升级（代码改了重新部署）
+
+```bash
+cd /opt/NinoGame
+git pull
+cd infra
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+入口脚本会自动跑新的 migration（如果有）。
+
+---
+
+## 故障排查
+
+```bash
+# 看 backend 日志
+docker logs -f ninogame-backend
+
+# 看健康
+docker inspect ninogame-backend --format '{{.State.Health.Status}}'
+
+# 进容器
+docker exec -it ninogame-backend sh
+
+# 手动跑 migration
+docker exec ninogame-backend npx node-pg-migrate -j sql -m sql -d DATABASE_URL up
+
+# 看 1Panel 反代的 nginx 配置 (1Panel 后台 -> 网站 -> 详情 -> 日志)
+```
+
+常见问题：
+
+| 现象 | 原因 / 排查 |
+|---|---|
+| `connection refused` 连 postgres | DATABASE_URL host 写错；进容器 `ping <host>` 试连 |
+| 1Panel 反代 502 | backend 容器没起 / 不在同一网络；`docker network inspect 1panel-network` 看 |
+| WebSocket 失败 | 1Panel 反代没勾 WebSocket；OpenResty 配置缺 `Upgrade` 头 |
+| migration 失败 | 看 `docker logs ninogame-backend` 首行 `[entrypoint]` 输出 |
