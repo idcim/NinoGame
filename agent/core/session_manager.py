@@ -96,14 +96,24 @@ class SessionManager:
     def _check_idle(self) -> None:
         with self._lock:
             mode = self._mode
-        if mode != SessionMode.CHILD.value:
-            return
-        if self._activity.is_idle_for(self._idle_threshold):
-            _log.info("idle %ds reached → auto Lock", self._idle_threshold)
-            self.change_mode(
-                SessionMode.LOCK.value,
-                end_reason=SessionEndReason.IDLE.value,
-            )
+
+        if mode == SessionMode.CHILD.value:
+            # Child 闲置 N 分钟 → 自动 Lock
+            if self._activity.is_idle_for(self._idle_threshold):
+                _log.info("闲置 %ds 触发自动锁定", self._idle_threshold)
+                self.change_mode(
+                    SessionMode.LOCK.value,
+                    end_reason=SessionEndReason.IDLE.value,
+                )
+        elif mode == SessionMode.LOCK.value:
+            # Lock + 最近 30s 有任意输入 → 自动恢复 Child
+            # (用户回来直接用, 不用再点"解锁使用")
+            if self._activity.seconds_since_any_input() < 30:
+                _log.info("锁定中检测到用户活动, 自动恢复 Child 模式")
+                self.change_mode(
+                    SessionMode.CHILD.value,
+                    end_reason=SessionEndReason.SWITCHED.value,
+                )
 
     # ── 模式切换 ─────────────────────────────────────────────────
     def change_mode(self, new_mode: str, end_reason: str) -> None:

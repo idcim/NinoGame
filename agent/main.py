@@ -401,6 +401,10 @@ class Agent:
                   len(self.rules_repo.get_all()), scan_interval)
         _log.info("-" * 60)
 
+        # 启动诊断: 列出规则 + 跑一次扫描看命中情况, 帮用户排查
+        # "PvZ 还拦不住" 类问题
+        self._startup_diagnostic()
+
         self._install_signal_handlers()
         import threading
         self._scan_thread = threading.Thread(
@@ -558,6 +562,36 @@ class Agent:
             EventType.UNKNOWN_APP,
         ):
             self.bus.subscribe(evt.value, forward_event_to_server)
+
+    def _startup_diagnostic(self) -> None:
+        """启动后跑一次诊断, 把"规则有哪些 + 当前能命中谁"打到日志,
+        方便用户检查 PvZ 类拦截为什么没生效。"""
+        try:
+            rules = self.rules_repo.get_all()
+            _log.info("【诊断】当前生效规则 %d 条:", len(rules))
+            for r in rules:
+                _log.info(
+                    "  - id=%s name=%r enabled=%s matchers=%d action=%s",
+                    r.id, r.name, r.enabled, len(r.matchers), r.action.type,
+                )
+            snaps, ms = scan_processes_timed()
+            _log.info("【诊断】首轮扫描 %d 进程 / %.1f ms", len(snaps), ms)
+            matches = evaluate(snaps, rules)
+            if matches:
+                _log.info("【诊断】当前已有 %d 个进程命中规则:", len(matches))
+                for m in matches[:10]:
+                    _log.info(
+                        "  → pid=%d name=%r reason=%s",
+                        m.process.pid, m.process.name, m.reason,
+                    )
+            else:
+                _log.info(
+                    "【诊断】当前无进程命中。如果 PvZ 在运行但没被拦, "
+                    "用 tasklist 看真实进程名是否含 'pvz'/'plants'/'popcap', "
+                    "如果都不含, 在 config/rules.json 的 matchers 加新关键词。"
+                )
+        except Exception:
+            _log.exception("startup diagnostic 失败")
 
     def _apply_server_rules(self, server_rules: list[dict]) -> None:
         """server rules: [{id, name, enabled, spec}, ...]; spec 是 jsonb 包含

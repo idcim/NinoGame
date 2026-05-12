@@ -114,11 +114,13 @@ class Killer:
 
     def _kill(self, pid: int) -> bool:
         try:
-            psutil.Process(pid).kill()
-            _log.info("killed pid=%s", pid)
+            p = psutil.Process(pid)
+            name = p.name()
+            p.kill()
+            _log.info("★ 拦截成功: 杀掉 pid=%s name=%r", pid, name)
             return True
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
-            _log.warning("kill pid=%s failed: %s", pid, e)
+            _log.warning("★ 拦截失败: kill pid=%s 出错: %s", pid, e)
             return False
 
 

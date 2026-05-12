@@ -228,16 +228,14 @@ class TrayController:
             ))
             items.append(pystray.Menu.SEPARATOR)
 
-        # 锁定/解锁: 只显示当前能做的那个
-        if mode == "lock":
+        # 仅显示"立即锁定" (主动暂停计费)。Lock 状态下用户有键鼠输入
+        # 会自动恢复 Child 模式, 不需要"解锁使用"按钮。
+        if mode != "lock":
             items.append(pystray.MenuItem(
-                "解锁使用", lambda icon, item: self._safe(self._on_resume),
+                "暂停计费 (动一下键鼠自动恢复)",
+                lambda icon, item: self._safe(self._on_lock),
             ))
-        else:
-            items.append(pystray.MenuItem(
-                "立即锁定", lambda icon, item: self._safe(self._on_lock),
-            ))
-        items.append(pystray.Menu.SEPARATOR)
+            items.append(pystray.Menu.SEPARATOR)
 
         # 浮层切换
         if self._is_overlay_enabled is not None and self._toggle_overlay is not None:
