@@ -375,6 +375,7 @@ class Agent:
             get_foreground_info=self._foreground_info,
             get_remaining_cap_minutes=self._remaining_cap_minutes,
             is_active=self.activity.is_active_consumption,
+            get_active_unlock=self._first_active_unlock_for_overlay,
             daily_credit_cap=self._daily_credit_cap,
         )
         self.overlay.set_enabled(self._overlay_enabled)
@@ -395,6 +396,7 @@ class Agent:
             on_resume=lambda: self.session_manager.change_mode(
                 SessionMode.CHILD.value, SessionEndReason.SWITCHED.value
             ),
+            get_active_unlocks=self._active_unlock_info,
             daily_credit_cap=self._daily_credit_cap,
         )
 
@@ -666,22 +668,60 @@ class Agent:
                 "★ 临时解锁: rule_id=%s 直到 %s (持续 %d 秒)",
                 rule_id, expires_at.isoformat(timespec="seconds"), duration,
             )
+            # 给孩子端弹通知 + 刷新浮层
+            rule_name = self._rule_name(rule_id)
+            self.notifier.info_async(
+                self.messages.get(
+                    "cmd_temporary_unlock_body",
+                    rule_name=rule_name,
+                    minutes=max(1, duration // 60),
+                ),
+                title=self.messages.get("cmd_temporary_unlock_title"),
+            )
             return
 
         if ctype == "lock_device":
             self.session_manager.change_mode(
                 SessionMode.LOCK.value, SessionEndReason.SWITCHED.value,
             )
+            self.notifier.warn_async(
+                self.messages.get("cmd_lock_device_body"),
+                title=self.messages.get("cmd_lock_device_title"),
+            )
+            return
+
+        if ctype == "start_free_pass":
+            mins = int(payload.get("duration_minutes") or 0)
+            _log.info("start_free_pass: %d 分钟", mins)
+            self.notifier.info_async(
+                self.messages.get("cmd_start_free_pass_body", minutes=mins),
+                title=self.messages.get("cmd_start_free_pass_title"),
+            )
             return
 
         if ctype == "end_free_pass":
-            _log.info("end_free_pass: P3 待实现")
+            _log.info("end_free_pass")
+            self.notifier.info_async(
+                self.messages.get("cmd_end_free_pass_body"),
+                title=self.messages.get("cmd_end_free_pass_title"),
+            )
             return
 
         _log.warning("未知 command type: %s", ctype)
 
+    def _rule_name(self, rule_id: str) -> str:
+        """从本地 rules.json 找规则名给通知用; 找不到回退到 id。"""
+        try:
+            for r in self.rules_repo.get_all():
+                if r.id == rule_id:
+                    return r.name or rule_id
+        except Exception:
+            pass
+        return rule_id
+
     def _active_unlocked_ids(self) -> set[str]:
-        """rule_engine 用; 过滤掉已过期项 + 返回当前活跃的 unlock id 集合。"""
+        """rule_engine 用; 过滤掉已过期项 + 返回当前活跃的 unlock id 集合。
+        过期时弹通知告诉孩子"时间到了"。"""
         if not self._unlocked_until:
             return set()
         from datetime import datetime
@@ -690,7 +730,38 @@ class Agent:
         for rid in expired:
             _log.info("临时解锁到期, 恢复拦截: rule_id=%s", rid)
             self._unlocked_until.pop(rid, None)
+            try:
+                self.notifier.warn_async(
+                    self.messages.get("unlock_expired_body"),
+                    title=self.messages.get("unlock_expired_title"),
+                )
+            except Exception:
+                pass
         return set(self._unlocked_until.keys())
+
+    def _first_active_unlock_for_overlay(self) -> tuple[str, int] | None:
+        """Overlay 用: 返回最早到期的一个 (rule_name, seconds_remaining); 没有返回 None。"""
+        unlocks = self._active_unlock_info()
+        if not unlocks:
+            return None
+        unlocks.sort(key=lambda x: x[2])  # 最短剩余的优先
+        _rid, name, secs = unlocks[0]
+        return (name, secs)
+
+    def _active_unlock_info(self) -> list[tuple[str, str, int]]:
+        """供浮层 / 状态面板查询: 返回 [(rule_id, rule_name, seconds_remaining), ...]
+        过期项不在内 (主循环调 _active_unlocked_ids 时会清掉)。"""
+        if not self._unlocked_until:
+            return []
+        from datetime import datetime
+        now = datetime.utcnow()
+        out = []
+        for rid, expires in list(self._unlocked_until.items()):
+            secs = int((expires - now).total_seconds())
+            if secs <= 0:
+                continue
+            out.append((rid, self._rule_name(rid), secs))
+        return out
 
     def _apply_server_wallet(self, server_balance: int) -> None:
         try:

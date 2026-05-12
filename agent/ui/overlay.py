@@ -73,15 +73,19 @@ class FloatingOverlay(QWidget):
         get_foreground_info: Callable[[], tuple[str, float] | None],
         get_remaining_cap_minutes: Callable[[], int],
         is_active: Callable[[], bool],
+        get_active_unlock: Callable[[], tuple[str, int] | None] | None = None,
         daily_credit_cap: int = 120,
         refresh_seconds: int = 5,
     ) -> None:
+        """get_active_unlock: 返回 (rule_name, seconds_remaining) 或 None.
+        非 None 时浮层优先显示"已放行 X 分钟" + 绿色 gift 图标 + 倒计时。"""
         super().__init__()
         self._get_balance = get_balance
         self._get_mode = get_mode
         self._get_foreground_info = get_foreground_info
         self._get_remaining_cap = get_remaining_cap_minutes
         self._is_active = is_active
+        self._get_active_unlock = get_active_unlock
         self._cap = daily_credit_cap
         self._enabled = True
 
@@ -218,7 +222,21 @@ class FloatingOverlay(QWidget):
         category = info[0] if info else None
         rate = info[1] if info else 0.0
 
-        if category == "consumption" and rate > 0 and active:
+        # 解锁状态最优先 (孩子最关心"我还有多久玩")
+        unlock = None
+        if self._get_active_unlock is not None:
+            try:
+                unlock = self._get_active_unlock()
+            except Exception:
+                _log.exception("get_active_unlock failed")
+
+        if unlock is not None:
+            _, secs = unlock
+            mins_left = max(0, secs // 60)
+            self._status_label.setText(f"已放行 {mins_left} 分钟")
+            self._status_icon.setPixmap(_icon_pixmap("fa5s.gift", COLOR_OK))
+            accent = COLOR_OK
+        elif category == "consumption" and rate > 0 and active:
             balance_minutes = int(balance / rate) if rate > 0 else balance
             minutes_left = max(0, min(balance_minutes, rem_cap))
             self._status_label.setText(f"{minutes_left} 分钟剩余")

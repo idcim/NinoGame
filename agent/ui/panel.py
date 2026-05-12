@@ -170,6 +170,7 @@ class StatusPanel(QWidget):
         get_checklist_progress: Callable[[], tuple[int, int]],
         on_lock: Callable[[], None],
         on_resume: Callable[[], None],
+        get_active_unlocks: Callable[[], list[tuple[str, str, int]]] | None = None,
         daily_credit_cap: int = 120,
     ) -> None:
         super().__init__()
@@ -182,6 +183,7 @@ class StatusPanel(QWidget):
         self._get_checklist = get_checklist_progress
         self._on_lock = on_lock
         self._on_resume = on_resume
+        self._get_active_unlocks = get_active_unlocks
         self._cap = daily_credit_cap
 
         self.setWindowFlags(
@@ -316,6 +318,11 @@ class StatusPanel(QWidget):
         stats.addLayout(col4, 1, 1)
         body_layout.addLayout(stats)
 
+        # 活跃解锁区 (放行中的应用)
+        self._unlocks_container = QVBoxLayout()
+        self._unlocks_container.setSpacing(4)
+        body_layout.addLayout(self._unlocks_container)
+
         body_layout.addStretch(1)
 
         # 操作按钮
@@ -415,6 +422,42 @@ class StatusPanel(QWidget):
         self._stat_earned.setText(str(credited))
         self._stat_minutes.setText(str(minutes))
         self._stat_tasks.setText(f"{done}/{total}")
+
+        # 清空 + 重建活跃解锁列表
+        self._clear_layout(self._unlocks_container)
+        unlocks = []
+        if self._get_active_unlocks is not None:
+            try:
+                unlocks = self._get_active_unlocks()
+            except Exception:
+                _log.exception("get_active_unlocks 失败")
+        for _rid, name, secs in unlocks:
+            self._unlocks_container.addLayout(self._build_unlock_row(name, secs))
+
+    def _clear_layout(self, layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+            child_layout = item.layout()
+            if child_layout is not None:
+                self._clear_layout(child_layout)
+
+    def _build_unlock_row(self, rule_name: str, seconds: int):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QHBoxLayout, QLabel
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 4, 0, 0)
+        ic = QLabel(self)
+        ic.setPixmap(qta.icon("fa5s.gift", color=COLOR_OK).pixmap(QSize(16, 16)))
+        row.addWidget(ic)
+        mins = max(1, seconds // 60)
+        text = QLabel(f"放行中: {rule_name} · {mins} 分钟剩余", self)
+        text.setStyleSheet(f"color: {COLOR_OK}; font-size: 9pt; font-weight: bold;")
+        row.addWidget(text)
+        row.addStretch(1)
+        return row
 
     def _do_lock(self) -> None:
         try:

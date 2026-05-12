@@ -71,6 +71,24 @@ class Messages:
 
         # ── 系统状态 ──────────────────────────────────────────────
         "tray_tooltip": "NinoGame · {mode} · {balance} token",
+
+        # ── 远程命令到达提示 (家长后台/curl push 时孩子端看到) ────
+        "cmd_temporary_unlock_title": "家长放行通知",
+        "cmd_temporary_unlock_body": (
+            "家长放行了 {rule_name}, 你可以玩 {minutes} 分钟。\n"
+            "期间 token 按使用时间扣费。"
+        ),
+        "cmd_lock_device_title": "设备已锁定",
+        "cmd_lock_device_body": "设备被远程锁定。",
+        "cmd_start_free_pass_title": "限免活动",
+        "cmd_start_free_pass_body": "限免开始: {minutes} 分钟内不扣 token。",
+        "cmd_end_free_pass_title": "限免结束",
+        "cmd_end_free_pass_body": "限免结束, 恢复正常计费。",
+
+        # ── 解锁到期 / 浮层 ─────────────────────────────────────
+        "unlock_expired_title": "时间到了",
+        "unlock_expired_body": "之前的放行到期, 游戏恢复拦截。",
+        "overlay_unlock_label": "已放行",
     }
 
     def __init__(self, settings_path: str | Path) -> None:
