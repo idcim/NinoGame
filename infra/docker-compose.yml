@@ -56,3 +56,7 @@ services:
 volumes:
   pgdata:
     name: ninogame-pgdata
+
+networks:
+  default:
+    name: ninogame-net
