@@ -344,7 +344,7 @@ class Agent:
         self.overlay = FloatingOverlay(
             get_balance=self.wallet.get_balance,
             get_mode=lambda: self.session_manager.mode,
-            get_foreground_rate=self._foreground_consumption_rate,
+            get_foreground_info=self._foreground_info,
             get_remaining_cap_minutes=self._remaining_cap_minutes,
             is_active=self.activity.is_active_consumption,
             daily_credit_cap=self._daily_credit_cap,
@@ -451,19 +451,17 @@ class Agent:
         except Exception:
             _log.exception("toggle overlay 失败")
 
-    def _foreground_consumption_rate(self) -> float | None:
-        """返回当前前台进程的 consumption 费率；非 consumption 返回 None。
-        浮层用它判断是否该出现。"""
+    def _foreground_info(self) -> tuple[str, float] | None:
+        """返回 (category, rate_multiplier); 拿不到前台或异常返回 None。
+        浮层用它判断显示模式 (消费中 / 学习中 / 中性)。"""
         try:
             snap = get_foreground_process_snapshot()
             if snap is None:
                 return None
             cat = self.classifier.classify(snap)
-            if cat.category != "consumption":
-                return None
-            return float(cat.rate_multiplier or 1.0)
+            return (cat.category, float(cat.rate_multiplier or 1.0))
         except Exception:
-            _log.exception("foreground rate query failed")
+            _log.exception("foreground info query failed")
             return None
 
     def _remaining_cap_minutes(self) -> int:

@@ -1,21 +1,23 @@
-"""玩游戏时的浮层 (§15.3)。
+"""Token 浮层 (§15.3 演化版)。
 
-设计:
-  ┌──────────────┐
-  │ 💎 47        │
-  │ ⏱ 28 min剩  │
-  └──────────────┘
+设计变更:
+  原始设计只在 "玩游戏时" (consumption 前台) 显示, 但实际 UX
+  孩子工作 / 浏览时看不到余额, 心里没数。改为:
 
-  - 只在: 模式=child + 前台=consumption + 用户活跃  时显示
-  - 数字按余额变色: 绿→黄→橙→红
-  - 不弹窗、不发声、安静更新
-  - 默认右上角, 可拖动
-  - frameless + 半透明 + always-on-top + 不进任务栏
+  child 模式下永远显示, 三种状态:
+    - 消费中 (前台是 consumption + 活跃):
+        💎 47
+        ⏱ 28 min剩          ← 倒计时
+    - 学习中 (前台是 productive + 活跃):
+        💎 47
+        ✨ 学习中              ← 在挣分
+    - 中性 (浏览器 / 桌面 / 系统进程):
+        💎 47
+        ☁ 余额               ← 没在花也没在挣
 
-实现要点:
-  - 必须在 Qt 主线程创建 (QApplication 已在 main.py 启好)
-  - 每 2s 刷新 (轻量), 不监听具体事件
-  - 全部数据通过注入的 callable 取, 不直接 import 业务类
+  数字颜色随余额: 绿 > 50% / 黄 25-50% / 橙 < 25% / 红 = 0
+  Lock 或 Parent 模式自动隐藏。
+  可在托盘菜单 / settings.json 关闭。
 """
 from __future__ import annotations
 
@@ -65,16 +67,21 @@ class FloatingOverlay(QWidget):
         self,
         get_balance: Callable[[], int],
         get_mode: Callable[[], str],
-        get_foreground_rate: Callable[[], float | None],
+        get_foreground_info: Callable[[], tuple[str, float] | None],
         get_remaining_cap_minutes: Callable[[], int],
         is_active: Callable[[], bool],
         daily_credit_cap: int = 120,
         refresh_seconds: int = 5,  # 之前 2s 偏紧, 5s 对 token 流动够直观且省 CPU
     ) -> None:
+        """
+        get_foreground_info: 返回 (category, rate_multiplier) 或 None。
+            category: "consumption" / "productive" / "neutral"
+            None 表示拿不到 (Lock / 无前台)
+        """
         super().__init__()
         self._get_balance = get_balance
         self._get_mode = get_mode
-        self._get_foreground_rate = get_foreground_rate
+        self._get_foreground_info = get_foreground_info
         self._get_remaining_cap = get_remaining_cap_minutes
         self._is_active = is_active
         self._cap = daily_credit_cap
@@ -174,20 +181,11 @@ class FloatingOverlay(QWidget):
             self._refresh()
 
     def _should_show(self) -> bool:
+        """child 模式 + 启用即显示; 具体内容由 _refresh 按状态填。"""
         if not self._enabled:
             return False
         try:
-            if self._get_mode() != "child":
-                return False
-            rate = self._get_foreground_rate()
-            if rate is None:
-                return False
-            # 前台是 consumption 才显示 (rate>0 表示费率)
-            if rate <= 0:
-                return False
-            if not self._is_active():
-                return False
-            return True
+            return self._get_mode() == "child"
         except Exception:
             _log.exception("overlay show check failed")
             return False
@@ -200,23 +198,32 @@ class FloatingOverlay(QWidget):
 
         try:
             balance = int(self._get_balance())
-            rate = float(self._get_foreground_rate() or 1.0)
+            info = self._get_foreground_info()
+            active = self._is_active()
             rem_cap = int(self._get_remaining_cap())
         except Exception:
             _log.exception("overlay refresh failed")
             return
 
-        # minutes_left = min(可花的 token 等价分钟, 当日剩余可玩分钟)
-        if rate > 0:
-            balance_minutes = int(balance / rate)
-        else:
-            balance_minutes = balance
-        minutes_left = max(0, min(balance_minutes, rem_cap))
-
         self._balance_label.setText(f"💎 {balance}")
-        self._minutes_label.setText(f"⏱ {minutes_left} min剩")
+        category = info[0] if info else None
+        rate = info[1] if info else 0.0
 
-        accent = _color_for_balance(balance, self._cap)
+        if category == "consumption" and rate > 0 and active:
+            # 正在消费, 倒计时
+            balance_minutes = int(balance / rate) if rate > 0 else balance
+            minutes_left = max(0, min(balance_minutes, rem_cap))
+            self._minutes_label.setText(f"⏱ {minutes_left} min剩")
+            accent = _color_for_balance(balance, self._cap)
+        elif category == "productive" and active:
+            # 学习类前台
+            self._minutes_label.setText("✨ 学习中")
+            accent = COLOR_OK
+        else:
+            # 中性 / 闲置 / 桌面
+            self._minutes_label.setText("☁ 余额")
+            accent = _color_for_balance(balance, self._cap)
+
         self._apply_color(accent)
 
         if not self.isVisible():
