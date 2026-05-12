@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# PyInstaller artifacts
+build/
+dist/
+*.spec
+
+# 运行时数据（SQLite / 日志 / 心跳文件）
+data/
+agent/data/
+*.alive
+*.db
+*.db-shm
+*.db-wal
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker 数据卷
+infra/pgdata/
+infra/postgres-data/
+
+# 用户本地覆盖（生产 PIN/agent_token 等不进库）
+agent/config/settings.local.json
+agent/config/child_profile.local.json
