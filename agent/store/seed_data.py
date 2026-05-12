@@ -168,6 +168,25 @@ def default_settings() -> dict:
         "billing_tick_seconds": 60,
         # 1 token = 1 分钟
         "token_to_minute_ratio": 1.0,
+
+        # ── UI 行为 ──────────────────────────────────────────
+        # 警告弹窗自动关闭秒数；0 表示需要手动点击
+        "warning_dialog_auto_close_seconds": 0,
+
+        # ── 文案模板 (P2 后台可改) ─────────────────────────────
+        # 不在这里列出的 key 会回退到 core/messages.py 的 DEFAULTS。
+        # 占位符: {balance} {used_minutes} {cap_minutes} {process_name} 等
+        "messages": {
+            "block_rule_default": "这个应用还没被授权使用哦。可以先做完任务，再和家长商量。",
+            "block_daily_cap": (
+                "今天的游戏时间已经用完啦。\n"
+                "明天再继续吧，剩下的 {balance} token 留着明天用。"
+            ),
+            "block_out_of_balance": (
+                "Token 余额不够支付当前应用的费用。\n"
+                "可以做任务挣 token 后再回来。"
+            ),
+        },
     }
 
 

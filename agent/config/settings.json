@@ -16,5 +16,11 @@
   "consumption_active_window_seconds": 120,
   "monitor_scan_interval_seconds": 2,
   "billing_tick_seconds": 60,
-  "token_to_minute_ratio": 1.0
+  "token_to_minute_ratio": 1.0,
+  "warning_dialog_auto_close_seconds": 0,
+  "messages": {
+    "block_rule_default": "这个应用还没被授权使用哦。可以先做完任务，再和家长商量。",
+    "block_daily_cap": "今天的游戏时间已经用完啦。\n明天再继续吧，剩下的 {balance} token 留着明天用。",
+    "block_out_of_balance": "Token 余额不够支付当前应用的费用。\n可以做任务挣 token 后再回来。"
+  }
 }

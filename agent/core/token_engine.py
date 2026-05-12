@@ -30,6 +30,7 @@ from comms.message_types import (
 )
 from core.activity_detector import ActivityDetector
 from core.classifier import Classifier
+from core.messages import Messages
 from store.repository import (
     EventSink,
     SessionRepository,
@@ -71,6 +72,7 @@ class TokenEngine:
         bus: EventBus,
         notifier: Notifier,
         activity: ActivityDetector,
+        messages: Messages,
         get_active_session_id: Callable[[], str | None],
     ) -> None:
         self._cfg = config
@@ -82,6 +84,7 @@ class TokenEngine:
         self._bus = bus
         self._notifier = notifier
         self._activity = activity
+        self._messages = messages
         self._get_session_id = get_active_session_id
 
         self._stop = threading.Event()
@@ -186,8 +189,11 @@ class TokenEngine:
         if used_seconds_today >= cap_seconds:
             self._enforce_block(
                 snap,
-                reason_message=(
-                    "今日游戏时间已用完。明天再玩吧。"
+                reason_message=self._messages.get(
+                    "block_daily_cap",
+                    balance=self._wallet.get_balance(),
+                    used_minutes=used_seconds_today // 60,
+                    cap_minutes=self._cfg.daily_hard_cap_minutes,
                 ),
                 event_payload={
                     "kind": "daily_hard_cap",
@@ -223,7 +229,12 @@ class TokenEngine:
         if not ok:
             self._enforce_block(
                 snap,
-                reason_message="Token 余额不足。完成任务挣分后再来。",
+                reason_message=self._messages.get(
+                    "block_out_of_balance",
+                    balance=self._wallet.get_balance(),
+                    cost=cost,
+                    process_name=snap.name,
+                ),
                 event_payload={
                     "kind": "out_of_balance",
                     "cost": cost,

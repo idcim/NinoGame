@@ -28,6 +28,8 @@ pyinstaller ^
     --noconsole ^
     --onefile ^
     --name NinoGameAgent ^
+    --icon assets\icon.ico ^
+    --add-data "assets;assets" ^
     --collect-submodules pynput ^
     --collect-submodules pystray ^
     main.py
@@ -38,6 +40,7 @@ pyinstaller ^
     --noconsole ^
     --onefile ^
     --name Watchdog ^
+    --icon assets\icon.ico ^
     watchdog_main.py
 if errorlevel 1 goto :fail
 

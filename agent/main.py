@@ -32,6 +32,7 @@ from core.activity_detector import ActivityDetector  # noqa: E402
 from core.checklist import ResponsibilityChecklist  # noqa: E402
 from core.classifier import Classifier  # noqa: E402
 from core.killer import Killer  # noqa: E402
+from core.messages import Messages  # noqa: E402
 from core.monitor import get_foreground_process_snapshot, scan_processes  # noqa: E402
 from core.rule_engine import evaluate  # noqa: E402
 from core.session_manager import SessionManager  # noqa: E402
@@ -49,6 +50,11 @@ from store.local_sqlite import (  # noqa: E402
     open_db,
 )
 from store.seed_data import seed_app_categories_into_db, write_config_files  # noqa: E402
+from ui.assets import (  # noqa: E402
+    dialog_image_path,
+    tray_image_path,
+)
+from ui.dialogs import ConfirmDialog, PinDialog  # noqa: E402
 from ui.notifier import Notifier  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
 
@@ -133,13 +139,18 @@ class Agent:
         self.transport = NullTransport()  # P2 换 WebSocketTransport
 
         # 业务
-        self.notifier = Notifier(default_title="NinoGame")
+        self.messages = Messages(self.config_dir / "settings.json")
+        self.notifier = Notifier(
+            default_title=self.messages.get("block_dialog_title"),
+            logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
+            auto_close_seconds=int(self.settings.get("warning_dialog_auto_close_seconds", 0)),
+        )
         self.activity = ActivityDetector(
             strict_window=int(self.settings.get("activity_min_event_window_seconds", 60)),
             consumption_window=int(self.settings.get("consumption_active_window_seconds", 120)),
         )
         self.classifier = Classifier(self.app_categories, self.unknown_queue, self.events)
-        self.killer = Killer(self.events, self.bus, self.notifier)
+        self.killer = Killer(self.events, self.bus, self.notifier, self.messages)
         self.session_manager = SessionManager(
             self.sessions_repo, self.events, self.bus, self.activity,
             idle_lock_minutes=int(self.settings.get("idle_lock_minutes", 10)),
@@ -159,6 +170,7 @@ class Agent:
             bus=self.bus,
             notifier=self.notifier,
             activity=self.activity,
+            messages=self.messages,
             get_active_session_id=self.session_manager.active_session_id,
         )
         self.checklist = ResponsibilityChecklist(
@@ -184,9 +196,15 @@ class Agent:
             on_resume=lambda: self.session_manager.change_mode(
                 SessionMode.CHILD.value, SessionEndReason.SWITCHED.value
             ),
-            on_quit=self._request_quit,
+            on_quit_request=self._handle_quit_request,
             get_checklist=self.checklist.list_today,
             on_check_tick=self.checklist.tick,
+            get_tooltip=lambda: self.messages.get(
+                "tray_tooltip",
+                mode=self.session_manager.mode,
+                balance=self.wallet.get_balance(),
+            ),
+            tray_image_path=str(tray_image_path()) if tray_image_path().exists() else None,
         )
 
         self._stop = False
@@ -201,9 +219,57 @@ class Agent:
         # 开发态：python watchdog_main.py
         return [sys.executable, str(_AGENT_DIR / "watchdog_main.py")]
 
-    def _request_quit(self) -> None:
-        _log.info("quit requested from tray")
-        self._stop = True
+    def _handle_quit_request(self) -> None:
+        """托盘"退出"被点击。
+
+        - 已设 PIN: 弹 PinDialog；只有验证通过才真退
+        - 未设 PIN: 弹 ConfirmDialog "确定退出?"
+        """
+        _log.info("收到退出请求 (托盘)")
+        logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+
+        if not self.pin.has_pin():
+            ok = ConfirmDialog(
+                title=self.messages.get("quit_dialog_title"),
+                message=self.messages.get("quit_confirm_no_pin"),
+                logo_path=logo,
+                confirm_text=self.messages.get("quit_button_confirm"),
+                cancel_text=self.messages.get("quit_button_cancel"),
+            ).ask()
+            if ok:
+                _log.info("无 PIN, 用户已确认退出")
+                self._stop = True
+            else:
+                _log.info("退出取消")
+            return
+
+        # 有 PIN
+        def _on_wrong(_max: int) -> str:
+            # PinManager 已经累加 self._fails；剩余次数 = max - fails
+            remaining = max(0, self.pin._max_fails - self.pin._fails)  # noqa: SLF001
+            return self.messages.get("quit_pin_wrong", remaining=remaining)
+
+        def _on_locked(mins: int) -> str:
+            return self.messages.get("quit_pin_locked", minutes=mins)
+
+        ok = PinDialog(
+            title=self.messages.get("quit_dialog_title"),
+            prompt=self.messages.get("quit_prompt_pin"),
+            logo_path=logo,
+            verify=self.pin.verify,
+            on_wrong=_on_wrong,
+            on_locked=_on_locked,
+            is_locked=self.pin.is_locked,
+            seconds_until_unlock=self.pin.seconds_until_unlock,
+            max_attempts=3,
+            confirm_text=self.messages.get("quit_button_confirm"),
+            cancel_text=self.messages.get("quit_button_cancel"),
+        ).ask()
+        if ok:
+            _log.info("PIN 校验通过, 退出 Agent")
+            self._stop = True
+        else:
+            _log.info("PIN 校验未通过 / 用户取消, 继续运行")
 
     # ── 启动 / 主循环 ────────────────────────────────────────────
     def run(self) -> None:

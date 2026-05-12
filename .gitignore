@@ -39,3 +39,6 @@ infra/postgres-data/
 # 用户本地覆盖（生产 PIN/agent_token 等不进库）
 agent/config/settings.local.json
 agent/config/child_profile.local.json
+
+# 调试截图（design/ 仅放设计稿，不放测试输出）
+design/screenshot_*.png

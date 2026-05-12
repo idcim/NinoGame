@@ -29,12 +29,16 @@ DEL_GAME/
 ├── CLAUDE.md                 # 完整设计文档（项目唯一权威来源）
 ├── README.md                 # 本文件
 │
+├── design/                   # 设计稿
+│   └── logo.png              # 主 logo（树+秋千+NinoGame）
+│
 ├── agent/                    # P1 Windows Agent
-│   ├── core/                 # 业务模块（monitor / rule_engine / killer / token_engine / ...）
+│   ├── core/                 # 业务模块（monitor / rule_engine / killer / token_engine / messages / ...）
 │   ├── store/                # 存储层（ABC 接口 + SQLite 实现 + schema.sql）
 │   ├── comms/                # 消息类型 + 事件总线 + Transport 抽象
-│   ├── ui/                   # 托盘图标 + 弹窗
+│   ├── ui/                   # 托盘图标 + Tkinter 弹窗 (dialogs.py)
 │   ├── protector/            # Watchdog + PIN
+│   ├── assets/               # 图标资源（从 design/logo.png 生成）
 │   ├── config/               # 用户可编辑配置（rules / app_categories / tasks / settings）
 │   ├── main.py               # Agent 入口
 │   ├── watchdog_main.py      # Watchdog 入口
@@ -115,9 +119,42 @@ Agent 启动后默认进入 `child` 模式，闲置 10 分钟自动 Lock。在 `
 | [`agent/config/rules.json`](agent/config/rules.json) | 进程拦截规则（matchers + action） |
 | [`agent/config/app_categories.json`](agent/config/app_categories.json) | App 分类（consumption / neutral / productive） |
 | [`agent/config/tasks.json`](agent/config/tasks.json) | 任务 / 责任清单 |
-| [`agent/config/settings.json`](agent/config/settings.json) | 档位、PIN、闲置阈值等 |
+| [`agent/config/settings.json`](agent/config/settings.json) | 档位、PIN、闲置阈值、**所有 UI 文案** |
 
 `rules.json` 改动是**热加载**的（无需重启 Agent）；其他配置改完重启 Agent。
+
+#### 自定义提示文案
+
+`settings.json` 的 `messages` 段里所有 key 都可改，支持占位符：
+
+```json
+{
+  "messages": {
+    "block_rule_default": "Nino, 这个游戏需要先和爸爸商量哦。",
+    "block_daily_cap": "今天的游戏配额用完了。\n剩余 {balance} token 留给明天。",
+    "block_out_of_balance": "Token 用光了。完成任务挣分再来。",
+    "quit_prompt_pin": "请输入家长 PIN 才能停掉监控。",
+    "tray_tooltip": "NinoGame · {mode} · {balance} token"
+  }
+}
+```
+
+支持的占位符：`{balance}` `{used_minutes}` `{cap_minutes}` `{process_name}` `{rule_name}` `{remaining}` `{minutes}` `{mode}`。
+完整 key 列表见 [`agent/core/messages.py`](agent/core/messages.py) 的 `DEFAULTS`。
+
+#### 设置家长 PIN
+
+PIN 加密保存在 `settings.json` 里。临时用 Python 设置：
+
+```powershell
+cd G:\DEL_GAME\agent
+python -c "import sys; sys.path.insert(0,'.'); from protector.pin_manager import PinManager; from comms.event_bus import default_bus; from store.local_sqlite import open_db, SqliteEventSink; conn=open_db('data/ninogame.db'); ev=SqliteEventSink(conn); PinManager('config/settings.json', ev, default_bus()).set_pin(input('新 PIN: ').strip()); print('OK')"
+```
+
+PIN 设置后：
+- 托盘"退出"会弹 PinDialog，需要正确 PIN 才能关 Agent
+- 3 次错误自动锁定 30 分钟
+- 未设 PIN 时，"退出"只弹普通确认对话框（开发/初始化阶段方便）
 
 ### 4. 打包 EXE
 

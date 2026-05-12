@@ -18,6 +18,7 @@ from comms.message_types import (
     EventType,
     MatchResult,
 )
+from core.messages import Messages
 from store.repository import EventSink
 from ui.notifier import Notifier
 
@@ -37,11 +38,13 @@ class Killer:
         event_sink: EventSink,
         event_bus: EventBus,
         notifier: Notifier,
+        messages: Messages,
         dedupe_window_seconds: int = 60,
     ) -> None:
         self._events = event_sink
         self._bus = event_bus
         self._notifier = notifier
+        self._messages = messages
         self._dedupe = dedupe_window_seconds
         self._last_seen: dict[tuple[int, str], float] = {}
 
@@ -101,11 +104,12 @@ class Killer:
 
         if suppress_user_facing:
             return
-        if action == ActionType.KILL_AND_WARN.value:
-            msg = match.rule.action.message or "该应用未被授权使用"
-            self._notifier.warn_async(msg)
-        elif action == ActionType.WARN_ONLY.value:
-            msg = match.rule.action.message or "提醒：该应用使用受限"
+        if action in (ActionType.KILL_AND_WARN.value, ActionType.WARN_ONLY.value):
+            msg = match.rule.action.message or self._messages.get(
+                "block_rule_default",
+                process_name=match.process.name,
+                rule_name=match.rule.name,
+            )
             self._notifier.warn_async(msg)
 
     def _kill(self, pid: int) -> bool:
