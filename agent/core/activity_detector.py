@@ -54,9 +54,11 @@ class ActivityDetector:
         self,
         strict_window: int = 60,
         consumption_window: int = 120,
+        strict_enabled: bool = True,
     ) -> None:
         self._strict_window = strict_window
         self._consumption_window = consumption_window
+        self._strict_enabled = strict_enabled
         self._last_strict_event_ts: float = 0.0
         self._lock = threading.Lock()
         self._pynput_listeners: list = []
@@ -65,6 +67,13 @@ class ActivityDetector:
 
     # ── 启停 ─────────────────────────────────────────────────────
     def start(self) -> None:
+        if not self._strict_enabled:
+            _log.info(
+                "严格活跃判定已禁用 (settings.strict_input_detection_enabled=false); "
+                "仅用 GetLastInputInfo, 鼠标抖动器可绕过。",
+            )
+            self._fallback_only = True
+            return
         try:
             from pynput import keyboard, mouse  # noqa: WPS433
         except ImportError:

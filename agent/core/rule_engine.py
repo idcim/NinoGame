@@ -24,7 +24,18 @@ _log = logging.getLogger(__name__)
 
 
 def _matcher_hits(matcher: Matcher, snap: ProcessSnapshot) -> tuple[bool, str]:
-    """单个 matcher 对单个进程的判定。返回 (是否命中, 命中文本片段)。"""
+    """单个 matcher 对单个进程的判定。返回 (是否命中, 命中文本片段)。
+
+    exe_path 是按需 lazy 取的: scan_processes 不预填 exe_path 节省 OS 调用,
+    匹配到 exe_path field 才查 (复用 monitor.resolve_exe 的缓存)。
+    """
+    if matcher.field == MatcherField.EXE_PATH.value and not snap.exe_path:
+        try:
+            from core.monitor import resolve_exe
+            snap.exe_path = resolve_exe(snap.pid)
+        except Exception:
+            snap.exe_path = ""
+
     target = snap.text_for_field(matcher.field)
     candidates: list[str] = []
     if isinstance(target, list):

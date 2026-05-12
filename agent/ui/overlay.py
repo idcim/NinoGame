@@ -69,7 +69,7 @@ class FloatingOverlay(QWidget):
         get_remaining_cap_minutes: Callable[[], int],
         is_active: Callable[[], bool],
         daily_credit_cap: int = 120,
-        refresh_seconds: int = 2,
+        refresh_seconds: int = 5,  # 之前 2s 偏紧, 5s 对 token 流动够直观且省 CPU
     ) -> None:
         super().__init__()
         self._get_balance = get_balance

@@ -33,7 +33,7 @@ from core.checklist import ResponsibilityChecklist  # noqa: E402
 from core.classifier import Classifier  # noqa: E402
 from core.killer import Killer  # noqa: E402
 from core.messages import Messages  # noqa: E402
-from core.monitor import get_foreground_process_snapshot, scan_processes  # noqa: E402
+from core.monitor import get_foreground_process_snapshot, scan_processes, scan_processes_timed  # noqa: E402
 from core.rule_engine import evaluate  # noqa: E402
 from core.session_manager import SessionManager  # noqa: E402
 from core.token_engine import TokenEngine, TokenEngineConfig  # noqa: E402
@@ -149,6 +149,7 @@ class Agent:
         self.activity = ActivityDetector(
             strict_window=int(self.settings.get("activity_min_event_window_seconds", 60)),
             consumption_window=int(self.settings.get("consumption_active_window_seconds", 120)),
+            strict_enabled=bool(self.settings.get("strict_input_detection_enabled", True)),
         )
         self.classifier = Classifier(self.app_categories, self.unknown_queue, self.events)
         self.killer = Killer(self.events, self.bus, self.notifier, self.messages)
@@ -382,15 +383,20 @@ class Agent:
         last_heartbeat = time.monotonic()
         ticks_since_heartbeat = 0
         kills_since_heartbeat = 0
+        ms_sum = 0.0
+        ms_max = 0.0
         heartbeat_period_seconds = 60
 
         while not self._stop:
             try:
                 self.rules_repo.reload_if_changed()
-                snaps = scan_processes()
+                snaps, scan_ms = scan_processes_timed()
                 rules = self.rules_repo.get_all()
                 matches = evaluate(snaps, rules)
                 ticks_since_heartbeat += 1
+                ms_sum += scan_ms
+                if scan_ms > ms_max:
+                    ms_max = scan_ms
                 if matches:
                     handled = self.killer.handle(matches)
                     kills_since_heartbeat += handled
@@ -399,17 +405,23 @@ class Agent:
 
             now_mono = time.monotonic()
             if now_mono - last_heartbeat >= heartbeat_period_seconds:
+                avg_ms = ms_sum / max(1, ticks_since_heartbeat)
                 _log.info(
-                    "心跳 | mode=%s | balance=%d | 最近 %ds: 扫描 %d 次, 拦截 %d 个",
+                    "心跳 | mode=%s | balance=%d | %ds: scan %d 次, "
+                    "avg %.1f ms / max %.1f ms | 拦截 %d 个",
                     self.session_manager.mode,
                     self.wallet.get_balance(),
                     int(now_mono - last_heartbeat),
                     ticks_since_heartbeat,
+                    avg_ms,
+                    ms_max,
                     kills_since_heartbeat,
                 )
                 last_heartbeat = now_mono
                 ticks_since_heartbeat = 0
                 kills_since_heartbeat = 0
+                ms_sum = 0.0
+                ms_max = 0.0
 
             time.sleep(scan_interval)
 

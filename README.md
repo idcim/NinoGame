@@ -122,6 +122,22 @@ Agent 启动后默认进入 `child` 模式，闲置 10 分钟自动 Lock。在 `
 - 前台是生产类应用（VSCode / Kindle / 学习类）+ 严格活跃 → 每分钟赚 token，按日上限封顶
 - 前台是消费类时，屏幕右上角浮层显示 `💎 余额 / ⏱ 剩余分钟`，颜色随余额变化（绿→黄→橙→红）。可在托盘菜单关闭。
 
+### 性能说明
+
+进程枚举走 Windows Toolhelp32 (CreateToolhelp32Snapshot)，单次扫描约 **10ms**（400+ 进程的机器）。psutil 同样操作要 ~1100ms（因为它对每个进程都 OpenProcess）。默认扫描周期 5s，CPU 占用近乎零。
+
+**升级老版本时**：如果你之前的 `settings.json` 有 `monitor_scan_interval_seconds: 2`，老版本会卡。手动改成 5（或更大），或直接删了 `settings.json` 让 seed_data 重新生成。
+
+### pynput 引起的输入延迟
+
+`pynput` 用 Windows 低级键鼠 hook（WH_KEYBOARD_LL）来识别"鼠标抖动器"。在部分机器上会让全局键鼠响应变慢。在 `settings.json` 关掉：
+
+```json
+"strict_input_detection_enabled": false
+```
+
+代价：鼠标抖动器无法被识别（防刷 ① 降级到 Windows GetLastInputInfo，鼠标位移也算活跃）。
+
 ### 3. 修改规则 / 配置
 
 直接编辑 JSON：

@@ -162,8 +162,13 @@ def default_settings() -> dict:
         # 防刷（§16.1 ①）
         "activity_min_event_window_seconds": 60,
         "consumption_active_window_seconds": 120,
-        # 监控扫描间隔
-        "monitor_scan_interval_seconds": 2,
+        # 是否启用 pynput 严格输入监听 (鼠标抖动器识别).
+        # 设 false 后只用 Windows GetLastInputInfo (鼠标位移也算活跃),
+        # 防刷弱化但避免 pynput 全局钩子带来的输入延迟。
+        "strict_input_detection_enabled": True,
+        # 监控扫描间隔 (秒). 越小越实时但 CPU 也越高;
+        # 5s 对常见游戏启动场景已经足够 (孩子点游戏到游戏窗口出现 > 5s)
+        "monitor_scan_interval_seconds": 5,
         # token 计费 tick
         "billing_tick_seconds": 60,
         # 1 token = 1 分钟
