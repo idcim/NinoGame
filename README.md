@@ -13,8 +13,8 @@
 | 阶段 | 状态 | 内容 |
 |---|---|---|
 | **P0** | ✅ 完成 | 本地单文件脚本 [`pvz_monitor.py`](pvz_monitor.py)：PvZ 全变种关键词拦截 |
-| **P1** | ✅ 模块骨架完成（待联机验证） | 接口先行的本地版 Agent（[`agent/`](agent/)）：监控 + token 经济 + 责任清单 + 自保护 |
-| **P2** | 🟡 进行中 | Backend（Node + Postgres）+ React 控制台 + WebSocket 跨端 |
+| **P1** | ✅ 完成（含打包验证） | 接口先行的本地版 Agent（[`agent/`](agent/)）：监控 + token 经济 + 责任清单 + 自保护 + PyInstaller exe |
+| **P2** | 🟡 进行中 | Backend（Node + Fastify + Postgres，[`backend/`](backend/)）已起骨架 + §18 全 21 张表，待写 REST/WS/Auth |
 | **P3+** | ⏳ 待规划 | LLM 集成、Android App、跨端钱包同步 |
 
 完整设计文档（路线图、配额档位、防滥用机制、决策记录）：[CLAUDE.md](CLAUDE.md)
@@ -45,6 +45,12 @@ DEL_GAME/
 │   ├── watchdog_main.py      # Watchdog 入口
 │   ├── pyinstaller_build.bat # 打包脚本
 │   └── install_service.bat   # NSSM 服务注册
+│
+├── backend/                  # P2 Backend (Node + Fastify + Postgres)
+│   ├── src/                  # config / db / server / index
+│   ├── sql/                  # node-pg-migrate SQL migrations
+│   ├── package.json
+│   └── README.md             # 启动 / migration / 部署说明
 │
 └── infra/                    # 本地基础设施
     ├── docker-compose.yml    # Postgres 15（P2 后端用）
@@ -211,19 +217,34 @@ install_service.bat
 
 ------
 
-## P2 基础设施：本地 Postgres
+## P2 Backend：本地开发
+
+### 1. 启动 Postgres (docker)
 
 ```powershell
 cd infra
 docker compose up -d
 ```
 
-启动后：
-- 连接：`postgresql://ninogame:ninogame_dev@localhost:5433/ninogame`
-- Schema：`NinoGame`（大小写敏感）
-- 数据卷：`ninogame-pgdata`
+监听 `127.0.0.1:5433`, schema `NinoGame`。详见 [infra/README.md](infra/README.md)。
 
-详见 [infra/README.md](infra/README.md)。
+### 2. 启动 Backend dev server
+
+```powershell
+cd backend
+npm install
+copy .env.example .env
+npm run migrate:up    # 一次性, 建所有 21 张表
+npm run dev           # tsx watch, 改代码自动重启
+```
+
+验证：
+```powershell
+curl http://127.0.0.1:8088/health
+# {"status":"ok","env":"development","uptime_seconds":3,"db":{...,"version":"PostgreSQL 15.17"}}
+```
+
+详见 [backend/README.md](backend/README.md)。
 
 ------
 
