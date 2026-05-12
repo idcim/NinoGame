@@ -136,6 +136,17 @@ class JsonRuleRepository(RuleRepository):
             except Exception:
                 _log.exception("rule subscriber failed")
 
+    def replace_all(self, rules: list[Rule]) -> None:
+        """服务器推 rules_update 时用; 整体覆盖。"""
+        with self._lock:
+            self._cache = list(rules)
+            self._save_to_disk()
+        for cb in list(self._subscribers):
+            try:
+                cb(self.get_all())
+            except Exception:
+                _log.exception("rule subscriber failed")
+
     def subscribe_changes(self, callback: Callable[[list[Rule]], None]) -> None:
         self._subscribers.append(callback)
 
@@ -325,6 +336,22 @@ class SqliteWalletService(WalletService):
                     (today_str,),
                 )
             return base_amount
+
+    def sync_balance(self, server_balance: int, reason: str = "server_sync") -> int:
+        """把本地余额对齐到服务器值; 写一笔 adjustment ledger 记 delta。"""
+        with self._lock:
+            local = self.get_balance()
+            delta = int(server_balance) - int(local)
+            if delta == 0:
+                return 0
+            self._conn.execute("BEGIN")
+            try:
+                self._write_ledger(delta, int(server_balance), reason, None)
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+        return delta
 
     def recent_ledger(self, limit: int = 50) -> list[LedgerEntry]:
         rows = self._conn.execute(

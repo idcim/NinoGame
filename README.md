@@ -279,9 +279,24 @@ python agent/main.py
 #   收到 hello_ack: server rules=N, wallet=N, pending_cmds=N
 ```
 
-之后 Agent 端 BLOCK / SESSION_OPEN / TOKEN_DEDUCT 等事件自动转发到 server，落 `NinoGame.events` 表。Backend 推 `rules_update` / `wallet_update` / `command` 时 Agent 也能收到（目前仅 INFO 日志，落地写本地 P2 后半段）。
+之后 Agent 端 BLOCK / SESSION_OPEN / TOKEN_DEDUCT 等事件自动转发到 server，落 `NinoGame.events` 表。
 
-settings.json 没配 `backend_url` 或 `agent_token` 时 → 使用 `NullTransport` 离线模式（P1 行为不变）。
+**Server 推 → Agent 落地（已实现）：**
+- `hello_ack.rules` / `rules_update`：覆盖本地 `config/rules.json`，规则引擎下个 tick 用新规则
+- `hello_ack.wallet_balance` / `wallet_update`：写一笔 `reason=server_sync` 的 ledger 同步本地余额
+
+`settings.json` 没配 `backend_url` 或 `agent_token` → 使用 `NullTransport` 离线模式（P1 行为不变）。
+
+### 数据归属
+
+| 数据 | 权威源 | 本地角色 |
+|---|---|---|
+| 钱包余额 / ledger | **Server** | 缓存；hello_ack / wallet_update 覆盖 |
+| 规则 rules | **Server** | 缓存到 `config/rules.json` |
+| app_categories | **Server**（全局）| 缓存 7 天 |
+| events / sessions / app_segments | Agent 产 → **Server** 长期存 | 写缓冲，离线时排队上报 |
+| settings.json（PIN / URL / token / 文案）| 本地 | 本地，不外发 |
+| heartbeat 文件（agent.alive / watchdog.alive）| 本地 | 本地，自保护用 |
 
 ## P2 Backend：本地开发
 

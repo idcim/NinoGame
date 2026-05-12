@@ -506,16 +506,20 @@ class Agent:
                 "收到 hello_ack: server rules=%d, wallet=%s, pending_cmds=%d",
                 len(rules), balance, len(pending),
             )
-            # P2 + : 把 server rules 合并 / 覆盖到本地 RuleRepository
-            # 现在保守: 仅日志, 待规则 schema 对齐再写入
+            self._apply_server_rules(rules)
+            if balance is not None:
+                self._apply_server_wallet(balance)
 
         def on_rules_update(msg):
             rules = (msg.get("payload") or {}).get("rules") or []
-            _log.info("收到 rules_update: %d 条 (P2 待落地: 写本地)", len(rules))
+            _log.info("收到 rules_update: %d 条", len(rules))
+            self._apply_server_rules(rules)
 
         def on_wallet_update(msg):
             balance = (msg.get("payload") or {}).get("balance")
-            _log.info("收到 wallet_update: balance=%s (P2 待落地: 更新本地缓存)", balance)
+            _log.info("收到 wallet_update: balance=%s", balance)
+            if balance is not None:
+                self._apply_server_wallet(balance)
 
         def on_command(msg):
             cmd = msg.get("payload") or {}
@@ -554,6 +558,49 @@ class Agent:
             EventType.UNKNOWN_APP,
         ):
             self.bus.subscribe(evt.value, forward_event_to_server)
+
+    def _apply_server_rules(self, server_rules: list[dict]) -> None:
+        """server rules: [{id, name, enabled, spec}, ...]; spec 是 jsonb 包含
+        matchers / matcher_logic / exclude_processes / schedule / action /
+        category_link / notify_parent。展平后用 Rule.from_dict 解析,
+        replace_all 覆盖本地 (写 rules.json + 通知 subscribers)。"""
+        if not server_rules:
+            _log.info("server 端无规则; 保留本地 rules.json")
+            return
+        try:
+            from comms.message_types import Rule
+            parsed: list[Rule] = []
+            for row in server_rules:
+                spec = row.get("spec") or {}
+                if isinstance(spec, str):
+                    import json as _json
+                    try:
+                        spec = _json.loads(spec)
+                    except Exception:
+                        spec = {}
+                merged = {
+                    "id": str(row.get("id")),
+                    "name": row.get("name", ""),
+                    "enabled": bool(row.get("enabled", True)),
+                    **spec,
+                }
+                try:
+                    parsed.append(Rule.from_dict(merged))
+                except Exception:
+                    _log.warning("server rule 解析失败, 跳过: id=%s", row.get("id"))
+            self.rules_repo.replace_all(parsed)
+            _log.info("server rules 已写入本地: %d 条", len(parsed))
+        except Exception:
+            _log.exception("应用 server rules 失败")
+
+    def _apply_server_wallet(self, server_balance: int) -> None:
+        try:
+            delta = self.wallet.sync_balance(int(server_balance), reason="server_sync")
+            if delta != 0:
+                _log.info("钱包从 server 同步: delta=%+d, balance=%d",
+                          delta, self.wallet.get_balance())
+        except Exception:
+            _log.exception("应用 server wallet 失败")
 
     def _checklist_progress(self) -> tuple[int, int]:
         try:

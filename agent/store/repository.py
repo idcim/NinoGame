@@ -36,6 +36,10 @@ class RuleRepository(ABC):
     def save(self, rule: Rule) -> None: ...
 
     @abstractmethod
+    def replace_all(self, rules: list[Rule]) -> None:
+        """用 rules 整体替换当前规则集 (服务器推送时用)。"""
+
+    @abstractmethod
     def reload(self) -> None:
         """强制重读底层存储（外部编辑了配置文件时）。"""
 
@@ -83,6 +87,11 @@ class WalletService(ABC):
 
     @abstractmethod
     def recent_ledger(self, limit: int = 50) -> list[LedgerEntry]: ...
+
+    @abstractmethod
+    def sync_balance(self, server_balance: int, reason: str = "server_sync") -> int:
+        """把本地余额对齐到服务器值; 用一笔 ledger 记录 delta.
+        返回应用的 delta (server_balance - local_before)."""
 
 
 class EventSink(ABC):

@@ -205,9 +205,21 @@ class TrayController:
         return f"NinoGame · {mode} · {bal} token"
 
     def _menu(self) -> "pystray.Menu":
-        items: list = []
+        """状态感知的精简菜单。
 
-        # 默认项: 单击托盘 = 打开状态面板
+        - 默认项 (单击托盘): 打开状态面板
+        - 锁定 / 解锁: 只显示当前状态相反的那个
+        - 余额浮层 toggle (留)
+        - 退出 (家长验证)
+        责任清单 / 复杂操作都搬到状态面板里, 托盘保持轻盈。
+        """
+        items: list = []
+        mode = ""
+        try:
+            mode = self._get_mode()
+        except Exception:
+            pass
+
         if self._on_show_panel is not None:
             items.append(pystray.MenuItem(
                 "打开状态面板",
@@ -216,11 +228,16 @@ class TrayController:
             ))
             items.append(pystray.Menu.SEPARATOR)
 
-        items.extend([
-            pystray.MenuItem("立即锁定", lambda icon, item: self._safe(self._on_lock)),
-            pystray.MenuItem("解锁使用", lambda icon, item: self._safe(self._on_resume)),
-            pystray.Menu.SEPARATOR,
-        ])
+        # 锁定/解锁: 只显示当前能做的那个
+        if mode == "lock":
+            items.append(pystray.MenuItem(
+                "解锁使用", lambda icon, item: self._safe(self._on_resume),
+            ))
+        else:
+            items.append(pystray.MenuItem(
+                "立即锁定", lambda icon, item: self._safe(self._on_lock),
+            ))
+        items.append(pystray.Menu.SEPARATOR)
 
         # 浮层切换
         if self._is_overlay_enabled is not None and self._toggle_overlay is not None:
@@ -229,19 +246,15 @@ class TrayController:
                 enabled = bool(self._is_overlay_enabled())
             except Exception:
                 pass
-            label = ("[√] " if enabled else "[  ] ") + "余额浮层"
+            label = ("[√] " if enabled else "[  ] ") + "右上角浮层"
             items.append(pystray.MenuItem(
-                label, lambda icon, item: self._safe(self._toggle_overlay)
+                label, lambda icon, item: self._safe(self._toggle_overlay),
             ))
             items.append(pystray.Menu.SEPARATOR)
 
-        if self._get_checklist is not None and self._on_check_tick is not None:
-            for item, done in self._get_checklist():
-                items.append(self._build_check_item(item.id, item.name, done))
-            items.append(pystray.Menu.SEPARATOR)
-        items.append(
-            pystray.MenuItem("退出（家长验证）", lambda icon, item: self._safe(self._on_quit_request))
-        )
+        items.append(pystray.MenuItem(
+            "退出（家长验证）", lambda icon, item: self._safe(self._on_quit_request),
+        ))
         return pystray.Menu(*items)
 
     def _build_check_item(self, task_id: str, name: str, done: bool):
