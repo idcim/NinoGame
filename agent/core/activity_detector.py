@@ -68,7 +68,10 @@ class ActivityDetector:
         try:
             from pynput import keyboard, mouse  # noqa: WPS433
         except ImportError:
-            _log.warning("pynput not installed — strict input detection degraded")
+            _log.warning(
+                "pynput 未安装：严格活跃判定退化为系统级输入检测（鼠标抖动器无法识别）。"
+                " 安装命令: pip install pynput"
+            )
             self._fallback_only = True
             return
 

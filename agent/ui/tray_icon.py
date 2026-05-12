@@ -20,7 +20,13 @@ try:
     HAS_TRAY = True
 except ImportError:
     HAS_TRAY = False
-    _log.warning("pystray / Pillow 未安装，托盘图标不可用")
+    # 用 print 走 stdout，避开 logging lastResort handler；
+    # 这条会在 main 起 logging 之前触发。
+    print(
+        "[NinoGame][WARN] pystray / Pillow 未安装：托盘图标不可用。\n"
+        "                 安装命令: pip install pystray Pillow",
+        flush=True,
+    )
 
 
 def _balance_color(balance: int, daily_credit_cap: int) -> tuple[int, int, int]:
@@ -148,13 +154,14 @@ class TrayController:
         return pystray.Menu(*items)
 
     def _build_check_item(self, task_id: str, name: str, done: bool):
-        # closure 捕获 task_id
-        return pystray.MenuItem(
-            f"{'✅' if done else '☐'} {name}",
-            lambda icon, item, tid=task_id, d=done: self._safe(
-                lambda: self._on_check_tick(tid, not d)  # type: ignore[misc]
-            ),
-        )
+        # pystray 校验 callback 形参数量 == 2，所以不能用带默认值的 lambda；
+        # 用闭包捕获 task_id / done。
+        label = ("[x] " if done else "[ ] ") + name
+
+        def _on_click(icon, item) -> None:
+            self._safe(lambda: self._on_check_tick(task_id, not done))  # type: ignore[misc]
+
+        return pystray.MenuItem(label, _on_click)
 
     def _refresh_loop(self) -> None:
         while not self._stop.is_set():

@@ -20,7 +20,13 @@ try:
     HAS_WIN32 = True
 except ImportError:
     HAS_WIN32 = False
-    _log.warning("pywin32 未安装，窗口标题匹配不可用")
+    # 这条信息在 main.py setup_logging 之前就会触发；
+    # 走 print 而非 _log，避免被 Python 默认 lastResort handler 吞掉格式。
+    print(
+        "[NinoGame][WARN] pywin32 未安装：窗口标题匹配 + 前台进程检测都将失效。\n"
+        "                 安装命令: pip install pywin32",
+        flush=True,
+    )
 
 
 def get_window_titles_by_pid() -> dict[int, list[str]]:

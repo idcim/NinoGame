@@ -207,38 +207,84 @@ class Agent:
 
     # ── 启动 / 主循环 ────────────────────────────────────────────
     def run(self) -> None:
-        _log.info("Agent starting; root=%s", self.root)
+        _log.info("=" * 60)
+        _log.info("NinoGame Agent 启动中; root=%s", self.root)
+        _log.info("=" * 60)
+        self._warn_missing_deps()
 
         # 日发放
         from datetime import date as _date
         base = self._today_base_grant()
         granted = self.wallet.ensure_daily_grant(base, _date.today())
         if granted:
-            _log.info("daily grant: +%d token", granted)
+            _log.info("今日基础发放: +%d token", granted)
+        else:
+            _log.info("今日基础发放已完成 (跳过)")
+        _log.info("当前钱包余额: %d token", self.wallet.get_balance())
 
+        _log.info("启动 activity_detector ...")
         self.activity.start()
+        if self.activity.fallback_only:
+            _log.info("  → fallback 模式 (鼠标抖动器无法识别)")
+
+        _log.info("启动 session_manager (初始模式=%s) ...", self._initial_mode())
         self.session_manager.start(initial_mode=self._initial_mode())
+
+        _log.info("启动 token_engine ...")
         self.token_engine.start()
+
+        _log.info("启动 self_protector ...")
         self.self_protector.start()
+
+        _log.info("启动 tray_icon ...")
         self.tray.start()
+        from ui.tray_icon import HAS_TRAY
+        if not HAS_TRAY:
+            _log.info("  → tray 不可用 (依赖未装)，仅命令行模式")
 
         scan_interval = int(self.settings.get("monitor_scan_interval_seconds", 2))
-        _log.info("Agent ready; scan_interval=%ds", scan_interval)
+        _log.info("-" * 60)
+        _log.info("Agent 已就绪 | 规则数=%d | 扫描间隔=%ds | Ctrl+C 退出",
+                  len(self.rules_repo.get_all()), scan_interval)
+        _log.info("-" * 60)
 
         # 主循环：规则评估 + 拦截
         self._install_signal_handlers()
+        last_heartbeat = time.monotonic()
+        ticks_since_heartbeat = 0
+        kills_since_heartbeat = 0
+        heartbeat_period_seconds = 60
+
         while not self._stop:
             try:
                 self.rules_repo.reload_if_changed()
                 snaps = scan_processes()
                 rules = self.rules_repo.get_all()
                 matches = evaluate(snaps, rules)
+                ticks_since_heartbeat += 1
                 if matches:
-                    self.killer.handle(matches)
+                    handled = self.killer.handle(matches)
+                    kills_since_heartbeat += handled
             except KeyboardInterrupt:
                 break
             except Exception:
                 _log.exception("scan loop iteration failed")
+
+            # 周期性心跳
+            now_mono = time.monotonic()
+            if now_mono - last_heartbeat >= heartbeat_period_seconds:
+                _log.info(
+                    "心跳 | mode=%s | balance=%d | 最近 %ds: 扫描 %d 次, 拦截 %d 个",
+                    self.session_manager.mode,
+                    self.wallet.get_balance(),
+                    int(now_mono - last_heartbeat),
+                    ticks_since_heartbeat,
+                    kills_since_heartbeat,
+                )
+                last_heartbeat = now_mono
+                ticks_since_heartbeat = 0
+                kills_since_heartbeat = 0
+
             time.sleep(scan_interval)
 
         self._shutdown()
@@ -270,6 +316,32 @@ class Agent:
                 signal.signal(signal.SIGTERM, _handler)
         except ValueError:
             pass
+
+    def _warn_missing_deps(self) -> None:
+        """启动时一次性提醒所有缺失的可选依赖与影响。"""
+        from core.monitor import HAS_WIN32
+        from ui.tray_icon import HAS_TRAY
+
+        missing = []
+        if not HAS_WIN32:
+            missing.append(("pywin32", "窗口标题匹配 + 前台进程检测"))
+        try:
+            import pynput  # noqa: F401
+        except ImportError:
+            missing.append(("pynput", "严格活跃判定 (防鼠标抖动器)"))
+        except Exception:
+            missing.append(("pynput", "严格活跃判定 (导入异常)"))
+        if not HAS_TRAY:
+            missing.append(("pystray + Pillow", "系统托盘图标"))
+
+        if not missing:
+            _log.info("依赖检查: 全部齐备")
+            return
+
+        _log.warning("以下可选依赖缺失，相关功能将降级:")
+        for pkg, what in missing:
+            _log.warning("  - %s : %s", pkg, what)
+        _log.warning("一键安装: pip install -r agent/requirements.txt")
 
     def _shutdown(self) -> None:
         _log.info("Agent shutdown sequence")
