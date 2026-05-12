@@ -2,16 +2,14 @@
 REM ============================================================
 REM  NinoGame Agent build script (Windows)
 REM
-REM  Output (onedir mode, instant startup, no %TEMP% extraction):
+REM  Output (onedir mode, instant startup):
 REM    dist\NinoGameAgent\
 REM      NinoGameAgent.exe   (entry, ~3 MB)
 REM      _internal\          (deps, ~120 MB)
 REM      assets\             (icons)
 REM      Watchdog.exe        (peer process, ~7 MB)
 REM
-REM  Usage: just double-click. Window stays open on done/error.
-REM  All output is English to avoid Chinese codepage issues
-REM  (GBK vs UTF-8 on Chinese Windows mangles bat parsing).
+REM  Usage: just double-click.
 REM ============================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
@@ -28,10 +26,10 @@ if errorlevel 1 (
     echo [error] python not on PATH.
     echo         Install Python 3.10+ and add to PATH, OR run
     echo         "conda activate" / "venv activate" first.
-    echo.
     goto :end
 )
 for /f "tokens=*" %%i in ('python --version 2^>^&1') do echo [build] %%i
+for /f "tokens=*" %%i in ('python -c "import sys; print(sys.executable)"') do echo [build] python = %%i
 
 REM ---- 1) optional venv ----
 if exist .venv\Scripts\python.exe (
@@ -55,20 +53,24 @@ if errorlevel 1 (
     echo [error] pip install pyinstaller failed
     goto :end
 )
+for /f "tokens=*" %%i in ('pyinstaller --version 2^>^&1') do echo [build] pyinstaller %%i
 echo.
 
-REM ---- 3) clean old build/dist ----
-echo [build] cleaning old build/dist ...
+REM ---- 3) clean ALL old build/dist + caches ----
+echo [build] cleaning old build/dist/spec ...
 if exist build rmdir /s /q build 2>nul
 if exist dist  rmdir /s /q dist  2>nul
 if exist NinoGameAgent.spec del /q NinoGameAgent.spec 2>nul
 if exist Watchdog.spec       del /q Watchdog.spec     2>nul
+if exist __pycache__ rmdir /s /q __pycache__ 2>nul
+for /d %%d in (*\__pycache__) do rmdir /s /q "%%d" 2>nul
 echo.
 
-REM ---- 4) build Agent (onedir) ----
+REM ---- 4) build Agent (onedir, --clean forces fresh bootloader) ----
 echo [build] building NinoGameAgent (onedir) ...
 pyinstaller ^
     --noconfirm ^
+    --clean ^
     --noconsole ^
     --name NinoGameAgent ^
     --icon assets\icon.ico ^
@@ -116,15 +118,16 @@ pyinstaller ^
     --exclude-module PySide6.QtRemoteObjects ^
     main.py
 if errorlevel 1 (
-    echo [error] NinoGameAgent build failed, see PyInstaller output above
+    echo [error] NinoGameAgent build failed
     goto :end
 )
 echo.
 
 REM ---- 5) build Watchdog (onefile) ----
-echo [build] building Watchdog (onefile, into Agent folder) ...
+echo [build] building Watchdog ...
 pyinstaller ^
     --noconfirm ^
+    --clean ^
     --noconsole ^
     --onefile ^
     --name Watchdog ^
@@ -140,7 +143,31 @@ if errorlevel 1 (
 )
 echo.
 
-REM ---- 6) done ----
+REM ---- 6) sanity check: run the EXE briefly, see if it stays up ----
+echo [build] sanity check: launching NinoGameAgent.exe for 6s ...
+start "" /B dist\NinoGameAgent\NinoGameAgent.exe
+timeout /t 6 /nobreak >nul
+tasklist /FI "IMAGENAME eq NinoGameAgent.exe" 2>nul | find /I "NinoGameAgent.exe" >nul
+if errorlevel 1 (
+    echo.
+    echo [WARN] NinoGameAgent.exe did NOT stay up. Possible causes:
+    echo   - "Failed to start embedded python interpreter" popup
+    echo     -^> Most common: PyInstaller bootloader broken or VCRedist missing.
+    echo        Fix A: pip install --upgrade --force-reinstall pyinstaller
+    echo        Fix B: Install "Microsoft Visual C++ 2015-2022 Redistributable x64"
+    echo               https://aka.ms/vs/17/release/vc_redist.x64.exe
+    echo        Fix C: Try CPython from python.org (not Anaconda)
+    echo   - Run dist\NinoGameAgent\NinoGameAgent.exe manually and check
+    echo     dist\NinoGameAgent\data\logs\agent.log
+    echo.
+) else (
+    echo [build] OK, process is up. Killing test instance ...
+    taskkill /F /IM NinoGameAgent.exe >nul 2>nul
+    taskkill /F /IM Watchdog.exe >nul 2>nul
+)
+echo.
+
+REM ---- 7) done ----
 echo ============================================================
 echo  [done] outputs:
 echo    dist\NinoGameAgent\NinoGameAgent.exe   (entry)
@@ -148,8 +175,8 @@ echo    dist\NinoGameAgent\_internal\          (deps)
 echo    dist\NinoGameAgent\assets\             (icons)
 echo    dist\NinoGameAgent\Watchdog.exe        (peer)
 echo.
-echo  Install: copy the whole dist\NinoGameAgent\ folder to
-echo           C:\Program Files\NinoGame\  (or wherever you want)
+echo  Install: copy dist\NinoGameAgent\ folder to your target
+echo           (e.g. C:\Program Files\NinoGame\)
 echo ============================================================
 
 :end

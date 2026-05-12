@@ -228,6 +228,16 @@ agent/dist/NinoGameAgent/
 > 跑 `pip uninstall -y pathlib` 后重试。Anaconda 老版本里 pathlib 是 standalone 包，
 > 跟新 PyInstaller 不兼容。
 
+> ⚠ **"Failed to start embedded python interpreter!"**（运行打出来的 exe 时弹窗）：
+> PyInstaller bootloader 启动 Python 运行时失败。按下面顺序排查：
+>
+> 1. **重装 PyInstaller**：`pip install --upgrade --force-reinstall pyinstaller`
+>    然后重跑 `pyinstaller_build.bat`（脚本已带 `--clean`）
+> 2. **缺 VC++ 运行时**：装 [VC Redist x64](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+> 3. **杀毒/Windows Defender** 删了 bootloader：检查隔离区
+> 4. **用 python.org 的 CPython 替代 Anaconda**（Anaconda 偶尔触发该 bug）：
+>    `winget install Python.Python.3.11` 后用它建 venv 再打包
+
 > 为什么不用 `--onefile`：单文件版每次启动都要把 270MB 解压到 `%TEMP%\_MEIxxxxx\`，
 > 启动需要 2-3 秒，且产生孤儿临时文件夹。folder 模式启动近瞬时。
 
