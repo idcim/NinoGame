@@ -84,6 +84,7 @@ pyinstaller ^
     --collect-submodules pystray ^
     --collect-submodules qtawesome ^
     --collect-data qtawesome ^
+    --collect-submodules websocket ^
     --exclude-module numpy ^
     --exclude-module scipy ^
     --exclude-module pandas ^

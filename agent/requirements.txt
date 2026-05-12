@@ -9,3 +9,5 @@ PySide6>=6.6,<6.11
 # 图标字体 (FontAwesome / Material Icons via QIcon)
 qtawesome>=1.4
 qtpy>=2.4
+# Backend 长连接 (P2)
+websocket-client>=1.6

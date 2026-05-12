@@ -254,6 +254,35 @@ install_service.bat
 
 ------
 
+## Agent ↔ Backend 联机
+
+P2 已打通 Agent 端的 `WebSocketTransport`。配对流程：
+
+```powershell
+# 1) 启动 Backend (一次)
+cd backend && npm run dev
+
+# 2) 家长后台拿配对码 (用 curl 或将来的 Web UI)
+# 登录 → 创建孩子 → POST /api/devices/pair 拿 8 位码
+
+# 3) Agent 设备跑 pair.py 输入码
+cd ..
+python agent/pair.py http://后端IP:8088 ABCDEFGH
+# 它会把 agent_token / device_id / child_id 写进 agent/config/settings.json
+
+# 4) 启动 Agent
+python agent/main.py
+# 日志会看到:
+#   使用 WebSocketTransport: ws://后端IP:8088/ws/agent
+#   WS 已连接
+#   WS 已连; 发 hello
+#   收到 hello_ack: server rules=N, wallet=N, pending_cmds=N
+```
+
+之后 Agent 端 BLOCK / SESSION_OPEN / TOKEN_DEDUCT 等事件自动转发到 server，落 `NinoGame.events` 表。Backend 推 `rules_update` / `wallet_update` / `command` 时 Agent 也能收到（目前仅 INFO 日志，落地写本地 P2 后半段）。
+
+settings.json 没配 `backend_url` 或 `agent_token` 时 → 使用 `NullTransport` 离线模式（P1 行为不变）。
+
 ## P2 Backend：本地开发
 
 ### 1. 启动 Postgres (docker)

@@ -26,8 +26,9 @@ _AGENT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_AGENT_DIR))
 
 from comms.event_bus import default_bus  # noqa: E402
-from comms.message_types import SessionEndReason, SessionMode  # noqa: E402
+from comms.message_types import EventType, SessionEndReason, SessionMode  # noqa: E402
 from comms.null_transport import NullTransport  # noqa: E402
+from comms.transport import Transport  # noqa: E402
 from core.activity_detector import ActivityDetector  # noqa: E402
 from core.checklist import ResponsibilityChecklist  # noqa: E402
 from core.classifier import Classifier  # noqa: E402
@@ -137,9 +138,9 @@ class Agent:
         self.resp_repo = SqliteResponsibilityRepository(self.db)
         seed_app_categories_into_db(self.app_categories)
 
-        # 通信
+        # 通信: settings 里有 backend_url + agent_token 就走 WS, 否则离线 Null
         self.bus = default_bus()
-        self.transport = NullTransport()  # P2 换 WebSocketTransport
+        self.transport = self._build_transport()
 
         # 业务
         self.messages = Messages(self.config_dir / "settings.json")
@@ -223,6 +224,23 @@ class Agent:
         )
 
         self._stop = False
+
+    def _build_transport(self) -> Transport:
+        url = self.settings.get("backend_url", "").strip()
+        token = self.settings.get("agent_token", "").strip()
+        if not url or not token:
+            _log.info("backend_url / agent_token 未配置, 使用 NullTransport (离线模式)")
+            return NullTransport()
+        # http://x:y → ws://x:y/ws/agent; https → wss
+        if url.startswith("https://"):
+            ws_url = "wss://" + url[len("https://"):].rstrip("/") + "/ws/agent"
+        elif url.startswith("http://"):
+            ws_url = "ws://" + url[len("http://"):].rstrip("/") + "/ws/agent"
+        else:
+            ws_url = url.rstrip("/") + "/ws/agent"
+        from comms.websocket_transport import WebSocketTransport
+        _log.info("使用 WebSocketTransport: %s", ws_url)
+        return WebSocketTransport(url=ws_url, agent_token=token)
 
     def _peer_launch_cmd(self) -> list[str]:
         # 打包后：同目录的 Watchdog.exe
@@ -335,6 +353,9 @@ class Agent:
 
         _log.info("启动 self_protector ...")
         self.self_protector.start()
+
+        _log.info("启动 transport ...")
+        self._wire_transport()
 
         _log.info("启动 tray_icon ...")
         self.tray.start()
@@ -456,6 +477,84 @@ class Agent:
             return int(overrides.get("weekend_base_tokens", 90))
         return int(overrides.get("weekday_base_tokens", 30))
 
+    def _wire_transport(self) -> None:
+        """Transport 启动 + 装 server→agent 消息处理 + 装 bus→server 上报。"""
+        # 没接服务端 (NullTransport) 时, subscribe 是 no-op, 启动 no-op, 也无害
+        if hasattr(self.transport, "start"):
+            try:
+                self.transport.start()
+            except Exception:
+                _log.exception("transport.start 失败")
+
+        # 连接成功后 fire hello
+        def on_connected(_msg):
+            _log.info("WS 已连; 发 hello")
+            self.transport.send({
+                "type": "hello",
+                "payload": {
+                    "agent_version": "0.1.0",
+                    "device_info": {"platform": "windows"},
+                },
+            })
+
+        def on_hello_ack(msg):
+            payload = msg.get("payload", {}) or {}
+            rules = payload.get("rules") or []
+            balance = payload.get("wallet_balance", None)
+            pending = payload.get("pending_commands") or []
+            _log.info(
+                "收到 hello_ack: server rules=%d, wallet=%s, pending_cmds=%d",
+                len(rules), balance, len(pending),
+            )
+            # P2 + : 把 server rules 合并 / 覆盖到本地 RuleRepository
+            # 现在保守: 仅日志, 待规则 schema 对齐再写入
+
+        def on_rules_update(msg):
+            rules = (msg.get("payload") or {}).get("rules") or []
+            _log.info("收到 rules_update: %d 条 (P2 待落地: 写本地)", len(rules))
+
+        def on_wallet_update(msg):
+            balance = (msg.get("payload") or {}).get("balance")
+            _log.info("收到 wallet_update: balance=%s (P2 待落地: 更新本地缓存)", balance)
+
+        def on_command(msg):
+            cmd = msg.get("payload") or {}
+            _log.info("收到 command: %s (P3 待执行)", cmd.get("command_type"))
+
+        self.transport.subscribe("_connected", on_connected)
+        self.transport.subscribe("hello_ack", on_hello_ack)
+        self.transport.subscribe("rules_update", on_rules_update)
+        self.transport.subscribe("wallet_update", on_wallet_update)
+        self.transport.subscribe("command", on_command)
+
+        # bus 上的 BLOCK / TOKEN_DEDUCT / TOKEN_CREDIT / 等事件 → 上报后端 events
+        def forward_event_to_server(event):
+            if not self.transport.is_connected():
+                return
+            try:
+                self.transport.send({
+                    "type": "event",
+                    "payload": {
+                        "event_type": event.type,
+                        "payload": event.payload,
+                    },
+                })
+            except Exception:
+                _log.exception("event 转发失败")
+
+        # 关心几类需要上报的事件
+        for evt in (
+            EventType.BLOCK,
+            EventType.SESSION_OPEN,
+            EventType.SESSION_CLOSE,
+            EventType.TOKEN_DEDUCT,
+            EventType.TOKEN_CREDIT,
+            EventType.JIGGLER_ALERT,
+            EventType.PIN_FAIL,
+            EventType.UNKNOWN_APP,
+        ):
+            self.bus.subscribe(evt.value, forward_event_to_server)
+
     def _checklist_progress(self) -> tuple[int, int]:
         try:
             items = self.checklist.list_today()
@@ -560,6 +659,11 @@ class Agent:
 
     def _shutdown(self) -> None:
         _log.info("Agent shutdown sequence")
+        try:
+            if hasattr(self.transport, "stop"):
+                self.transport.stop()
+        except Exception:
+            pass
         try:
             if self.panel is not None:
                 self.panel.hide()
