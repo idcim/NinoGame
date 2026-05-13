@@ -16,6 +16,13 @@ import {
 } from "lucide-react";
 import { api, ApiError, type Child, type Device } from "../lib/api";
 import EventFeed from "../components/EventFeed";
+import {
+  deviceTypeLabel,
+  maturityLabel,
+  onlineLabel,
+  platformLabel,
+  timeAgo,
+} from "../lib/labels";
 
 export default function Dashboard() {
   const [children, setChildren] = useState<Child[]>([]);
@@ -126,7 +133,7 @@ function ChildCard({ child, onChanged }: { child: Child; onChanged: () => void }
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-semibold">{child.display_name || child.username}</span>
-          <span className="badge badge-info">{child.maturity_mode}</span>
+          <span className="badge badge-info">{maturityLabel(child.maturity_mode)}</span>
         </div>
         <div className="text-xs text-ink-dim mt-0.5 flex items-center gap-2 flex-wrap">
           <span>@{child.username} · {child.birth_year ?? "—"} 生</span>
@@ -360,22 +367,47 @@ function DevicesSection({
             className="card p-5 hover:shadow-lg transition-shadow"
           >
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
+              <div className="relative w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
                 {d.platform === "windows" ? <Monitor size={20} /> : <TabletSmartphone size={20} />}
+                {/* 在线/离线小圆点, 右下角 */}
+                <span
+                  className={
+                    "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-bg-card " +
+                    (d.online ? "bg-accent" : "bg-ink-light")
+                  }
+                  title={onlineLabel(!!d.online)}
+                />
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold">{d.name || "未命名设备"}</span>
                   {d.paired ? (
                     <span className="badge badge-success">已配对</span>
                   ) : (
                     <span className="badge badge-warn">待配对</span>
                   )}
+                  <span
+                    className={
+                      "text-xs font-medium " +
+                      (d.online ? "text-accent-600" : "text-ink-light")
+                    }
+                  >
+                    ● {onlineLabel(!!d.online)}
+                  </span>
                 </div>
                 <div className="text-xs text-ink-dim mt-1 space-y-0.5">
                   <div>归属: {d.child_id ? idToChildName.get(d.child_id) || "—" : "—"}</div>
-                  <div>类型: {d.device_type} · {d.platform || "—"}</div>
-                  <div>最后在线: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "从未"}</div>
+                  <div>
+                    类型: {deviceTypeLabel(d.device_type)} · {platformLabel(d.platform)}
+                  </div>
+                  <div>
+                    最后在线:{" "}
+                    {d.online ? (
+                      <span className="text-accent-600">现在</span>
+                    ) : (
+                      timeAgo(d.last_seen_at)
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

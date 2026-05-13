@@ -8,6 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError, type UnlockRequest } from "../lib/api";
+import { requestStatusLabel, timeAgo } from "../lib/labels";
 
 type Tab = "pending" | "approved" | "rejected" | "all";
 
@@ -125,16 +126,13 @@ function RequestRow({ req, onChanged }: { req: UnlockRequest; onChanged: () => v
                     : "badge-warn")
               }
             >
-              {req.status === "pending"
-                ? "待批准"
-                : req.status === "approved"
-                  ? "已批准"
-                  : req.status === "rejected"
-                    ? "已拒绝"
-                    : req.status}
+              {requestStatusLabel(req.status)}
             </span>
-            <span className="text-xs text-ink-light">
-              {new Date(req.created_at).toLocaleString()}
+            <span
+              className="text-xs text-ink-light"
+              title={new Date(req.created_at).toLocaleString()}
+            >
+              {timeAgo(req.created_at)}
             </span>
           </div>
           <p className="mt-1 text-ink">{req.request_text}</p>

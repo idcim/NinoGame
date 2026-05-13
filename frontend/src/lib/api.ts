@@ -135,6 +135,13 @@ export const api = {
       `/api/commands?device_id=${encodeURIComponent(device_id)}`,
     ),
 
+  // ── device online history ─────────────────────────────────
+  getDeviceOnlineHistory: (device_id: string) =>
+    request<{
+      sessions: Array<OnlineSession>;
+      today_total_seconds: number;
+    }>(`/api/devices/${device_id}/online-history`),
+
   // ── rules ──────────────────────────────────────────────────
   listRules: (child_id: string) =>
     request<{ rules: Array<Rule> }>(
@@ -211,6 +218,17 @@ export interface Device {
   created_at: string;
   paired: boolean;
   child_id: string | null;
+  /** 由 getConnectedDevices() 注入，仅 listDevices 才有 */
+  online?: boolean;
+}
+
+/** 单段在线记录 (device_online_sessions 表) */
+export interface OnlineSession {
+  id: string;
+  connected_at: string;
+  disconnected_at: string | null;
+  duration_seconds: number | null;
+  remote_ip: string | null;
 }
 
 export interface CommandRow {

@@ -13,6 +13,8 @@
 ### 设备管理 (设备详情页)
 - **重新生成配对码**: 旧 agent_token 立刻作废 (该 Agent 断线), 30 分钟内可在 Agent 端粘贴新码重新配对
 - **删除设备**: 整行记录清空, 历史事件保留
+- **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
+- **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
 ### Token 调账 / 奖励 (孩子卡片 → 调账/发奖)
 - **正数**: 家长酌赠 / 任务奖励 (CLAUDE.md §8.5)

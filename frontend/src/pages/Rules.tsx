@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { api, ApiError, type Child, type Matcher, type Rule, type RuleSpec } from "../lib/api";
+import { actionLabel } from "../lib/labels";
 
 export default function Rules() {
   const [children, setChildren] = useState<Child[]>([]);
@@ -189,11 +190,11 @@ function RuleRow({
 
   const actionBadge =
     rule.spec.action.type === "kill_and_warn" ? (
-      <span className="badge badge-warn">硬拦</span>
+      <span className="badge badge-warn">{actionLabel(rule.spec.action.type)}</span>
     ) : rule.spec.action.type === "warn_only" ? (
-      <span className="badge badge-info">仅警告</span>
+      <span className="badge badge-info">{actionLabel(rule.spec.action.type)}</span>
     ) : (
-      <span className="badge badge-muted">静默杀</span>
+      <span className="badge badge-muted">{actionLabel(rule.spec.action.type)}</span>
     );
 
   return (
@@ -374,9 +375,9 @@ function RuleEditor({
                 value={actionType}
                 onChange={(e) => setActionType(e.target.value as RuleSpec["action"]["type"])}
               >
-                <option value="kill_and_warn">硬拦 (kill + 弹窗)</option>
-                <option value="warn_only">仅警告</option>
-                <option value="kill_silent">静默杀</option>
+                <option value="kill_and_warn">直接拦截 (杀进程 + 弹窗)</option>
+                <option value="warn_only">只提示 (不杀)</option>
+                <option value="kill_silent">悄悄拦截 (杀进程不弹窗)</option>
               </select>
             </div>
             <div>

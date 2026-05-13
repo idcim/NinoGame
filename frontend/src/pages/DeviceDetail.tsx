@@ -15,7 +15,22 @@ import {
   Trash2,
   Unlock,
 } from "lucide-react";
-import { api, ApiError, type CommandRow, type Device } from "../lib/api";
+import {
+  api,
+  ApiError,
+  type CommandRow,
+  type Device,
+  type OnlineSession,
+} from "../lib/api";
+import {
+  commandLabel,
+  commandStatusLabel,
+  deviceTypeLabel,
+  formatDuration,
+  onlineLabel,
+  platformLabel,
+  timeAgo,
+} from "../lib/labels";
 
 export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -59,14 +74,28 @@ export default function DeviceDetail() {
         </Link>
         <div className="flex items-end justify-between mt-2">
           <div>
-            <h1 className="text-2xl font-bold text-ink">
+            <h1 className="text-2xl font-bold text-ink flex items-center gap-2 flex-wrap">
               {device?.name || "设备详情"}
+              {device && (
+                <span
+                  className={
+                    "text-xs font-medium px-2 py-0.5 rounded-full " +
+                    (device.online
+                      ? "bg-accent/15 text-accent-600"
+                      : "bg-ink-light/15 text-ink-dim")
+                  }
+                >
+                  ● {onlineLabel(!!device?.online)}
+                </span>
+              )}
             </h1>
             <p className="text-sm text-ink-dim mt-1">
-              {device?.platform || "—"} · {device?.device_type || "—"} · 最后在线{" "}
-              {device?.last_seen_at
-                ? new Date(device.last_seen_at).toLocaleString()
-                : "—"}
+              {platformLabel(device?.platform)} · {deviceTypeLabel(device?.device_type)} ·{" "}
+              {device?.online ? (
+                <span className="text-accent-600">现在在线</span>
+              ) : (
+                <>最后在线 {timeAgo(device?.last_seen_at)}</>
+              )}
             </p>
           </div>
           <button onClick={load} className="btn-ghost" disabled={loading}>
@@ -87,6 +116,8 @@ export default function DeviceDetail() {
         onRegenerated={load}
         onDeleted={() => nav("/", { replace: true })}
       />
+
+      <OnlineHistory deviceId={id} />
 
       <section>
         <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3">
@@ -470,14 +501,6 @@ function DeviceAdmin({
 }
 
 function CommandRowView({ cmd }: { cmd: CommandRow }) {
-  const typeLabel: Record<string, string> = {
-    temporary_unlock: "临时解锁",
-    lock_device: "立即锁定",
-    start_free_pass: "开启限免",
-    end_free_pass: "结束限免",
-    request_status: "请求状态",
-    request_photo: "请求拍照",
-  };
   const isUnlock = cmd.command_type === "temporary_unlock";
   const dur =
     (cmd.payload?.duration_seconds as number | undefined) ??
@@ -490,18 +513,125 @@ function CommandRowView({ cmd }: { cmd: CommandRow }) {
       </div>
       <div className="flex-1 text-sm">
         <div className="font-medium">
-          {typeLabel[cmd.command_type] || cmd.command_type}
+          {commandLabel(cmd.command_type)}
           {isUnlock && dur > 0 && (
             <span className="text-ink-dim font-normal ml-2">
               <Clock size={12} className="inline mr-1" />
-              {Math.round(dur / 60)} 分钟
+              {formatDuration(dur)}
             </span>
           )}
         </div>
         <div className="text-xs text-ink-light mt-0.5">
-          {new Date(cmd.created_at).toLocaleString()} · {cmd.status}
+          {new Date(cmd.created_at).toLocaleString()} · {commandStatusLabel(cmd.status)}
         </div>
       </div>
     </div>
+  );
+}
+
+function OnlineHistory({ deviceId }: { deviceId: string }) {
+  const [sessions, setSessions] = useState<OnlineSession[]>([]);
+  const [todayTotal, setTodayTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await api.getDeviceOnlineHistory(deviceId);
+      setSessions(r.sessions);
+      setTodayTotal(r.today_total_seconds);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [deviceId]);
+
+  return (
+    <section>
+      <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Clock size={18} className="text-brand" />
+        在线历史
+      </h2>
+      <div className="card p-5 space-y-3">
+        {/* 今天总时长 */}
+        <div className="flex items-baseline gap-3 pb-3 border-b border-border">
+          <span className="text-xs text-ink-dim">今日 Agent 在线总时长</span>
+          <span className="text-2xl font-bold text-brand">
+            {formatDuration(todayTotal)}
+          </span>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="ml-auto btn-ghost text-xs"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            刷新
+          </button>
+        </div>
+
+        {err && (
+          <div className="text-sm text-warn bg-warn/10 border border-warn/30 rounded px-3 py-2">
+            {err}
+          </div>
+        )}
+
+        {sessions.length === 0 && !loading && !err && (
+          <div className="text-sm text-ink-dim text-center py-4">
+            还没有在线记录
+          </div>
+        )}
+
+        {/* 段列表 */}
+        {sessions.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-ink-light border-b border-border">
+                  <th className="text-left py-2 font-normal">开始</th>
+                  <th className="text-left py-2 font-normal">结束</th>
+                  <th className="text-right py-2 font-normal">时长</th>
+                  <th className="text-right py-2 font-normal hidden sm:table-cell">来源 IP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessions.map((s) => {
+                  const isOpen = !s.disconnected_at;
+                  const dur = isOpen
+                    ? Math.floor((Date.now() - new Date(s.connected_at).getTime()) / 1000)
+                    : s.duration_seconds ?? 0;
+                  return (
+                    <tr key={s.id} className="border-b border-border/60 last:border-0">
+                      <td className="py-2">
+                        {new Date(s.connected_at).toLocaleString()}
+                      </td>
+                      <td className="py-2">
+                        {isOpen ? (
+                          <span className="text-accent-600 font-medium">进行中</span>
+                        ) : (
+                          new Date(s.disconnected_at!).toLocaleString()
+                        )}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {formatDuration(dur)}
+                      </td>
+                      <td className="py-2 text-right text-ink-light hidden sm:table-cell">
+                        {s.remote_ip || "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

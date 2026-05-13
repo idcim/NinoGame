@@ -32,6 +32,7 @@ interface AgentConnection {
   remote: string;
   connected_at: number;
   socket: import("@fastify/websocket").WebSocket;
+  session_id?: string;  // device_online_sessions.id, 关闭时用来 UPDATE
 }
 
 const _connections = new Map<string, AgentConnection>(); // device_id → meta
@@ -94,6 +95,18 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
       if (meta) {
         _connections.delete(meta.device_id);
         app.log.info({ device_id: meta.device_id }, "/ws/agent disconnected");
+        // 关闭在线时段记录
+        if (meta.session_id) {
+          pool
+            .query(
+              `UPDATE "NinoGame".device_online_sessions
+                  SET disconnected_at = NOW(),
+                      duration_seconds = EXTRACT(EPOCH FROM (NOW() - connected_at))::int
+                WHERE id = $1`,
+              [meta.session_id],
+            )
+            .catch(() => { /* 关时段写库失败不影响 */ });
+        }
       }
     });
 
@@ -122,6 +135,29 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
         { device_id: dev.device_id, child_id: dev.child_id },
         "/ws/agent connected",
       );
+
+      // 收尾任何遗留的 open session (前一次没干净关闭)
+      void pool.query(
+        `UPDATE "NinoGame".device_online_sessions
+            SET disconnected_at = NOW(),
+                duration_seconds = EXTRACT(EPOCH FROM (NOW() - connected_at))::int
+          WHERE device_id = $1 AND disconnected_at IS NULL`,
+        [dev.device_id],
+      ).catch(() => { /* ignore */ });
+
+      // 打开新的 session
+      try {
+        const r = await pool.query<{ id: string }>(
+          `INSERT INTO "NinoGame".device_online_sessions (device_id, connected_at, remote_ip)
+           VALUES ($1, NOW(), $2)
+           RETURNING id`,
+          [dev.device_id, String(req.ip || "")],
+        );
+        meta.session_id = r.rows[0].id;
+      } catch (err) {
+        app.log.warn({ err, device_id: dev.device_id }, "open online session 失败");
+      }
+
       pool
         .query(`UPDATE "NinoGame".devices SET last_seen_at = NOW() WHERE id = $1`, [
           dev.device_id,

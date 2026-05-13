@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { pool } from "../db.js";
+import { getConnectedDevices } from "../ws/agent.js";
 
 // 配对码: 8 个大写字母 + 数字, 排除易混 (0/O, I/1)
 const PAIR_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -146,7 +147,11 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
     "/api/devices",
     { preHandler: app.parentAuth },
     async (req) => {
-      const r = await pool.query(
+      const r = await pool.query<{
+        id: string; device_type: string; name: string | null;
+        platform: string | null; last_seen_at: string | null;
+        created_at: string; paired: boolean; child_id: string | null;
+      }>(
         `SELECT d.id, d.device_type, d.name, d.platform, d.last_seen_at,
                 d.created_at,
                 CASE WHEN d.agent_token IS NULL THEN false ELSE true END AS paired,
@@ -159,7 +164,53 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
           ORDER BY d.created_at DESC`,
         [req.parent!.sub],
       );
-      return { devices: r.rows };
+      const online = new Set(getConnectedDevices().map((c) => c.device_id));
+      return {
+        devices: r.rows.map((d) => ({ ...d, online: online.has(d.id) })),
+      };
+    },
+  );
+
+  // ── 在线历史 (最近 N 段) ───────────────────────────────
+  app.get(
+    "/api/devices/:id/online-history",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const id = (req.params as { id: string }).id;
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM "NinoGame".devices d
+           JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+           JOIN "NinoGame".children c ON c.id = b.child_id
+          WHERE d.id = $1 AND c.parent_id = $2`,
+        [id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("设备不属于当前家长");
+      }
+      const r = await pool.query(
+        `SELECT id, connected_at, disconnected_at, duration_seconds, remote_ip
+           FROM "NinoGame".device_online_sessions
+          WHERE device_id = $1
+          ORDER BY connected_at DESC
+          LIMIT 50`,
+        [id],
+      );
+      // 今天总时长
+      const t = await pool.query<{ total_seconds: string }>(
+        `SELECT COALESCE(SUM(
+                  COALESCE(duration_seconds,
+                           EXTRACT(EPOCH FROM (NOW() - connected_at))::int)
+                ), 0)::text AS total_seconds
+           FROM "NinoGame".device_online_sessions
+          WHERE device_id = $1
+            AND connected_at::date = CURRENT_DATE`,
+        [id],
+      );
+      return {
+        sessions: r.rows,
+        today_total_seconds: Number(t.rows[0].total_seconds),
+      };
     },
   );
 
