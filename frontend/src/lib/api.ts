@@ -95,6 +95,26 @@ export const api = {
       body: JSON.stringify({ child_id, name }),
     }),
 
+  regeneratePair: (device_id: string) =>
+    request<{
+      device_id: string;
+      pairing_code: string;
+      expires_in_minutes: number;
+      note: string;
+    }>(`/api/devices/${device_id}/regenerate-pair`, { method: "POST" }),
+
+  deleteDevice: (device_id: string) =>
+    request<{ ok: boolean }>(`/api/devices/${device_id}`, { method: "DELETE" }),
+
+  adjustWallet: (
+    child_id: string,
+    data: { delta: number; reason?: "parent_grant" | "adjustment" | "task_reward"; comment?: string },
+  ) =>
+    request<{ balance: number; delta: number; pushed: number }>(
+      `/api/children/${child_id}/wallet/adjust`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
   // ── commands ──────────────────────────────────────────────
   pushCommand: (data: {
     device_id: string;

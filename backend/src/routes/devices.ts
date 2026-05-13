@@ -162,6 +162,71 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
       return { devices: r.rows };
     },
   );
+
+  // ── 重新生成配对码: 作废旧 agent_token + 给新码 ─────────────
+  app.post(
+    "/api/devices/:id/regenerate-pair",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const id = (req.params as { id: string }).id;
+      // 验证设备归属
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM "NinoGame".devices d
+           JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+           JOIN "NinoGame".children c ON c.id = b.child_id
+          WHERE d.id = $1 AND c.parent_id = $2`,
+        [id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("设备不属于当前家长");
+      }
+
+      const code = generatePairCode();
+      const r = await pool.query<{ id: string; pairing_code: string }>(
+        `UPDATE "NinoGame".devices
+            SET pairing_code = $1,
+                agent_token = NULL,
+                last_seen_at = NULL
+          WHERE id = $2
+          RETURNING id, pairing_code`,
+        [code, id],
+      );
+
+      app.log.info({ device_id: id }, "device pair code regenerated (old token revoked)");
+      return {
+        device_id: r.rows[0].id,
+        pairing_code: r.rows[0].pairing_code,
+        expires_in_minutes: PAIR_CODE_TTL_MINUTES,
+        note: "旧 agent_token 已作废, Agent 必须用新码重新配对",
+      };
+    },
+  );
+
+  // ── 删除设备 ────────────────────────────────────────────
+  app.delete(
+    "/api/devices/:id",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const id = (req.params as { id: string }).id;
+      // 验证归属
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM "NinoGame".devices d
+           LEFT JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+           LEFT JOIN "NinoGame".children c ON c.id = b.child_id
+          WHERE d.id = $1 AND (c.parent_id = $2 OR c.id IS NULL)`,
+        [id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("设备不属于当前家长");
+      }
+      // CASCADE: device_bindings 已配 ON DELETE CASCADE 自动清
+      await pool.query(`DELETE FROM "NinoGame".devices WHERE id = $1`, [id]);
+      app.log.info({ device_id: id }, "device deleted");
+      return { ok: true };
+    },
+  );
 }
 
 /** 给 WS handler 用: 通过 agent_token 找设备。返回 null 表示无效。 */

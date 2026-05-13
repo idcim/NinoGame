@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
+  Check,
   Clock,
+  Copy,
   Gamepad2,
   KeyRound,
   Loader2,
   Lock,
   RefreshCw,
+  RotateCw,
+  Settings,
   Trash2,
   Unlock,
 } from "lucide-react";
@@ -15,6 +19,7 @@ import { api, ApiError, type CommandRow, type Device } from "../lib/api";
 
 export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
+  const nav = useNavigate();
   const [device, setDevice] = useState<Device | null>(null);
   const [commands, setCommands] = useState<CommandRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,6 +81,12 @@ export default function DeviceDetail() {
       )}
 
       <QuickActions deviceId={id} onPushed={load} />
+
+      <DeviceAdmin
+        deviceId={id}
+        onRegenerated={load}
+        onDeleted={() => nav("/", { replace: true })}
+      />
 
       <section>
         <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3">
@@ -324,6 +335,137 @@ function PinDialog({
         </form>
       </div>
     </div>
+  );
+}
+
+function DeviceAdmin({
+  deviceId,
+  onRegenerated,
+  onDeleted,
+}: {
+  deviceId: string;
+  onRegenerated: () => void;
+  onDeleted: () => void;
+}) {
+  const [newCode, setNewCode] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function regenerate() {
+    if (
+      !confirm(
+        "重生配对码会作废当前 Agent 的 token, " +
+        "在该 Agent 上必须用新码重新配对。继续?",
+      )
+    )
+      return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.regeneratePair(deviceId);
+      setNewCode(r.pairing_code);
+      onRegenerated();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function del() {
+    if (!confirm("删除此设备? 该 Agent 的 token 将作废, 记录保留在事件历史里。")) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.deleteDevice(deviceId);
+      onDeleted();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "失败");
+      setBusy(false);
+    }
+  }
+
+  const link = newCode ? `${window.location.origin}/#pair=${newCode}` : "";
+
+  async function copyLink() {
+    if (!link) return;
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Settings size={18} className="text-brand" />
+        设备管理
+      </h2>
+      <div className="card p-5 space-y-3">
+        {!newCode ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={regenerate} disabled={busy} className="btn-ghost">
+                <RotateCw size={14} />
+                重新生成配对码
+              </button>
+              <button onClick={del} disabled={busy} className="btn-ghost text-warn">
+                <Trash2 size={14} />
+                删除设备
+              </button>
+            </div>
+            <p className="text-xs text-ink-dim">
+              重生配对码 = 作废当前 Agent token (它会断线), 30 分钟内可在 Agent 上输入新码重新配对。
+              删除设备 = 整行记录被清, Agent token 永久失效。
+            </p>
+          </>
+        ) : (
+          <div className="space-y-3">
+            <div className="text-sm font-semibold text-accent-600">
+              ✓ 新配对码已生成, 30 分钟内有效
+            </div>
+            <div className="text-4xl font-mono font-bold text-brand tracking-widest select-all py-2 text-center">
+              {newCode}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-brand-50 text-xs text-ink truncate">
+                {link}
+              </div>
+              <button
+                onClick={copyLink}
+                className={
+                  "px-3 py-2 rounded-lg border flex items-center gap-1.5 text-xs " +
+                  (copied
+                    ? "bg-accent text-white border-accent"
+                    : "border-border text-ink-dim hover:text-brand hover:border-brand")
+                }
+              >
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? "已复制" : "复制"}
+              </button>
+            </div>
+            <p className="text-xs text-ink-dim">
+              Agent 端: 托盘 → 「重新配对家长后台...」→ 粘贴上面的链接 → 完成。
+            </p>
+            <button
+              onClick={() => setNewCode(null)}
+              className="btn-ghost text-xs"
+            >
+              收起
+            </button>
+          </div>
+        )}
+        {err && (
+          <div className="text-sm text-warn bg-warn/10 border border-warn/30 rounded px-3 py-2">
+            {err}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
