@@ -111,6 +111,23 @@ export async function buildServer() {
     ],
   }));
 
+  // ── 一次性 schema 迁移 (老 photo 验证方式 → parent_approve) ──
+  // 拍照证据机制已下线 (改用私下协商 + 家长后台手动 +token), 顺手把
+  // 历史任务模板里的 verification='photo' 迁回 parent_approve, 避免前端
+  // 渲染未知 enum。task_completions.photo_url 列暂保留容纳历史数据。
+  try {
+    const r = await pool.query(
+      `UPDATE "NinoGame".task_templates
+          SET verification = 'parent_approve'
+        WHERE verification = 'photo'`,
+    );
+    if (r.rowCount && r.rowCount > 0) {
+      app.log.info({ migrated: r.rowCount }, "photo verification → parent_approve");
+    }
+  } catch (err) {
+    app.log.warn({ err }, "photo verification migration failed (table may not exist yet)");
+  }
+
   // ── 后台任务 ────────────────────────────────────────────
   // 行为基线异常告警 (§16.1 ④): 每小时扫一次, 异常推家长浏览器
   startBehaviorBaselineScheduler(app.log);

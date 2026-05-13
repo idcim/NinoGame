@@ -25,7 +25,7 @@ const CreateTaskBody = z.object({
   category: z.enum(["responsibility", "incentive"]).default("incentive"),
   reward_tokens: z.number().int().min(0).max(500).default(0),
   daily_max_completions: z.number().int().min(1).max(10).default(1),
-  verification: z.enum(["parent_approve", "photo", "self_report", "auto"]).default("parent_approve"),
+  verification: z.enum(["parent_approve", "self_report", "auto"]).default("parent_approve"),
   schedule: z.enum(["daily", "weekly", "once"]).default("daily"),
   active: z.boolean().default(true),
 });
@@ -35,7 +35,7 @@ const UpdateTaskBody = z.object({
   category: z.enum(["responsibility", "incentive"]).optional(),
   reward_tokens: z.number().int().min(0).max(500).optional(),
   daily_max_completions: z.number().int().min(1).max(10).optional(),
-  verification: z.enum(["parent_approve", "photo", "self_report", "auto"]).optional(),
+  verification: z.enum(["parent_approve", "self_report", "auto"]).optional(),
   schedule: z.enum(["daily", "weekly", "once"]).optional(),
   active: z.boolean().optional(),
 });

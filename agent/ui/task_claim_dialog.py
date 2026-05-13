@@ -237,7 +237,6 @@ class TaskClaimDialog(QWidget):
         text_box.addWidget(name)
         verification_map = {
             "parent_approve": "家长审批",
-            "photo": "拍照证明",
             "self_report": "自报为准",
             "auto": "自动检测",
         }

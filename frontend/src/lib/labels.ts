@@ -82,7 +82,6 @@ export const COMMAND_LABELS: Record<string, string> = {
   start_free_pass:  "开启限免",
   end_free_pass:    "结束限免",
   request_status:   "查询状态",
-  request_photo:    "请求拍照",
   set_pin:          "设置 PIN",
   clear_pin:        "清空 PIN",
 };
@@ -163,9 +162,11 @@ export function taskCategoryLabel(v?: string | null): string {
 }
 
 // 任务验证方式 (§8.2)
+// 注: 'photo' 拍照证明已下线 (改用私下协商 + 家长后台手动 +token);
+//     此处仍允许显示为 "家长审批", 兜底兼容历史记录里的老 enum。
 export const TASK_VERIFICATION_LABELS: Record<string, string> = {
   parent_approve: "家长审批",
-  photo:          "拍照证明",
+  photo:          "家长审批",
   self_report:    "自报为准",
   auto:           "自动检测",
 };

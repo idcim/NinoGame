@@ -25,7 +25,7 @@
 
 ### 任务管理 (`/tasks`)
 - **三个 tab**: 申报队列 (默认, 显示孩子点「我做完了」后待审批) · 任务模板 (按激励/责任分组 CRUD) · 责任清单历史 (7/14/30 天日历视图 + 完成率%)
-- **激励任务** (incentive): `name`, `reward_tokens` (≤500), `verification` (家长审批/拍照/自报/自动), `schedule` (每日/每周/一次性), `daily_max_completions`; 审批通过会写一笔 `task_reward` ledger 并推 `wallet_update` 给在线 Agent
+- **激励任务** (incentive): `name`, `reward_tokens` (≤500), `verification` (家长审批/自报/自动), `schedule` (每日/每周/一次性), `daily_max_completions`; 审批通过会写一笔 `task_reward` ledger 并推 `wallet_update` 给在线 Agent. 拍照证据机制已下线 (改用私下协商 + 家长后台手动 +token, CLAUDE.md §22 #32)
 - **责任清单** (responsibility): 强制 `reward_tokens=0` (§8.6), 孩子在 Agent 托盘菜单勾选 → 通过 bus `checklist_tick` 事件传到 server → upsert `responsibility_checks` (按 task+date 唯一)
 - **Agent 同步**: 模板增删改后 server 立刻全量推 `tasks_update`; Agent 收到后覆写本地 `config/tasks.json` + 重载 `ResponsibilityChecklist` (responsibility 类立即在托盘菜单刷新)
 - **审批拒绝**: 不扣已有余额, 仅标 status=rejected, reward_granted=0; 孩子端目前只在浏览器可见家长意见

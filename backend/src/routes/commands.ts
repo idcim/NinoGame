@@ -18,7 +18,6 @@ const CreateBody = z.object({
     "start_free_pass",
     "end_free_pass",
     "request_status",
-    "request_photo",
     "set_pin",
     "clear_pin",
   ]),

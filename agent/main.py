@@ -785,7 +785,7 @@ class Agent:
               → 在 self._unlocked_until 记录, rule_engine 跳过该规则
           - lock_device: 立即切换 Lock 模式
           - end_free_pass: (P3) 结束限免
-          - request_status / request_photo: P3 + 实现
+          - request_status: P3 + 实现 (拍照机制已下线, 改私下协商 + 家长后台 +token)
         """
         from datetime import datetime, timedelta
         ctype = cmd.get("command_type") or cmd.get("type") or ""

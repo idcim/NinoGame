@@ -656,7 +656,6 @@ function TaskEditor({
                     onChange={(e) => setVerification(e.target.value as TaskVerification)}
                   >
                     <option value="parent_approve">家长审批</option>
-                    <option value="photo">拍照证明</option>
                     <option value="self_report">自报为准</option>
                     <option value="auto">自动检测</option>
                   </select>

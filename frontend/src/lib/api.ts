@@ -369,7 +369,7 @@ export interface Rule {
 
 // ── tasks ─────────────────────────────────────────────────────
 export type TaskCategory = "responsibility" | "incentive";
-export type TaskVerification = "parent_approve" | "photo" | "self_report" | "auto";
+export type TaskVerification = "parent_approve" | "self_report" | "auto";
 export type TaskSchedule = "daily" | "weekly" | "once";
 export type TaskCompletionStatus = "pending" | "approved" | "rejected";
 
