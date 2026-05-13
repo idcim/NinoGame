@@ -142,6 +142,7 @@ class Agent:
         # 通信: settings 里有 backend_url + agent_token 就走 WS, 否则离线 Null
         self.bus = default_bus()
         self.transport = self._build_transport()
+        self._bus_forwarders_wired = False  # _wire_transport 第一次接 bus, 后续 hot-swap 跳过
 
         # 业务
         self.messages = Messages(self.config_dir / "settings.json")
@@ -414,6 +415,16 @@ class Agent:
         # "PvZ 还拦不住" 类问题
         self._startup_diagnostic()
 
+        # 首次启动检测: settings 没 backend_url / agent_token → 自动弹配对框
+        # (PySide6 widget 必须在 Qt 主线程; 用 QTimer 派发)
+        if not self._is_paired():
+            _log.info("未检测到 backend_url / agent_token, 准备弹出配对对话框")
+            try:
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(1000, self._show_pair_dialog_on_main)
+            except Exception:
+                _log.exception("调度首次配对对话框失败")
+
         self._install_signal_handlers()
         import threading
         self._scan_thread = threading.Thread(
@@ -492,15 +503,22 @@ class Agent:
         return int(overrides.get("weekday_base_tokens", 30))
 
     def _wire_transport(self) -> None:
-        """Transport 启动 + 装 server→agent 消息处理 + 装 bus→server 上报。"""
-        # 没接服务端 (NullTransport) 时, subscribe 是 no-op, 启动 no-op, 也无害
+        """启动 + 装订阅。
+        分两块: 接到 transport 上的回调 (每次换 transport 都要重新装),
+        接到 bus 上的转发器 (只装一次, 闭包用 self.transport 自动跟新)。
+        """
+        self._attach_transport_handlers()
+        if not self._bus_forwarders_wired:
+            self._wire_bus_forwarders()
+            self._bus_forwarders_wired = True
         if hasattr(self.transport, "start"):
             try:
                 self.transport.start()
             except Exception:
                 _log.exception("transport.start 失败")
 
-        # 连接成功后 fire hello
+    def _attach_transport_handlers(self) -> None:
+        """把 server→agent 的消息处理装到 self.transport 上 (每次换都要重装)。"""
         def on_connected(_msg):
             _log.info("WS 已连; 发 hello")
             self.transport.send({
@@ -523,7 +541,6 @@ class Agent:
             self._apply_server_rules(rules)
             if balance is not None:
                 self._apply_server_wallet(balance)
-            # 处理离线期间积压的 commands
             for cmd in pending:
                 self._handle_command(cmd)
 
@@ -547,7 +564,9 @@ class Agent:
         self.transport.subscribe("wallet_update", on_wallet_update)
         self.transport.subscribe("command", on_command)
 
-        # bus 上的 BLOCK / TOKEN_DEDUCT / TOKEN_CREDIT / 等事件 → 上报后端 events
+    def _wire_bus_forwarders(self) -> None:
+        """bus 上的 BLOCK/TOKEN_DEDUCT 等事件 → 转发到当前 transport。
+        闭包里 self.transport 是引用, 换 transport 后自动指向新对象, 无需重装。"""
         def forward_event_to_server(event):
             if not self.transport.is_connected():
                 return
@@ -562,7 +581,6 @@ class Agent:
             except Exception:
                 _log.exception("event 转发失败")
 
-        # 关心几类需要上报的事件
         for evt in (
             EventType.BLOCK,
             EventType.SESSION_OPEN,
@@ -859,17 +877,56 @@ class Agent:
         except Exception:
             _log.exception("PairDialog 显示失败")
 
+    def _is_paired(self) -> bool:
+        url = str(self.settings.get("backend_url", "")).strip()
+        token = str(self.settings.get("agent_token", "")).strip()
+        return bool(url and token)
+
     def _on_pair_done(self, ok: bool, server_url: str, agent_token: str) -> None:
+        """配对成功后热换 transport, 无需重启 Agent。"""
         if not ok:
             return
-        _log.info("配对完成 (server=%s); 请重启 Agent 让 WebSocketTransport 生效", server_url)
+        _log.info("配对完成 (server=%s); 热换 transport ...", server_url)
         try:
+            # 1) 重新读 settings.json (pair_dialog 已写入新值)
+            settings_file = self.config_dir / "settings.json"
+            try:
+                import json as _json
+                with open(settings_file, "r", encoding="utf-8") as f:
+                    self.settings = _json.load(f)
+            except Exception:
+                _log.exception("重读 settings.json 失败, 沿用旧的")
+
+            # 2) 停旧 transport (NullTransport.stop 是 no-op)
+            try:
+                if hasattr(self.transport, "stop"):
+                    self.transport.stop()
+            except Exception:
+                _log.exception("旧 transport.stop 失败")
+
+            # 3) 建新 transport (会按新 settings 选 WS or Null)
+            self.transport = self._build_transport()
+
+            # 4) 给新 transport 重接 handlers + start
+            #    bus forwarders 闭包里读 self.transport, 不用重接
+            self._attach_transport_handlers()
+            if hasattr(self.transport, "start"):
+                self.transport.start()
+
+            _log.info("transport 热换完成, WebSocketTransport 已启动")
             self.notifier.info_async(
-                "配对完成。请关闭后重新打开 NinoGame Agent 以连接新服务器。",
+                f"配对成功，已连接 {server_url}",
                 title="NinoGame · 配对成功",
             )
         except Exception:
-            pass
+            _log.exception("热换 transport 失败; 请重启 Agent")
+            try:
+                self.notifier.warn_async(
+                    "配对成功但热换连接失败，请关闭重开 Agent。",
+                    title="NinoGame",
+                )
+            except Exception:
+                pass
 
     def _toggle_overlay(self) -> None:
         """tray 菜单切换浮层开关。注意 tray 在 pystray 线程,
