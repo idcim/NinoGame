@@ -729,22 +729,43 @@ class Agent:
                 "收到 wallet_update: balance=%s reason=%s delta=%s",
                 balance, reason, delta,
             )
+            applied_delta = 0
             if balance is not None:
                 # 透传 reason: server_sync (scheduler 定期推) 时 sync_balance 内部
-                # 会跳过 delta>0 的情况 (防 stale-read 回滚); 其它 reason 正常应用
-                self._apply_server_wallet(balance, reason=reason or "server_sync")
+                # 会跳过 delta>0 的情况 (防 stale-read 回滚); 其它 reason 正常应用.
+                # 拿 applied_delta 判断是否真的对齐了 (跳过时为 0, 不写 ledger).
+                applied_delta = self._apply_server_wallet(
+                    balance, reason=reason or "server_sync",
+                )
                 # 即时余额阈值检测 (不等下个 tick): 0 锁屏 / ≤10 低水位提醒
                 try:
                     self._check_balance_threshold(int(balance))
                 except Exception:
                     _log.exception("即时余额阈值检测失败")
 
-            # 静默 reason: 每分钟的 app_consumption / server 主动同步 — 不弹 / 不入历史
+            # 写本地 token_ledger cache (所有 reason 都写; list_recent_ledger
+            # 默认过滤 app_consumption 不污染历史窗口, get_daily_consumed 仍能
+            # 从这些行算今日消耗). 用 server 推过来的 delta 作为权威值;
+            # 若 server_sync 被守卫跳过 (applied_delta=0), 也不写 ledger 防止
+            # 幽灵记录 (server_sync delta 通常已记在前一次 app_consumption 里).
+            if balance is not None and applied_delta != 0:
+                try:
+                    n_for_ledger = (
+                        int(delta) if isinstance(delta, (int, float)) and int(delta) != 0
+                        else applied_delta
+                    )
+                    self.wallet.record_external_ledger(
+                        n_for_ledger, int(balance), reason, comment,
+                    )
+                except Exception:
+                    _log.exception("写本地 ledger cache 失败")
+
+            # 静默 reason: 每分钟的 app_consumption / server 主动同步 — 不弹通知
             SILENT_REASONS = {"app_consumption", "server_sync"}
             if reason in SILENT_REASONS:
                 return
 
-            # 家长可见操作: 弹通知 + 写本地 ledger cache + 写 notification 历史
+            # 家长可见操作: 弹通知 (ledger 已经在上面写过了, 这里不重复)
             try:
                 if not isinstance(delta, (int, float)) or int(delta) == 0:
                     return
@@ -774,13 +795,6 @@ class Agent:
 
                 # notifier 内部会把这条写进 notification_history
                 self.notifier.info_async(body, title=title)
-
-                # 写本地 token_ledger cache, 给 "余额变动" 窗口数据源
-                try:
-                    if balance is not None:
-                        self.wallet.record_external_ledger(n, int(balance), reason, comment)
-                except Exception:
-                    _log.exception("写本地 ledger cache 失败")
             except Exception:
                 _log.exception("wallet_update 处理失败")
 
@@ -1167,14 +1181,20 @@ class Agent:
         except Exception:
             _log.exception("应用 active_free_pass 失败")
 
-    def _apply_server_wallet(self, server_balance: int, reason: str = "server_sync") -> None:
+    def _apply_server_wallet(self, server_balance: int, reason: str = "server_sync") -> int:
+        """对齐本地 wallet.balance 到 server 值; 返回实际应用的 delta.
+        0 表示跳过 (stale-read 守卫 / 本地已对齐). on_wallet_update 据此决策
+        是否写 ledger - 避免 sync_balance 跳过却仍写一条幽灵 ledger.
+        """
         try:
             delta = self.wallet.sync_balance(int(server_balance), reason=reason)
             if delta != 0:
                 _log.info("钱包从 server 同步: delta=%+d, balance=%d (reason=%s)",
                           delta, self.wallet.get_balance(), reason)
+            return int(delta)
         except Exception:
             _log.exception("应用 server wallet 失败")
+            return 0
 
     def _checklist_progress(self) -> tuple[int, int]:
         try:

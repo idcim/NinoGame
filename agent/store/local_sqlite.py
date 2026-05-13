@@ -403,18 +403,20 @@ class SqliteWalletService(WalletService):
             return base_amount
 
     def sync_balance(self, server_balance: int, reason: str = "server_sync") -> int:
-        """把本地余额对齐到服务器值; 写一笔 adjustment ledger 记 delta。
+        """把本地余额对齐到服务器值; 返回实际应用的 delta (0 表示跳过).
+
+        注意 (修 "余额变动记录每条重复" bug):
+          本方法**只 UPDATE wallet.balance, 不写 ledger**。ledger 由
+          main.on_wallet_update 显式调 record_external_ledger 写入,
+          避免一次 wallet_update 同时写 2 条 (sync_balance + record_external) 重复。
 
         特殊约束 (决策 #34 race 修复):
           wallet_sync_scheduler 是兜底, 每 60s 推一次 server 当前余额。
           但 scheduler 的 SELECT 可能拍到 onTokenTick BEGIN...COMMIT 之间的
-          旧快照 (READ COMMITTED 可见已提交行, 但并发事务未 COMMIT 时读到旧值),
-          推过来的 server_balance 会高于本地 (本地已经被 app_consumption wallet_update
+          旧快照 → 推过来的 server_balance 会高于本地 (本地已经被 app_consumption wallet_update
           扣过), 导致本地被"回滚"到扣前值 → 表象: Agent 显示不扣。
           修复: reason='server_sync' 且 delta > 0 时跳过 (scheduler 不应增加本地余额;
           余额减少 / 持平才是真实的扣分传达)。
-          app_consumption 的 wallet_update 直接来自 onTokenTick 事务 COMMIT 后的
-          精确值, 仍正常应用。
         """
         with self._lock:
             local = self.get_balance()
@@ -422,8 +424,6 @@ class SqliteWalletService(WalletService):
             if delta == 0:
                 return 0
             # 兜底同步不应把本地余额往上推 (可能是 stale 快照, 见上方注释)。
-            # 注意: hello_ack / 家长操作等走 reason='hello_sync'/'app_consumption'
-            # 等其它值, 不在此限; 此守卫仅针对 wallet_sync_scheduler 的定期推送。
             if delta > 0 and reason == "server_sync":
                 _log.debug(
                     "sync_balance: server_sync delta>0 (%+d) 跳过 (防 stale-read 回滚); "
@@ -431,13 +431,12 @@ class SqliteWalletService(WalletService):
                     delta, local, server_balance,
                 )
                 return 0
-            self._conn.execute("BEGIN")
-            try:
-                self._write_ledger(delta, int(server_balance), reason, None)
-                self._conn.execute("COMMIT")
-            except Exception:
-                self._conn.execute("ROLLBACK")
-                raise
+            self._conn.execute(
+                "UPDATE wallet SET balance = ?, last_synced_at = CURRENT_TIMESTAMP "
+                "WHERE id = 1",
+                (int(server_balance),),
+            )
+            self._conn.commit()
         return delta
 
     def recent_ledger(self, limit: int = 50) -> list[LedgerEntry]:
