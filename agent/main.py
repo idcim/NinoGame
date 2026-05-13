@@ -184,6 +184,7 @@ class Agent:
             activity=self.activity,
             messages=self.messages,
             get_active_session_id=self.session_manager.active_session_id,
+            is_free_pass_active=self._is_free_pass_active,
         )
         self.checklist = ResponsibilityChecklist(
             self.config_dir / "tasks.json", self.resp_repo, self.events, self.bus
@@ -211,6 +212,9 @@ class Agent:
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
         self._unlocked_until: dict[str, "datetime"] = {}
+        # 限免活动 (§14.4): 全局期内 consumption 不扣 token, 但仍计 active_seconds。
+        # 由 server push start_free_pass / end_free_pass 维护, 重连 hello_ack 携带活跃段。
+        self._free_pass_until: "datetime | None" = None
 
         # 托盘
         self.tray = TrayController(
@@ -226,11 +230,7 @@ class Agent:
             on_quit_request=self._handle_quit_request,
             get_checklist=self.checklist.list_today,
             on_check_tick=self.checklist.tick,
-            get_tooltip=lambda: self.messages.get(
-                "tray_tooltip",
-                mode=self.session_manager.mode,
-                balance=self.wallet.get_balance(),
-            ),
+            get_tooltip=self._build_tray_tooltip,
             tray_image_path=str(tray_image_path()) if tray_image_path().exists() else None,
             is_overlay_enabled=lambda: self._overlay_enabled,
             toggle_overlay=self._toggle_overlay,
@@ -583,14 +583,17 @@ class Agent:
             tasks = payload.get("tasks") or []
             balance = payload.get("wallet_balance", None)
             pending = payload.get("pending_commands") or []
+            active_fp = payload.get("active_free_pass")
             _log.info(
-                "收到 hello_ack: server rules=%d, tasks=%d, wallet=%s, pending_cmds=%d",
+                "收到 hello_ack: server rules=%d, tasks=%d, wallet=%s, pending_cmds=%d, free_pass=%s",
                 len(rules), len(tasks), balance, len(pending),
+                "yes" if active_fp else "no",
             )
             self._apply_server_rules(rules)
             self._apply_server_tasks(tasks)
             if balance is not None:
                 self._apply_server_wallet(balance)
+            self._apply_active_free_pass(active_fp)
             for cmd in pending:
                 self._handle_command(cmd)
 
@@ -830,7 +833,14 @@ class Agent:
 
         if ctype == "start_free_pass":
             mins = int(payload.get("duration_minutes") or 0)
-            _log.info("start_free_pass: %d 分钟", mins)
+            if mins <= 0:
+                _log.warning("start_free_pass 缺 duration_minutes")
+                return
+            self._free_pass_until = datetime.utcnow() + timedelta(minutes=mins)
+            _log.info(
+                "★ 启动限免活动: %d 分钟, 期间 consumption 不扣 token (直到 %s)",
+                mins, self._free_pass_until.isoformat(timespec="seconds"),
+            )
             self.notifier.info_async(
                 self.messages.get("cmd_start_free_pass_body", minutes=mins),
                 title=self.messages.get("cmd_start_free_pass_title"),
@@ -838,11 +848,14 @@ class Agent:
             return
 
         if ctype == "end_free_pass":
-            _log.info("end_free_pass")
-            self.notifier.info_async(
-                self.messages.get("cmd_end_free_pass_body"),
-                title=self.messages.get("cmd_end_free_pass_title"),
-            )
+            was_active = self._free_pass_until is not None
+            self._free_pass_until = None
+            _log.info("★ 终止限免活动 (manual end, was_active=%s)", was_active)
+            if was_active:
+                self.notifier.info_async(
+                    self.messages.get("cmd_end_free_pass_body"),
+                    title=self.messages.get("cmd_end_free_pass_title"),
+                )
             return
 
         if ctype == "set_pin":
@@ -935,6 +948,64 @@ class Agent:
                 continue
             out.append((rid, self._rule_name(rid), secs))
         return out
+
+    def _build_tray_tooltip(self) -> str:
+        base = self.messages.get(
+            "tray_tooltip",
+            mode=self.session_manager.mode,
+            balance=self.wallet.get_balance(),
+        )
+        secs = self._free_pass_remaining_seconds()
+        if secs > 0:
+            mins = (secs + 59) // 60
+            return f"{base}\n限免中 · 剩 {mins} 分"
+        return base
+
+    # ── 限免活动 (§14.4) ─────────────────────────────────────
+    def _is_free_pass_active(self) -> bool:
+        """token_engine 用: True 时跳过 consumption 扣分。
+        过期项就地清掉, 同时弹"限免结束"通知。"""
+        if self._free_pass_until is None:
+            return False
+        from datetime import datetime
+        now = datetime.utcnow()
+        if now >= self._free_pass_until:
+            _log.info("★ 限免到期, 恢复正常计费")
+            self._free_pass_until = None
+            try:
+                self.notifier.info_async(
+                    self.messages.get("cmd_end_free_pass_body"),
+                    title=self.messages.get("cmd_end_free_pass_title"),
+                )
+            except Exception:
+                pass
+            return False
+        return True
+
+    def _free_pass_remaining_seconds(self) -> int:
+        """供 tray / overlay / panel 查询; 不主动清过期 (那个由 token tick 触发)。"""
+        if self._free_pass_until is None:
+            return 0
+        from datetime import datetime
+        secs = int((self._free_pass_until - datetime.utcnow()).total_seconds())
+        return max(0, secs)
+
+    def _apply_active_free_pass(self, info: dict | None) -> None:
+        """hello_ack 把 server 上未结束的限免段塞回来, 让 Agent 重启后继续生效。"""
+        if not info or not isinstance(info, dict):
+            return
+        try:
+            from datetime import datetime, timedelta
+            remaining = int(info.get("remaining_seconds") or 0)
+            if remaining <= 0:
+                return
+            self._free_pass_until = datetime.utcnow() + timedelta(seconds=remaining)
+            _log.info(
+                "★ hello_ack 恢复限免态: free_pass_id=%s, 剩余 %d 秒",
+                info.get("id"), remaining,
+            )
+        except Exception:
+            _log.exception("应用 active_free_pass 失败")
 
     def _apply_server_wallet(self, server_balance: int) -> None:
         try:

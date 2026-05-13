@@ -15,6 +15,7 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { lookupDeviceByToken } from "../routes/devices.js";
+import { getActiveFreePass } from "../routes/free_pass.js";
 import {
   createTaskClaimFromAgent,
   fetchActiveTasksForChild,
@@ -274,6 +275,9 @@ async function onHello(
   // 任务模板: 给 Agent 让它写本地 tasks.json + 重载 checklist
   const tasks = meta.child_id ? await fetchActiveTasksForChild(meta.child_id) : [];
 
+  // 活跃限免 (§14.4): Agent 重启后还能恢复限免态
+  const active_free_pass = meta.child_id ? await getActiveFreePass(meta.child_id) : null;
+
   socket.send(
     JSON.stringify({
       type: "hello_ack",
@@ -284,6 +288,7 @@ async function onHello(
         tasks,
         wallet_balance: wallet.rows[0]?.balance ?? 0,
         pending_commands: cmds.rows,
+        active_free_pass,
         server_time: new Date().toISOString(),
       },
     }),

@@ -1830,19 +1830,19 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 
 ### P2 — 远程控制 MVP（目标 3-4 周）
 
-- [ ] PostgreSQL schema `NinoGame` 建表
-- [ ] Node Backend：parents/children CRUD + 登录 + 设备配对 + WebSocket
-- [ ] Agent 接入 WebSocket，规则/分类/钱包从云端
-- [ ] React 控制台：登录 / 设备列表 / 规则编辑 / 任务管理 / 事件流
-- [ ] 一次性配对码流程
-- [ ] 申请-审批流程（不含 LLM）
-- [ ] 5 分钟使用上报 + 服务端聚合
-- [ ] 调账功能
-- [ ] 限免活动
-- [ ] 移动端响应式
-- [ ] 鼠标轨迹检测（防刷 ②）
+- [x] PostgreSQL schema `NinoGame` 建表
+- [x] Node Backend：parents/children CRUD + 登录 + 设备配对 + WebSocket
+- [x] Agent 接入 WebSocket，规则/分类/钱包从云端
+- [x] React 控制台：登录 / 设备列表 / 规则编辑 / 任务管理 / 事件流
+- [x] 一次性配对码流程
+- [x] 申请-审批流程（不含 LLM）
+- [x] 5 分钟使用上报 + 服务端聚合
+- [x] 调账功能
+- [x] 限免活动
+- [x] 移动端响应式
+- [x] 鼠标轨迹检测（防刷 ②）
 - [ ] 行为基线异常告警（防刷 ④）
-- [ ] **信任值机制**（P2 引入）
+- [x] **信任值机制**（P2 引入）
 
 **验收：** 家长用手机改规则，5s 内孩子电脑生效；Nino 启动 PvZ，家长手机能在事件流看到；Agent 断网 10min 重连后历史事件全补。
 

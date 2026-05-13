@@ -74,6 +74,7 @@ class TokenEngine:
         activity: ActivityDetector,
         messages: Messages,
         get_active_session_id: Callable[[], str | None],
+        is_free_pass_active: Callable[[], bool] | None = None,
     ) -> None:
         self._cfg = config
         self._get_foreground = get_foreground
@@ -86,6 +87,7 @@ class TokenEngine:
         self._activity = activity
         self._messages = messages
         self._get_session_id = get_active_session_id
+        self._is_free_pass_active = is_free_pass_active or (lambda: False)
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -206,6 +208,25 @@ class TokenEngine:
                 rate_multiplier=category.rate_multiplier,
                 active_seconds=0,
                 idle_seconds=tick_seconds,
+                period_start=period_start,
+                period_end=period_end,
+                tokens_consumed=0,
+            ))
+            return
+
+        # 限免期 (§14.4): consumption 跳扣, 但 active_seconds 仍记录用于审计
+        if self._is_free_pass_active():
+            _log.info(
+                "[tick] 前台=%s (consumption), 但限免活动中 → 跳过扣 token",
+                snap.name,
+            )
+            self._sessions.write_segment(AppSegment(
+                session_id=session_id,
+                app_identifier=snap.name.lower(),
+                category=category.category,
+                rate_multiplier=0.0,
+                active_seconds=tick_seconds,
+                idle_seconds=0,
                 period_start=period_start,
                 period_end=period_end,
                 tokens_consumed=0,

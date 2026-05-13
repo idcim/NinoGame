@@ -6,6 +6,7 @@ import {
   Clock,
   Copy,
   Gamepad2,
+  Gift,
   KeyRound,
   Loader2,
   Lock,
@@ -18,6 +19,7 @@ import {
 import {
   api,
   ApiError,
+  type ActiveFreePass,
   type CommandRow,
   type Device,
   type OnlineSession,
@@ -110,6 +112,8 @@ export default function DeviceDetail() {
       )}
 
       <QuickActions deviceId={id} onPushed={load} />
+
+      {device?.child_id && <FreePassSection childId={device.child_id} />}
 
       <DeviceAdmin
         deviceId={id}
@@ -629,6 +633,157 @@ function OnlineHistory({ deviceId }: { deviceId: string }) {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function FreePassSection({ childId }: { childId: string }) {
+  const [active, setActive] = useState<ActiveFreePass | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // 每秒刷新一次倒计时显示, 每 30s 才真正打 API 查最新活跃段
+  const [tick, setTick] = useState(0);
+
+  async function load() {
+    try {
+      const r = await api.getActiveFreePass(childId);
+      setActive(r.active);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "加载失败");
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const poll = setInterval(load, 30_000);
+    const t = setInterval(() => setTick((x) => x + 1), 1000);
+    return () => {
+      clearInterval(poll);
+      clearInterval(t);
+    };
+  }, [childId]);
+
+  async function start(minutes: number) {
+    if (
+      active &&
+      !confirm(`当前还有限免在进行中, 启动新一段会覆盖它。继续?`)
+    )
+      return;
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await api.startFreePass({
+        child_id: childId,
+        duration_minutes: minutes,
+      });
+      setMsg(
+        `限免 ${minutes} 分钟已${
+          r.pushed > 0 ? `下发到 ${r.pushed} 台在线设备` : "记录 (该孩子设备暂未连上)"
+        }`,
+      );
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function end() {
+    if (!active) return;
+    if (!confirm("终止当前限免? 终止后 consumption 类应用会立刻恢复扣 token。")) return;
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
+    try {
+      const r = await api.endFreePass(active.id);
+      setMsg(`限免已终止 (下发到 ${r.pushed} 台在线设备)`);
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // tick 强制 re-render; remaining 直接从 expires_at 算, 比 server 的 remaining_seconds 更精确
+  const remainingSec = active
+    ? Math.max(0, Math.floor((new Date(active.expires_at).getTime() - Date.now()) / 1000))
+    : 0;
+  // 仅用于让 lint 知道 tick 是有意被读到, 实际 re-render 由 setTick 触发
+  void tick;
+  const remainingMin = Math.ceil(remainingSec / 60);
+
+  return (
+    <section>
+      <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Gift size={18} className="text-brand" />
+        限免活动 (§14.4)
+      </h2>
+      <div className="card p-5 space-y-4">
+        {active && remainingSec > 0 ? (
+          <>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-accent/15 text-accent-600 flex items-center justify-center text-xl">
+                  🎁
+                </div>
+                <div>
+                  <div className="font-semibold text-ink">
+                    限免中 · 剩 {remainingMin} 分
+                  </div>
+                  <div className="text-xs text-ink-dim">
+                    起 {new Date(active.started_at).toLocaleTimeString()} ·
+                    {" "}计划 {active.expected_duration_minutes} 分 ·
+                    {" "}到期 {new Date(active.expires_at).toLocaleTimeString()}
+                  </div>
+                </div>
+              </div>
+              <button onClick={end} disabled={busy} className="btn-ghost text-warn">
+                <Lock size={14} />
+                立即终止
+              </button>
+            </div>
+            <p className="text-xs text-ink-dim">
+              期间该孩子所有设备上的 consumption 类应用不扣 token, 但仍记录 active 时间用于审计。
+              到期后 Agent 自动恢复正常计费 + 弹通知。
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="text-sm text-ink-dim">
+              一键放行: 期间 consumption 类应用 (PvZ / 视频 / 漫画 / 社交) 不扣 token,
+              规则仍生效 (没解锁 PvZ 还是会被拦)。常用于"今天家里有客"或"周末特别奖励"。
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[30, 60, 120].map((m) => (
+                <button
+                  key={m}
+                  onClick={() => start(m)}
+                  disabled={busy}
+                  className="btn-primary"
+                >
+                  <Gift size={14} />
+                  限免 {m >= 60 ? `${m / 60} 小时` : `${m} 分钟`}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {msg && (
+          <div className="text-sm text-accent-600 bg-accent/10 border border-accent/30 rounded px-3 py-2">
+            ✓ {msg}
+          </div>
+        )}
+        {err && (
+          <div className="text-sm text-warn bg-warn/10 border border-warn/30 rounded px-3 py-2">
+            {err}
           </div>
         )}
       </div>

@@ -51,6 +51,7 @@
 | ✅ | ~~鼠标轨迹防刷（§16）~~ | Agent 端 JigglerDetector: 每 1s 采样 cursor, 60s 窗口 bounding box <80px 判定机械感 → is_active_earning 返回 False (不刷分) + 发 JIGGLER_ALERT 事件 (家长浏览器实时看到, 5min 限频) |
 | ✅ | ~~任务管理 (§8.3 Path 3 + §8.6 责任清单)~~ | 浏览器 `/tasks` 页面: 模板 CRUD + 申报队列 (待审批/已批/已拒) + 责任清单 14/30 天历史日历; server `tasks_update` 全量推 → Agent 写本地 `tasks.json` + 重载 checklist; 责任勾选走 `event:checklist_tick` → server upsert `responsibility_checks`; 激励任务 approve 自动走 `task_reward` ledger + 推 `wallet_update` |
 | ✅ | ~~Agent 端激励任务申报 UI~~ | 托盘菜单 (child 模式) →「申报任务完成…」→ 列出本地 `tasks.json` 中所有 active+incentive 任务, 一行一个「申报完成」按钮 + 可选备注 → 发 `task_claim` WS → server 写 pending + 推家长浏览器; 家长批准后 `wallet_update` 推回 Agent, Agent 弹通知"+30 token 到账" |
+| ✅ | ~~限免活动 (§14.4)~~ | 设备详情页「限免 30 分 / 1 小时 / 2 小时」一键; backend `POST /api/free-pass` 写 `free_pass_periods` + push `start_free_pass` 到该孩子所有在线 Agent; Agent 期间 consumption 跳扣 token (规则仍生效); 浏览器实时显示倒计时 + 终止按钮; Agent 重连 hello_ack 带活跃段, 重启不丢限免态 |
 | 🟢 | **Android Agent** | Kotlin + AccessibilityService |
 
 ## 当前状态

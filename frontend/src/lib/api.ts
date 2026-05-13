@@ -267,6 +267,28 @@ export const api = {
     }>(
       `/api/responsibility-checks?child_id=${encodeURIComponent(child_id)}&days=${days}`,
     ),
+
+  // ── free pass (§14.4) ───────────────────────────────────────
+  startFreePass: (data: { child_id: string; duration_minutes: number; reason?: string }) =>
+    request<{
+      id: string;
+      child_id: string;
+      started_at: string;
+      expected_duration_minutes: number;
+      expires_at: string;
+      reason: string | null;
+      pushed: number;
+    }>("/api/free-pass", { method: "POST", body: JSON.stringify(data) }),
+
+  endFreePass: (id: string) =>
+    request<{ ok: boolean; pushed: number }>(`/api/free-pass/${id}/end`, {
+      method: "POST",
+    }),
+
+  getActiveFreePass: (child_id: string) =>
+    request<{ active: ActiveFreePass | null }>(
+      `/api/free-pass/active?child_id=${encodeURIComponent(child_id)}`,
+    ),
 };
 
 // ── types ──────────────────────────────────────────────────────
@@ -387,6 +409,15 @@ export interface ResponsibilityCheck {
   task_id: string;
   task_name: string;
   completed: boolean;
+}
+
+// ── free pass ─────────────────────────────────────────────────
+export interface ActiveFreePass {
+  id: string;
+  started_at: string;
+  expected_duration_minutes: number;
+  expires_at: string;
+  remaining_seconds: number;
 }
 
 // ── unlock requests ───────────────────────────────────────────
