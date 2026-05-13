@@ -157,8 +157,7 @@ async function handleMessage(
       await onEvent(meta, msg);
       break;
     case "usage_report":
-      // TODO: implement aggregation into app_sessions
-      app.log.debug({ device_id: meta.device_id }, "usage_report received (TODO)");
+      await onUsageReport(app, meta, msg);
       break;
     default:
       app.log.warn({ device_id: meta.device_id, type: msg.type }, "unknown ws message type");
@@ -224,6 +223,64 @@ async function onHello(
   app.log.info(
     { device_id: meta.device_id, rules: rules.rows.length, cmds: cmds.rows.length },
     "hello_ack sent",
+  );
+}
+
+async function onUsageReport(
+  app: FastifyInstance,
+  meta: AgentConnection,
+  msg: WsMessage,
+): Promise<void> {
+  const p = (msg.payload || {}) as {
+    period_start?: string;
+    period_end?: string;
+    foreground_segments?: Array<{
+      app: string;
+      category: string;
+      rate: number;
+      active_seconds: number;
+      idle_seconds: number;
+      tokens_consumed: number;
+    }>;
+    segment_count_raw?: number;
+  };
+  const segments = p.foreground_segments || [];
+  if (segments.length === 0 || !meta.child_id) return;
+
+  const startedAt = p.period_start ? new Date(p.period_start) : new Date();
+  const endedAt = p.period_end ? new Date(p.period_end) : startedAt;
+
+  // 每个 (app, category) 聚合行 → 一行 app_sessions
+  // 这里只写存档, 不再扣钱 (Agent 本地已扣); 后续如果要 server 端权威重算,
+  // 在这里加 wallet 调整逻辑即可
+  let inserted = 0;
+  for (const seg of segments) {
+    if (!seg.app || !seg.category) continue;
+    try {
+      await pool.query(
+        `INSERT INTO "NinoGame".app_sessions
+           (child_id, device_id, app_identifier, category,
+            started_at, ended_at, active_seconds, tokens_consumed)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          meta.child_id,
+          meta.device_id,
+          seg.app,
+          seg.category,
+          startedAt,
+          endedAt,
+          Math.max(0, Math.floor(seg.active_seconds || 0)),
+          Math.max(0, Math.floor(seg.tokens_consumed || 0)),
+        ],
+      );
+      inserted++;
+    } catch (err) {
+      app.log.warn({ err, app: seg.app }, "app_sessions insert failed");
+    }
+  }
+  app.log.info(
+    { device_id: meta.device_id, child_id: meta.child_id, inserted, raw: p.segment_count_raw },
+    "usage_report processed",
   );
 }
 

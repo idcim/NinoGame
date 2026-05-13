@@ -15,7 +15,7 @@
 | ✅ | ~~配对体验优化~~ | Agent GUI 配对对话框（托盘"重新配对家长后台"）+ 一键复制魔法链接（`URL/#pair=CODE`）+ 智能粘贴解析 |
 | ✅ | ~~规则编辑页~~ | 浏览器 `/rules` 页面: 增删改 + 启用/禁用 toggle, 保存即推送 WS rules_update; Agent 立即更新本地 rules.json |
 | ✅ | ~~每日基础发放搬服务端~~ | server `ensureTodayGrant` 行锁 + 事务 + 幂等 (按 PG `CURRENT_DATE`); Agent 配对后 hello_ack 触发, 离线时 fallback 到本地 |
-| 🟡 | **usage_report 服务端聚合** | Agent 5min segments → server 写 app_sessions + 重算钱包 |
+| ✅ | ~~usage_report 服务端聚合~~ | Agent 端 UsageReporter 周期上报未同步 segments → server INSERT `NinoGame.app_sessions` (按 app+category 聚合) |
 | 🟡 | **申请-审批流（§13）** | 孩子端 unlock_request → server → 家长批准 → 自动推 temporary_unlock |
 | 🟢 | **信任值机制（§8.7）** | server 定时任务，按行为升降 |
 | 🟢 | **鼠标轨迹防刷（§16）** + 异常告警 | Agent 端实现 |

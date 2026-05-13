@@ -467,6 +467,49 @@ class SqliteSessionRepository(SessionRepository):
         ).fetchone()
         return int(row["s"] or 0)
 
+    def pending_segments_for_upload(self, limit: int = 200) -> list[tuple[int, AppSegment]]:
+        rows = self._conn.execute(
+            "SELECT id, session_id, app_identifier, category, rate_multiplier, "
+            " active_seconds, idle_seconds, period_start, period_end, tokens_consumed "
+            "FROM app_segments WHERE synced_to_server = 0 "
+            "ORDER BY id ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        out: list[tuple[int, AppSegment]] = []
+        for r in rows:
+            try:
+                ps = datetime.fromisoformat(r["period_start"])
+            except Exception:
+                ps = datetime.utcnow()
+            try:
+                pe = datetime.fromisoformat(r["period_end"])
+            except Exception:
+                pe = ps
+            out.append((
+                int(r["id"]),
+                AppSegment(
+                    session_id=r["session_id"] or "",
+                    app_identifier=r["app_identifier"] or "",
+                    category=r["category"] or "neutral",
+                    rate_multiplier=float(r["rate_multiplier"] or 0.0),
+                    active_seconds=int(r["active_seconds"] or 0),
+                    idle_seconds=int(r["idle_seconds"] or 0),
+                    period_start=ps,
+                    period_end=pe,
+                    tokens_consumed=int(r["tokens_consumed"] or 0),
+                ),
+            ))
+        return out
+
+    def mark_segments_synced(self, local_ids: list[int]) -> None:
+        if not local_ids:
+            return
+        placeholders = ",".join("?" * len(local_ids))
+        self._conn.execute(
+            f"UPDATE app_segments SET synced_to_server = 1 WHERE id IN ({placeholders})",
+            list(local_ids),
+        )
+
 
 # ────────────────────────────────────────────────────────────────
 # 未知 App 队列

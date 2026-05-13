@@ -125,6 +125,15 @@ class SessionRepository(ABC):
         """今日所有 category='consumption' 片段累计 active_seconds，
         用于强制每日硬上限 (§7.4)。"""
 
+    @abstractmethod
+    def pending_segments_for_upload(self, limit: int = 200) -> list[tuple[int, AppSegment]]:
+        """拉未上报的 segments (synced_to_server=0); 返回 [(local_id, segment), ...]。
+        UsageReporter 周期调用, 拿到后通过 transport 推 server。"""
+
+    @abstractmethod
+    def mark_segments_synced(self, local_ids: list[int]) -> None:
+        """标记本地 id 已上报, 后续不再发送。"""
+
 
 class UnknownAppQueue(ABC):
     """未知 App 排队，等 P2 后端 LLM 分类。"""

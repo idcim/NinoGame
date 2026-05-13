@@ -29,6 +29,7 @@ from comms.event_bus import default_bus  # noqa: E402
 from comms.message_types import EventType, SessionEndReason, SessionMode  # noqa: E402
 from comms.null_transport import NullTransport  # noqa: E402
 from comms.transport import Transport  # noqa: E402
+from comms.usage_reporter import UsageReporter  # noqa: E402
 from core.activity_detector import ActivityDetector  # noqa: E402
 from core.checklist import ResponsibilityChecklist  # noqa: E402
 from core.classifier import Classifier  # noqa: E402
@@ -143,6 +144,7 @@ class Agent:
         self.bus = default_bus()
         self.transport = self._build_transport()
         self._bus_forwarders_wired = False  # _wire_transport 第一次接 bus, 后续 hot-swap 跳过
+        self.usage_reporter: UsageReporter | None = None
 
         # 业务
         self.messages = Messages(self.config_dir / "settings.json")
@@ -369,6 +371,16 @@ class Agent:
 
         _log.info("启动 transport ...")
         self._wire_transport()
+
+        _log.info("启动 usage_reporter (每 5 分钟上报 segments) ...")
+        self.usage_reporter = UsageReporter(
+            transport=self.transport,
+            sessions=self.sessions_repo,
+            child_id=str(self.settings.get("child_id", "")),
+            device_id=str(self.settings.get("device_id", "")),
+            interval_seconds=300,
+        )
+        self.usage_reporter.start()
 
         _log.info("启动 tray_icon ...")
         self.tray.start()
@@ -918,6 +930,14 @@ class Agent:
             if hasattr(self.transport, "start"):
                 self.transport.start()
 
+            # 5) usage_reporter 也指到新 transport + 新 child/device id
+            if self.usage_reporter is not None:
+                self.usage_reporter.update_transport(self.transport)
+                self.usage_reporter.update_identity(
+                    str(self.settings.get("child_id", "")),
+                    str(self.settings.get("device_id", "")),
+                )
+
             _log.info("transport 热换完成, WebSocketTransport 已启动")
             self.notifier.info_async(
                 f"配对成功，已连接 {server_url}",
@@ -1019,6 +1039,14 @@ class Agent:
 
     def _shutdown(self) -> None:
         _log.info("Agent shutdown sequence")
+        try:
+            if self.usage_reporter is not None:
+                n = self.usage_reporter.flush_now()
+                if n:
+                    _log.info("shutdown flush: 推送 %d segments", n)
+                self.usage_reporter.stop()
+        except Exception:
+            pass
         try:
             if hasattr(self.transport, "stop"):
                 self.transport.stop()
