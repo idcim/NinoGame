@@ -240,6 +240,8 @@ class Agent:
         self.messages_window: HistoryWindow | None = None  # 我的消息
         self.ledger_window: HistoryWindow | None = None    # 余额变动
         self.out_of_token_dialog: OutOfTokenDialog | None = None  # 余额耗尽锁屏
+        self._low_balance_warned: bool = False  # ≤10 提醒去重 flag, 回升到 >10 重置
+        self._low_balance_threshold: int = int(self.settings.get("low_balance_warn_threshold", 10))
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
@@ -714,6 +716,11 @@ class Agent:
                 # 透传 reason: server_sync (scheduler 定期推) 时 sync_balance 内部
                 # 会跳过 delta>0 的情况 (防 stale-read 回滚); 其它 reason 正常应用
                 self._apply_server_wallet(balance, reason=reason or "server_sync")
+                # 即时余额阈值检测 (不等下个 tick): 0 锁屏 / ≤10 低水位提醒
+                try:
+                    self._check_balance_threshold(int(balance))
+                except Exception:
+                    _log.exception("即时余额阈值检测失败")
 
             # 静默 reason: 每分钟的 app_consumption / server 主动同步 — 不弹 / 不入历史
             SILENT_REASONS = {"app_consumption", "server_sync"}
@@ -1291,6 +1298,49 @@ class Agent:
             target=_loop, name="unknown-apps-reporter", daemon=True,
         )
         self._unknown_apps_thread.start()
+
+    def _check_balance_threshold(self, balance: int) -> None:
+        """收到 wallet_update 时立即判余额阈值, 不等 token_engine 下个 tick.
+
+          balance ≤ 0  → 即时触发 _on_out_of_token (锁屏 + 切 Lock)
+                        + 同步 token_engine._oot_triggered=True 防重复触发
+          balance > 0 且之前是 OOT 态 → _on_token_replenished (开锁 + 切 Child)
+          0 < balance ≤ low_balance_threshold (默认 10) 且没提醒过 → 弹温和通知
+          balance > threshold → 重置 _low_balance_warned flag, 下次再到阈值时再提醒
+        """
+        if balance <= 0:
+            if not self.token_engine.is_oot_triggered():
+                _log.info("★ 即时检测: balance=%d ≤ 0 → 触发锁屏", balance)
+                self.token_engine.set_oot_triggered(True)
+                self._on_out_of_token()
+            return
+
+        # 余额 > 0
+        if self.token_engine.is_oot_triggered():
+            _log.info("★ 即时检测: balance=%d > 0, 之前锁屏中 → 解锁", balance)
+            self.token_engine.set_oot_triggered(False)
+            self._on_token_replenished()
+
+        # 低水位提醒
+        if balance <= self._low_balance_threshold:
+            if not self._low_balance_warned:
+                self._low_balance_warned = True
+                _log.info("★ 低水位提醒: balance=%d (≤%d)",
+                          balance, self._low_balance_threshold)
+                try:
+                    self.notifier.warn_async(
+                        f"还剩 {balance} token, 快用完了。\n"
+                        f"想继续可以申请游戏时间, 或者休息一下做点别的。",
+                        title="NinoGame · token 快用完",
+                    )
+                except Exception:
+                    _log.exception("低水位提醒通知失败")
+        else:
+            # 余额回升到阈值之上, 重置 flag 让下次再到阈值时能再提醒
+            if self._low_balance_warned:
+                self._low_balance_warned = False
+                _log.info("balance=%d > 阈值 %d, 重置低水位 flag",
+                          balance, self._low_balance_threshold)
 
     # ── 余额耗尽全屏锁屏 (网吧模式) ─────────────────────────
     def _on_out_of_token(self) -> None:

@@ -94,6 +94,17 @@ class TokenEngine:
         self._on_out_of_token = on_out_of_token
         self._on_token_replenished = on_token_replenished
         self._oot_triggered: bool = False  # 0 余额状态去重 flag
+        self._oot_lock = threading.Lock()
+
+    def set_oot_triggered(self, value: bool) -> None:
+        """main.py 在 on_wallet_update 即时检测时同步状态, 防止下个 tick
+        重复触发 callback. 也用于"已通过家长 PIN 切 Parent 但余额仍 0"场景."""
+        with self._oot_lock:
+            self._oot_triggered = bool(value)
+
+    def is_oot_triggered(self) -> bool:
+        with self._oot_lock:
+            return self._oot_triggered
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -213,11 +224,17 @@ class TokenEngine:
         if cur_balance < cost:
             _log.info("[tick] 余额不足 (local=%d, cost=%d), 触发余额耗尽锁屏 "
                       "(oot_triggered=%s, has_callback=%s)",
-                      cur_balance, cost, self._oot_triggered,
+                      cur_balance, cost, self.is_oot_triggered(),
                       self._on_out_of_token is not None)
             # 第一次进入耗尽态 → 通知 main.py 弹全屏锁屏 + 切 Lock 模式
-            if not self._oot_triggered and self._on_out_of_token is not None:
-                self._oot_triggered = True
+            # 用 lock 防 on_wallet_update 即时检测的并发
+            with self._oot_lock:
+                should_trigger = (
+                    not self._oot_triggered and self._on_out_of_token is not None
+                )
+                if should_trigger:
+                    self._oot_triggered = True
+            if should_trigger:
                 _log.info("★ 余额耗尽 → 调 on_out_of_token 回调")
                 try:
                     self._on_out_of_token()
@@ -232,13 +249,15 @@ class TokenEngine:
             return
 
         # 余额充足 → 如果之前是耗尽态, 通知 main.py 关锁屏 + 切回 Child
-        if self._oot_triggered:
-            self._oot_triggered = False
-            if self._on_token_replenished is not None:
-                try:
-                    self._on_token_replenished()
-                except Exception:
-                    _log.exception("on_token_replenished 回调失败")
+        with self._oot_lock:
+            was_oot = self._oot_triggered
+            if was_oot:
+                self._oot_triggered = False
+        if was_oot and self._on_token_replenished is not None:
+            try:
+                self._on_token_replenished()
+            except Exception:
+                _log.exception("on_token_replenished 回调失败")
 
         # 决策 #34: 推 WS token_tick 让 server 单一权威扣分; Agent 本地不再 deduct。
         # transport 没连接时跳过 (孩子离线时停扣, 与 CLAUDE.md §7.6 一致)。
