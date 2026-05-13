@@ -11,6 +11,38 @@ cd G:\DEL_GAME\infra
 docker compose up -d
 ```
 
+> ⚠ **如果拉镜像超时 / 报 `EOF` / 镜像源被墙**
+>
+> 国内 docker hub 镜像不稳定。三种修法 (按推荐度):
+>
+> **A) 永久修 — 改 daemon.json (1Panel 后台 → Docker → 配置 → 镜像加速):**
+> ```json
+> {
+>   "registry-mirrors": [
+>     "https://docker.m.daocloud.io",
+>     "https://docker.1ms.run",
+>     "https://dockerproxy.com",
+>     "https://hub-mirror.c.163.com"
+>   ]
+> }
+> ```
+> 改完 1Panel 里点"重启 Docker" (或 `sudo systemctl restart docker`)。
+>
+> **B) 临时 — 跑预拉脚本:**
+> ```powershell
+> .\pull-base-images.ps1
+> # 或 git bash: ./pull-base-images.sh
+> ```
+> 脚本会从 `docker.m.daocloud.io` 拉 `node:20-alpine` / `nginx:1.27-alpine` /
+> `postgres:15-alpine` 并打本地 tag, 之后 `docker compose build` 用本地缓存。
+>
+> **C) 一次性 — 手动:**
+> ```powershell
+> docker pull docker.m.daocloud.io/library/node:20-alpine
+> docker tag docker.m.daocloud.io/library/node:20-alpine node:20-alpine
+> # nginx / postgres 同理
+> ```
+
 启动后：
 
 | 服务 | 监听 | 用途 |
