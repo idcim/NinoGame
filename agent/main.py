@@ -1270,11 +1270,43 @@ class Agent:
                     get_transport_warning=self._transport_warning,
                     get_quick_options=self._get_request_quick_options,
                 )
+            self._pause_oot_while_dialog(self.request_dialog)
             self.request_dialog.show()
             self.request_dialog.raise_()
             self.request_dialog.activateWindow()
         except Exception:
             _log.exception("RequestDialog 显示失败")
+
+    def _pause_oot_while_dialog(self, dlg) -> None:
+        """所有"会被孩子在锁屏上看到"的 dialog 都该调一次:
+        若锁屏当前可见 → 暂停其抢焦点 timer (避免与本 dialog 互抢闪烁);
+        本 dialog 关闭后 (hideEvent/closeEvent 触发 on_closed) → 恢复.
+
+        兼顾两个入口:
+          - 锁屏按钮 (_oot_on_request) — 锁屏可见, pause + resume
+          - 托盘菜单 (_request_show_request_dialog) — 锁屏若不在不影响
+        dlg 必须有 on_closed: Callable[[], None] | None 字段.
+
+        注意: 多次连续弹同一 dialog 时, 后弹的 on_closed 会覆盖前面残留的;
+        本 helper 是一次性回调, 不存在累加风险。
+        """
+        oot = self.out_of_token_dialog
+        if oot is None or not oot.isVisible():
+            return
+        try:
+            oot.pause_focus_reclaim()
+        except Exception:
+            _log.exception("pause_focus_reclaim 失败")
+        def _resume() -> None:
+            try:
+                if oot.isVisible():
+                    oot.resume_focus_reclaim()
+            except Exception:
+                _log.exception("resume_focus_reclaim 失败")
+        try:
+            dlg.on_closed = _resume
+        except Exception:
+            _log.exception("注入 on_closed 失败 (dialog 缺字段?)")
 
     def _get_request_quick_options(self) -> list[str]:
         """家长后台配的"申请快捷选项", 由 settings_update 推送; 每次弹 dialog 时调."""
@@ -1498,31 +1530,11 @@ class Agent:
                 _log.exception("OutOfTokenDialog 隐藏失败")
 
     def _oot_on_request(self) -> None:
-        """孩子在锁屏上点"申请游戏时间" → 弹 RequestDialog (锁屏保持在底).
-
-        关键: 不 hide 锁屏, 只是暂停其抢焦点 timer (避免和 RequestDialog 互抢
-        造成的闪烁)。RequestDialog 关闭时通过 on_closed 回调恢复抢焦点,
-        锁屏立刻被拉回前台 — 孩子无法点完申请就绕过锁屏。
+        """孩子在锁屏上点"申请游戏时间" → 复用统一入口 _show_request_dialog_on_main,
+        它内部会通过 _pause_oot_while_dialog 自动暂停/恢复锁屏抢焦点 timer,
+        所以这里只需要派发到 GUI 线程即可 (锁屏不 hide, RequestDialog 在锁屏之上).
         """
-        oot = self.out_of_token_dialog
-        if oot is not None:
-            try:
-                oot.pause_focus_reclaim()
-            except Exception:
-                _log.exception("pause_focus_reclaim 失败")
-        # 弹 RequestDialog (在锁屏之上 Z 顺序; WindowStaysOnTopHint 保证)
         self._show_request_dialog_on_main()
-        # 注入一次性回调: RequestDialog 关闭 → 锁屏重新抢焦点
-        rd = self.request_dialog
-        if rd is not None and oot is not None:
-            def _resume_lock_after_close() -> None:
-                _log.info("[OOT] RequestDialog 关闭, 恢复锁屏焦点抢夺")
-                try:
-                    if oot.isVisible():
-                        oot.resume_focus_reclaim()
-                except Exception:
-                    _log.exception("resume_focus_reclaim 失败")
-            rd.on_closed = _resume_lock_after_close
 
     def _oot_on_parent_unlock(self) -> None:
         """孩子在锁屏上点"家长 PIN 解锁" → bridge.ask_pin → 通过则切 Parent.
@@ -1729,6 +1741,7 @@ class Agent:
                     logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
                     get_transport_warning=self._transport_warning,
                 )
+            self._pause_oot_while_dialog(self.task_claim_dialog)
             self.task_claim_dialog.show_for_user()
         except Exception:
             _log.exception("TaskClaimDialog 显示失败")

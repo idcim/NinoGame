@@ -63,6 +63,9 @@ class TaskClaimDialog(QWidget):
         self._on_submit = on_submit
         self._logo_path = str(logo_path) if logo_path else None
         self._get_transport_warning = get_transport_warning
+        # 关闭一次性回调; 用于锁屏 (OOT) 在场时恢复其抢焦点 timer.
+        # 同 RequestDialog._fire_on_closed 思路.
+        self.on_closed: Callable[[], None] | None = None
 
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -400,3 +403,22 @@ class TaskClaimDialog(QWidget):
         if self._drag_pos is not None and (event.buttons() & Qt.LeftButton):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
+
+    # 关闭通知: hide / close 都触发一次 on_closed, 一次性防重入.
+    def _fire_on_closed(self) -> None:
+        cb = self.on_closed
+        if cb is None:
+            return
+        self.on_closed = None
+        try:
+            cb()
+        except Exception:
+            _log.exception("[TaskClaimDialog] on_closed 回调失败")
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        super().hideEvent(event)
+        self._fire_on_closed()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        super().closeEvent(event)
+        self._fire_on_closed()
