@@ -18,6 +18,7 @@ import {
   startBehaviorBaselineScheduler,
   stopBehaviorBaselineScheduler,
 } from "./services/behavior_baseline_scheduler.js";
+import { seedDefaultRulesForChild } from "./services/default_rules.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 import { registerParentWebSocket } from "./ws/parent.js";
 
@@ -126,6 +127,31 @@ export async function buildServer() {
     }
   } catch (err) {
     app.log.warn({ err }, "photo verification migration failed (table may not exist yet)");
+  }
+
+  // ── 给老孩子补默认 PvZ 规则 (一次性) ──────────────────
+  // 新建孩子已经在 children.ts 事务里 seed; 这里照顾"升级前已存在
+  // 但还没有任何规则" 的孩子, 让"申请批准放行所有规则" 链路有东西可放行。
+  try {
+    const orphans = await pool.query<{ id: string }>(
+      `SELECT c.id FROM "NinoGame".children c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM "NinoGame".rules r WHERE r.child_id = c.id
+        )`,
+    );
+    if (orphans.rows.length > 0) {
+      const client = await pool.connect();
+      try {
+        for (const row of orphans.rows) {
+          await seedDefaultRulesForChild(client, row.id, app.log);
+        }
+      } finally {
+        client.release();
+      }
+      app.log.info({ count: orphans.rows.length }, "seeded default PvZ rule for orphan children");
+    }
+  } catch (err) {
+    app.log.warn({ err }, "seed orphan children failed");
   }
 
   // ── 后台任务 ────────────────────────────────────────────

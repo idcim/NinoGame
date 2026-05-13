@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { pool } from "../db.js";
+import { seedDefaultRulesForChild } from "../services/default_rules.js";
 import { pushToDevice } from "../ws/agent.js";
 import { publishToParent } from "../ws/event_bus.js";
 
@@ -48,27 +49,42 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
       return reply.conflict("孩子用户名已被使用");
     }
 
-    const r = await pool.query<ChildRow>(
-      `INSERT INTO "NinoGame".children
-        (parent_id, username, display_name, birth_year, maturity_mode, quota_package)
-       VALUES ($1, $2, $3, $4, COALESCE($5, 'negotiable'), COALESCE($6, 'balanced'))
-       RETURNING id, parent_id, username, display_name, birth_year,
-                 maturity_mode, quota_package, trust_level, created_at`,
-      [
-        req.parent!.sub,
-        data.username,
-        data.display_name ?? null,
-        data.birth_year ?? null,
-        data.maturity_mode ?? null,
-        data.quota_package ?? null,
-      ],
-    );
-    // 给孩子开一个钱包
-    await pool.query(
-      'INSERT INTO "NinoGame".wallets (child_id) VALUES ($1) ON CONFLICT DO NOTHING',
-      [r.rows[0].id],
-    );
-    return r.rows[0];
+    // 事务: child + wallet + default rule 一起做, 任何一步失败回滚
+    const client = await pool.connect();
+    let child: ChildRow;
+    try {
+      await client.query("BEGIN");
+      const r = await client.query<ChildRow>(
+        `INSERT INTO "NinoGame".children
+          (parent_id, username, display_name, birth_year, maturity_mode, quota_package)
+         VALUES ($1, $2, $3, $4, COALESCE($5, 'negotiable'), COALESCE($6, 'balanced'))
+         RETURNING id, parent_id, username, display_name, birth_year,
+                   maturity_mode, quota_package, trust_level, created_at`,
+        [
+          req.parent!.sub,
+          data.username,
+          data.display_name ?? null,
+          data.birth_year ?? null,
+          data.maturity_mode ?? null,
+          data.quota_package ?? null,
+        ],
+      );
+      child = r.rows[0];
+      // 钱包
+      await client.query(
+        'INSERT INTO "NinoGame".wallets (child_id) VALUES ($1) ON CONFLICT DO NOTHING',
+        [child.id],
+      );
+      // 默认规则 (PvZ 全家桶), 家长开箱就有, 不用再去 /rules 手动建
+      await seedDefaultRulesForChild(client, child.id, app.log);
+      await client.query("COMMIT");
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+    return child;
   });
 
   // ── 钱包调账 (家长酌赠 / 扣除) ────────────────────────
