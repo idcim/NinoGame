@@ -203,12 +203,27 @@ async function onHello(
         [meta.child_id],
       )
     : Promise.resolve({ rows: [{ balance: 0 }] });
+  // 只推过去 1 小时内的 pending 命令; 更老的视为过期 (用户离线太久了,
+  // 30 分钟解锁这种命令早已没意义, 不该重新触发)
   const cmdQuery = pool.query(
     `SELECT id, command_type, payload FROM "NinoGame".commands
-      WHERE device_id = $1 AND status = 'pending'
+      WHERE device_id = $1
+        AND status = 'pending'
+        AND created_at > NOW() - INTERVAL '1 hour'
       ORDER BY created_at`,
     [meta.device_id],
   );
+
+  // 顺手把 1 小时前的 pending 命令标 expired, 不再占空间也不再被任何
+  // 查询返回
+  void pool.query(
+    `UPDATE "NinoGame".commands
+        SET status = 'expired'
+      WHERE device_id = $1
+        AND status = 'pending'
+        AND created_at <= NOW() - INTERVAL '1 hour'`,
+    [meta.device_id],
+  ).catch(() => { /* 后台清理失败不影响主流程 */ });
 
   const [rules, wallet, cmds] = await Promise.all([rulesQuery, walletQuery, cmdQuery]);
   socket.send(

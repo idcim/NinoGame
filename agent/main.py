@@ -1014,10 +1014,15 @@ class Agent:
         return bool(url and token)
 
     def _on_pair_done(self, ok: bool, server_url: str, agent_token: str) -> None:
-        """配对成功后热换 transport, 无需重启 Agent。"""
+        """配对成功后热换 transport, 无需真重启 Agent 进程。
+
+        日志里会看到 "WS 已连接 / hello / hello_ack" 等行, 看起来像新启动 ——
+        但其实进程一直没断, 只是新的 WebSocketTransport 实例在跑握手。
+        PID 没变, 内存里的 wallet / panel / overlay 都是同一个对象。
+        """
         if not ok:
             return
-        _log.info("配对完成 (server=%s); 热换 transport ...", server_url)
+        _log.info("=== 配对完成 (server=%s); 开始 transport 热换 (Agent 进程不重启) ===", server_url)
         try:
             # 1) 重新读 settings.json (pair_dialog 已写入新值)
             settings_file = self.config_dir / "settings.json"
@@ -1052,7 +1057,7 @@ class Agent:
                     str(self.settings.get("device_id", "")),
                 )
 
-            _log.info("transport 热换完成, WebSocketTransport 已启动")
+            _log.info("=== transport 热换完成 (Agent PID 未变); WebSocketTransport 已启动 ===")
             self.notifier.info_async(
                 f"配对成功，已连接 {server_url}",
                 title="NinoGame · 配对成功",
