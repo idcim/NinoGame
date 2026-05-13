@@ -138,6 +138,23 @@ class Agent:
         self.settings = _read_settings(self.config_dir / "settings.json")
         overrides = self.settings.get("quota_overrides", {})
 
+        # 决策 #35: 老 settings.json 还在用 daily_hard_cap_minutes=120,
+        # 一次性迁移到 0 (= 不限)。家长想保留硬上限可后续主动设非 0。
+        if int(overrides.get("daily_hard_cap_minutes", 0)) == 120 \
+                and not self.settings.get("_migrated_hard_cap_v2"):
+            overrides["daily_hard_cap_minutes"] = 0
+            self.settings["quota_overrides"] = overrides
+            self.settings["_migrated_hard_cap_v2"] = True
+            try:
+                with open(self.config_dir / "settings.json", "w", encoding="utf-8") as f:
+                    json.dump(self.settings, f, ensure_ascii=False, indent=2)
+                _log.warning(
+                    "★ 决策 #35: 把 daily_hard_cap_minutes 从 120 迁到 0 (= 不限)。"
+                    " 如果你想保留 2 小时硬上限, 改回 120 (settings.json)"
+                )
+            except Exception:
+                _log.exception("写迁移后的 settings.json 失败")
+
         # 数据
         self.db = open_db(self.data_dir / "ninogame.db")
         self.rules_repo = JsonRuleRepository(self.config_dir / "rules.json")

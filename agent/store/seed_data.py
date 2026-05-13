@@ -150,7 +150,8 @@ def default_settings() -> dict:
             "weekday_base_tokens": 30,
             "weekend_base_tokens": 90,
             "daily_credit_cap": 120,
-            "daily_hard_cap_minutes": 120,
+            # 决策 #35: 0 = 不限制 (默认), 仅当家长想"用满 N 分钟即停"时设非 0
+            "daily_hard_cap_minutes": 0,
             "high_consumption_rate": 1.5,
         },
         # PIN：P1 占位空字符串，protector/pin_manager 自取

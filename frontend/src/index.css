@@ -43,3 +43,10 @@
   .badge-info    { @apply bg-brand-50 text-brand-600; }
   .badge-muted   { @apply bg-ink-light/15 text-ink-dim; }
 }
+
+/* Toast 飞入动画 */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 200ms ease-out; }

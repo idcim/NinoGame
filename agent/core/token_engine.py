@@ -178,24 +178,25 @@ class TokenEngine:
                                 mode_active=True, deducted=0, skip_reason="idle_user")
             return
 
-        # 每日硬上限
-        used_seconds_today = self._sessions.today_consumption_seconds()
-        cap_seconds = self._cfg.daily_hard_cap_minutes * 60
-        if used_seconds_today >= cap_seconds:
-            _log.info("[tick] 已达每日硬上限 (%d/%d 分钟) → 不扣 (前台=%s)",
-                      used_seconds_today // 60, self._cfg.daily_hard_cap_minutes,
-                      fg_name or "—")
-            self._notify_once_per_day("daily_cap", self._messages.get(
-                "block_daily_cap",
-                balance=self._wallet.get_balance(),
-                used_minutes=used_seconds_today // 60,
-                cap_minutes=self._cfg.daily_hard_cap_minutes,
-            ))
-            self._write_segment(session_id, app_id, category_label, tick_seconds, 0, 0,
-                                period_start, period_end)
-            self._emit_decision(foreground=fg_name, category=category_label,
-                                mode_active=True, deducted=0, skip_reason="daily_cap")
-            return
+        # 每日硬上限 (决策 #35: 默认 0 = 不限。家长可在 settings.json 设非 0 启用)
+        if self._cfg.daily_hard_cap_minutes > 0:
+            used_seconds_today = self._sessions.today_consumption_seconds()
+            cap_seconds = self._cfg.daily_hard_cap_minutes * 60
+            if used_seconds_today >= cap_seconds:
+                _log.info("[tick] 已达每日硬上限 (%d/%d 分钟) → 不扣 (前台=%s)",
+                          used_seconds_today // 60, self._cfg.daily_hard_cap_minutes,
+                          fg_name or "—")
+                self._notify_once_per_day("daily_cap", self._messages.get(
+                    "block_daily_cap",
+                    balance=self._wallet.get_balance(),
+                    used_minutes=used_seconds_today // 60,
+                    cap_minutes=self._cfg.daily_hard_cap_minutes,
+                ))
+                self._write_segment(session_id, app_id, category_label, tick_seconds, 0, 0,
+                                    period_start, period_end)
+                self._emit_decision(foreground=fg_name, category=category_label,
+                                    mode_active=True, deducted=0, skip_reason="daily_cap")
+                return
 
         # 计算 cost (统一 ratio, 不再 *rate_multiplier)
         cost = self._cost_for_seconds(tick_seconds, 1.0)

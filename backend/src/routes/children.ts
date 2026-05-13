@@ -185,6 +185,34 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── 全局 pending 计数 (任何页面都能看到红点 badge) ────
+  app.get(
+    "/api/pending-counts",
+    { preHandler: app.parentAuth },
+    async (req) => {
+      const parent_id = req.parent!.sub;
+      // task_completions pending: 该家长所有孩子的待审批任务
+      const t = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM "NinoGame".task_completions tc
+           JOIN "NinoGame".children c ON c.id = tc.child_id
+          WHERE c.parent_id = $1 AND tc.status = 'pending'`,
+        [parent_id],
+      );
+      const r = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM "NinoGame".unlock_requests ur
+           JOIN "NinoGame".children c ON c.id = ur.child_id
+          WHERE c.parent_id = $1 AND ur.status = 'pending'`,
+        [parent_id],
+      );
+      return {
+        pending_tasks: Number(t.rows[0].count),
+        pending_requests: Number(r.rows[0].count),
+      };
+    },
+  );
+
   // ── ledger 历史 (查最近 N 条 token 变动) ──────────────
   // 默认隐藏 app_consumption (每分钟 1 条噪音 = 1440/天), 仅展示家长操作
   // (parent_grant / task_reward / adjustment / daily_grant 等).

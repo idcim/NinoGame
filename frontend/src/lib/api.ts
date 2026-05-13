@@ -120,6 +120,12 @@ export const api = {
       `/api/children/${child_id}/ledger?limit=${limit}`,
     ),
 
+  /** 全局 pending 数量 (Layout 顶部 badge 用) */
+  getPendingCounts: () =>
+    request<{ pending_tasks: number; pending_requests: number }>(
+      `/api/pending-counts`,
+    ),
+
   // ── commands ──────────────────────────────────────────────
   pushCommand: (data: {
     device_id: string;
