@@ -186,7 +186,7 @@ class OutOfTokenDialog(QWidget):
 
         self._btn_shutdown = self._make_button(
             body, "关机休息", "fa5s.power-off", COLOR_WARN,
-            "30 秒后关机, 期间可点取消",
+            "10 分钟后关机, 期间可点取消",
         )
         self._btn_shutdown.clicked.connect(self._do_shutdown)
         bl.addWidget(self._btn_shutdown)
@@ -268,12 +268,12 @@ class OutOfTokenDialog(QWidget):
         if self._shutdown_timer is not None:
             self._cancel_shutdown()
             return
-        ok = self._trigger_shutdown(seconds=30)
+        ok = self._trigger_shutdown(seconds=600)  # 10 分钟
         if not ok:
             self._status.setText("× 系统拒绝关机, 联系家长")
             self._status.setVisible(True)
             return
-        self._shutdown_remaining = 30
+        self._shutdown_remaining = 600
         self._shutdown_timer = QTimer(self)
         self._shutdown_timer.timeout.connect(self._tick_shutdown)
         self._shutdown_timer.start(1000)
@@ -292,7 +292,13 @@ class OutOfTokenDialog(QWidget):
         self._update_shutdown_status()
 
     def _update_shutdown_status(self) -> None:
-        self._status.setText(f"⚠ {self._shutdown_remaining} 秒后关机 (再次点关机按钮可取消)")
+        # 大于 60s 显示分:秒; 否则只显示秒
+        s = self._shutdown_remaining
+        if s >= 60:
+            text = f"⚠ {s // 60} 分 {s % 60} 秒后关机 (再次点关机按钮可取消)"
+        else:
+            text = f"⚠ {s} 秒后关机 (再次点关机按钮可取消)"
+        self._status.setText(text)
         self._status.setVisible(True)
 
     def _cancel_shutdown(self) -> None:
@@ -308,16 +314,16 @@ class OutOfTokenDialog(QWidget):
         except Exception:
             _log.exception("取消关机命令失败")
         self._status.setVisible(False)
-        self._btn_shutdown.setText("  关机休息\n  30 秒后关机, 期间可点取消")
+        self._btn_shutdown.setText("  关机休息\n  10 分钟后关机, 期间可点取消")
         self._btn_request.setEnabled(True)
         self._btn_parent_unlock.setEnabled(True)
 
-    def _trigger_shutdown(self, seconds: int = 30) -> bool:
+    def _trigger_shutdown(self, seconds: int = 600) -> bool:
         try:
             if sys.platform == "win32":
                 subprocess.Popen([
                     "shutdown", "/s", "/t", str(seconds),
-                    "/c", "NinoGame: token 用光, 即将关机休息",
+                    "/c", f"NinoGame: token 用光, {seconds // 60} 分钟后关机休息",
                 ])
                 return True
             elif sys.platform.startswith("linux"):

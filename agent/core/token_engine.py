@@ -211,15 +211,20 @@ class TokenEngine:
         # 余额检查 (用 local cache, server 最近一次推过来的值; 防止过冲)
         cur_balance = self._wallet.get_balance()
         if cur_balance < cost:
-            _log.info("[tick] 余额不足 (local=%d, cost=%d), 触发余额耗尽锁屏",
-                      cur_balance, cost)
+            _log.info("[tick] 余额不足 (local=%d, cost=%d), 触发余额耗尽锁屏 "
+                      "(oot_triggered=%s, has_callback=%s)",
+                      cur_balance, cost, self._oot_triggered,
+                      self._on_out_of_token is not None)
             # 第一次进入耗尽态 → 通知 main.py 弹全屏锁屏 + 切 Lock 模式
             if not self._oot_triggered and self._on_out_of_token is not None:
                 self._oot_triggered = True
+                _log.info("★ 余额耗尽 → 调 on_out_of_token 回调")
                 try:
                     self._on_out_of_token()
                 except Exception:
                     _log.exception("on_out_of_token 回调失败")
+            elif self._on_out_of_token is None:
+                _log.warning("余额耗尽但 on_out_of_token callback 未注入! main.py 检查注入路径")
             self._write_segment(session_id, app_id, category_label, tick_seconds, 0, 0,
                                 period_start, period_end)
             self._emit_decision(foreground=fg_name, category=category_label,

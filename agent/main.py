@@ -266,6 +266,7 @@ class Agent:
             on_show_task_claim=self._request_show_task_claim_dialog,
             on_show_messages=self._request_show_messages_window,
             on_show_ledger=self._request_show_ledger_window,
+            on_switch_to_child=self._switch_back_to_child,
         )
 
         self._stop = False
@@ -1376,6 +1377,33 @@ class Agent:
             _log.exception("切 Parent 失败")
         # 不重置 token_engine._oot_triggered: 如果再切回 Child 且余额仍 0,
         # 应该再触发一次 (但通常家长会先发 token, 余额回正会自动 reset).
+        try:
+            self.notifier.info_async(
+                "已切到家长模式, 不计费。\n做完事在托盘点「切回孩子模式」恢复。",
+                title="NinoGame · 家长模式",
+            )
+        except Exception:
+            pass
+
+    def _switch_back_to_child(self) -> None:
+        """托盘点"切回孩子模式" → 切回 Child (开始计费)。
+        不要 PIN (切回是降权操作; 家长本人就在电脑前才会点)。
+        如果余额仍 0, token_engine 下一个 tick 会再触发 OutOfTokenDialog 锁屏。
+        """
+        _log.info("★ 切回孩子模式 (恢复计费)")
+        try:
+            self.session_manager.change_mode(
+                SessionMode.CHILD.value, SessionEndReason.SWITCHED.value,
+            )
+        except Exception:
+            _log.exception("切回 Child 失败")
+        try:
+            self.notifier.info_async(
+                "已切回孩子模式, 恢复计费。",
+                title="NinoGame",
+            )
+        except Exception:
+            pass
 
     def _send_token_tick(self, payload: dict) -> bool:
         """token_engine 每 tick 调; 把扣分意图推给 server 单一权威 (决策 #34)。
