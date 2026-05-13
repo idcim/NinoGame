@@ -598,7 +598,7 @@ Nino PIN（共享设备）
 - WS 发 session_close
 ```
 
-### 10.2 计费规则核心（**决策 #33 已修订**）
+### 10.2 计费规则核心（**决策 #33 + #36 修订**）
 
 ```python
 # 每 60s 一次 tick
@@ -607,32 +607,34 @@ for each tick:
         skip(reason='mode_off')
     elif free_pass_active:                   # 限免活动中
         skip(reason='free_pass')
-    elif not user_active:                    # 最近 2 分钟无键鼠输入
-        skip(reason='idle_user')
-    elif today_active_seconds >= hard_cap:   # 达到每日硬上限
+    elif daily_hard_cap_minutes > 0 and today_active >= cap:
         skip(reason='daily_cap'); notify_once()
     else:
         cost = tick_seconds / 60 * token_to_minute_ratio
-        ok = wallet.deduct(cost)
-        if not ok:
-            skip(reason='out_of_balance'); notify_once()
+        # 决策 #34: 推 token_tick 给 server, server 单一权威扣
+        sent = send_token_tick({amount: cost, ...})
+        if not sent:
+            skip(reason='transport_offline')
 ```
 
 **关键约束：**
 
-- **不再按 consumption / productive 区分前台** — 任何前台都按时长扣
+- **不再按 consumption / productive 区分前台** — 任何前台都按时长扣 (决策 #33)
+- **不再判定活跃** — child 模式在跑就扣, 不看键鼠输入 (决策 #36)
 - 余额耗尽 / 硬上限 **不再 kill 进程**，仅弹通知 + emit STATUS
 - 规则匹配（PvZ 等）的 `kill_and_warn` 不变：仍由 rule_engine 直接杀
 - Path 1 自动挣分链路已删除（决策 #33）
+- **扣分权威源**: server (决策 #34); Agent 推 token_tick → server 写 ledger + 推 wallet_update 回
 
-### 10.3 用户活跃判定
+### 10.3 用户活跃判定 (决策 #36 后简化)
 
 | 场景                     | 判定标准                  | 频率         |
 | ------------------------ | ------------------------- | ------------ |
-| 计费的"活跃"             | 最近 2 分钟内有键鼠输入   | 每 60 秒检查 |
 | 闲置自动 Lock 的"非活跃" | 连续 10 分钟无输入        | 实时         |
 
-> ~~"赚分判定的严格活跃"~~ (60s 内有 key/scroll/click) 随 Path 1 一并下线。鼠标轨迹检测（§16.1 ②）仍保留用于扣分场景的"是否真实在用"判定。
+> ~~"计费的活跃"~~ (最近 2 分钟有键鼠输入) 已下线 (决策 #36): child 模式在跑就扣, 闲置 10 分钟自动 Lock 兜底。
+> ~~"赚分判定的严格活跃"~~ 已下线 (决策 #33: Path 1 取消)。
+> 鼠标轨迹检测 (§16.1 ②) 仍保留但当前没有调用场景, 等未来恢复 Path 1 / 严格活跃判定时再启用。
 
 差异：**赚分判定更严格**——纯鼠标移动（jiggler 典型行为）不算活跃，必须有键盘 / 滚轮 / 点击事件。
 
@@ -1922,6 +1924,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 | 33   | 扣分模型              | **统一在线时长扣分**: child + 活跃 + 非限免 → 每分钟扣 N (settings.json 可调, 默认 1)。**Path 1 自动挣分下线**, 不再按 consumption/productive 分类。余额耗尽/硬上限**不再 kill 进程**, 仅弹通知。规则匹配 kill 不变。 | §7, §8.1, §10.2, §16 |
 | 34   | 扣分权威源            | **server 单一权威**: Agent token_engine 每 tick 通过 WS `token_tick` 把扣分意图推给 server, server 写 ledger + UPDATE wallets + 推 `wallet_update` 回。Agent 本地不再 deduct, balance 完全由 server 推送驱动。`usage_report` 退化为纯审计 (写 app_sessions, 不再据 segments 减 wallet, 修复双重扣分)。离线时跳过扣分 (与 §7.6 一致)。 | §10, §11.2, §19 |
 | 35   | 每日硬上限默认        | **取消默认 daily_hard_cap_minutes=120, 改 0=不限**: 决策 #33 已经把扣分和 active 时长绑定 (用就扣, 不够申请), 再叠加 "用满 N 分钟即停" 反而让孩子"卡到 X token 后免费玩剩下时间"。家长想用硬上限仍可手动设非 0 启用。 | §7.4, §10.2 |
+| 36   | 取消活跃判定          | **child 模式在跑即扣**: 不再判定"最近 2 分钟有键鼠输入"。理由: 用户报"不管什么情况, 模式在运行就要扣费" (孩子看视频不动鼠也该扣)。闲置 10 分钟自动 Lock 仍兜底, 真正离开屏幕的场景由 Lock 停扣。`is_active_consumption` 函数保留但仅用于活跃事件流, 不参与扣分决策。 | §10.2, §10.3 |
 
 ------
 

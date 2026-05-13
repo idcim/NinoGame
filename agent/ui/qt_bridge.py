@@ -94,6 +94,22 @@ class DialogBridge(QObject):
         self._confirm_signal.connect(self._on_confirm)
         self._pair_signal.connect(self._on_pair)
         self._run_signal.connect(self._on_run)
+        # 保活集合: 非模态 dialog (show() 而非 exec()) 退出函数后会被 GC 销毁
+        # → "弹窗一闪就没". 这里 hold 引用, 关闭时移除。
+        self._active_dialogs: set = set()
+
+    def _track_dialog(self, d) -> None:
+        """非模态 dialog 必须 hold 引用否则 GC 立刻销毁。
+        finished 信号一来就移除, 防止内存堆积。"""
+        self._active_dialogs.add(d)
+        try:
+            d.finished.connect(lambda _result, _d=d: self._active_dialogs.discard(_d))
+        except Exception:
+            # 某些 QWidget 没有 finished 信号; 走 destroyed 兜底
+            try:
+                d.destroyed.connect(lambda _o=None, _d=d: self._active_dialogs.discard(_d))
+            except Exception:
+                pass
 
     @Slot(object)
     def _on_run(self, fn) -> None:
@@ -122,7 +138,10 @@ class DialogBridge(QObject):
                 auto_close_seconds=req.auto_close_seconds,
                 accent_color=req.accent,
             )
+            self._track_dialog(d)  # 关键: hold 引用, 否则 GC 销毁 → 一闪就没
             d.show()
+            d.raise_()
+            d.activateWindow()
         except Exception:
             _log.exception("WarningDialog 创建失败")
 

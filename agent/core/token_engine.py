@@ -160,7 +160,7 @@ class TokenEngine:
         fg_name = snap.name if snap else None
         app_id = (snap.name.lower() if snap else "(no_foreground)")
 
-        # 限免活动: 任何前台都跳扣
+        # 限免活动: 跳扣
         if self._is_free_pass_active():
             _log.info("[tick] 限免活动中 → 跳过扣 token (前台=%s)", fg_name or "—")
             self._write_segment(session_id, app_id, category_label, tick_seconds, 0, 0,
@@ -169,14 +169,9 @@ class TokenEngine:
                                 mode_active=True, deducted=0, skip_reason="free_pass")
             return
 
-        # 活跃判定: 最近 2 分钟有键鼠输入
-        if not self._activity.is_active_consumption():
-            _log.info("[tick] 用户闲置 (无最近输入) → 不扣 (前台=%s)", fg_name or "—")
-            self._write_segment(session_id, app_id, category_label, 0, tick_seconds, 0,
-                                period_start, period_end)
-            self._emit_decision(foreground=fg_name, category=category_label,
-                                mode_active=True, deducted=0, skip_reason="idle_user")
-            return
+        # 决策 #36: 不再判定活跃, child 模式在跑就扣。理由: 用户报
+        # "不管什么情况, 模式在运行就要扣费"。闲置 10 分钟仍会自动 Lock 停扣,
+        # 真正离开屏幕的场景由 idle Lock 兜底。
 
         # 每日硬上限 (决策 #35: 默认 0 = 不限。家长可在 settings.json 设非 0 启用)
         if self._cfg.daily_hard_cap_minutes > 0:
