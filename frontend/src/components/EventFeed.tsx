@@ -1,7 +1,9 @@
 import {
   AlertTriangle,
   Ban,
+  CheckSquare,
   CircleDot,
+  ClipboardList,
   Gem,
   Loader2,
   LogIn,
@@ -26,6 +28,8 @@ const TYPE_META: Record<
   jiggler_alert:   { icon: AlertTriangle,  label: "刷分嫌疑",    tone: "warn" },
   unknown_app:     { icon: CircleDot,      label: "未知应用",     tone: "info" },
   unlock_request:  { icon: MessageSquare,  label: "孩子申请",     tone: "info" },
+  task_claim:      { icon: ClipboardList,  label: "任务申报",     tone: "info" },
+  checklist_tick:  { icon: CheckSquare,    label: "责任清单",     tone: "ok"   },
   status:          { icon: CircleDot,      label: "状态",         tone: "info" },
 };
 
@@ -59,6 +63,16 @@ function _renderSummary(ev: LiveEvent): string {
   if (ev.event_type === "unlock_request") {
     const text = p?.request_text as string | undefined;
     return text ? `「${text}」 → 去「申请」页处理` : "新申请, 去「申请」页处理";
+  }
+  if (ev.event_type === "task_claim") {
+    const name = p?.task_name as string | undefined;
+    const reward = p?.reward_tokens as number | undefined;
+    return `${name ?? "任务"} → +${reward ?? 0} token, 去「任务」页审批`;
+  }
+  if (ev.event_type === "checklist_tick") {
+    const tid = p?.task_id as string | undefined;
+    const done = p?.completed as boolean | undefined;
+    return `${tid ?? "—"} ${done ? "✓ 完成" : "✗ 撤销"}`;
   }
   // 默认: 拍扁前 2 个字段
   const keys = Object.keys(p ?? {}).slice(0, 2);

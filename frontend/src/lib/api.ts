@@ -193,6 +193,80 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ comment }),
     }),
+
+  // ── tasks ──────────────────────────────────────────────────
+  listTasks: (child_id: string) =>
+    request<{ tasks: Task[] }>(
+      `/api/tasks?child_id=${encodeURIComponent(child_id)}`,
+    ),
+
+  createTask: (data: {
+    child_id: string;
+    name: string;
+    category: TaskCategory;
+    reward_tokens: number;
+    daily_max_completions?: number;
+    verification?: TaskVerification;
+    schedule?: TaskSchedule;
+    active?: boolean;
+  }) =>
+    request<{ task: Task; pushed: number }>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateTask: (
+    id: string,
+    data: Partial<{
+      name: string;
+      category: TaskCategory;
+      reward_tokens: number;
+      daily_max_completions: number;
+      verification: TaskVerification;
+      schedule: TaskSchedule;
+      active: boolean;
+    }>,
+  ) =>
+    request<{ task: Task; pushed: number }>(`/api/tasks/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  deleteTask: (id: string) =>
+    request<{ ok: boolean; pushed: number }>(`/api/tasks/${id}`, {
+      method: "DELETE",
+    }),
+
+  // ── task completions (孩子申报 → 家长审批) ──────────────────
+  listTaskCompletions: (status: "pending" | "approved" | "rejected" | "all" = "pending") =>
+    request<{ completions: TaskCompletion[] }>(
+      `/api/task-completions?status=${encodeURIComponent(status)}`,
+    ),
+
+  approveTaskCompletion: (
+    id: string,
+    data: { reward_override?: number; comment?: string } = {},
+  ) =>
+    request<{ ok: boolean; reward: number; balance: number; pushed: number }>(
+      `/api/task-completions/${id}/approve`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  rejectTaskCompletion: (id: string, comment?: string) =>
+    request<{ ok: boolean }>(`/api/task-completions/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ comment }),
+    }),
+
+  // ── responsibility checks ───────────────────────────────────
+  listResponsibilityChecks: (child_id: string, days = 14) =>
+    request<{
+      checks: ResponsibilityCheck[];
+      responsibility_tasks: Array<{ id: string; name: string }>;
+      days: number;
+    }>(
+      `/api/responsibility-checks?child_id=${encodeURIComponent(child_id)}&days=${days}`,
+    ),
 };
 
 // ── types ──────────────────────────────────────────────────────
@@ -269,6 +343,50 @@ export interface Rule {
   enabled: boolean;
   spec: RuleSpec;
   updated_at: string;
+}
+
+// ── tasks ─────────────────────────────────────────────────────
+export type TaskCategory = "responsibility" | "incentive";
+export type TaskVerification = "parent_approve" | "photo" | "self_report" | "auto";
+export type TaskSchedule = "daily" | "weekly" | "once";
+export type TaskCompletionStatus = "pending" | "approved" | "rejected";
+
+export interface Task {
+  id: string;
+  child_id: string;
+  name: string;
+  category: TaskCategory;
+  reward_tokens: number;
+  daily_max_completions: number;
+  verification: TaskVerification;
+  schedule: TaskSchedule;
+  active: boolean;
+}
+
+export interface TaskCompletion {
+  id: string;
+  task_id: string;
+  child_id: string;
+  status: TaskCompletionStatus;
+  photo_url: string | null;
+  child_note: string | null;
+  llm_summary: string | null;
+  parent_decision_at: string | null;
+  parent_comment: string | null;
+  reward_granted: number | null;
+  created_at: string;
+  child_username?: string;
+  display_name?: string | null;
+  task_name?: string;
+  task_category?: TaskCategory;
+  reward_tokens?: number;
+}
+
+export interface ResponsibilityCheck {
+  check_date: string;
+  task_id: string;
+  task_name: string;
+  completed: boolean;
 }
 
 // ── unlock requests ───────────────────────────────────────────

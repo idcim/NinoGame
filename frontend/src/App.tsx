@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import DeviceDetail from "./pages/DeviceDetail";
 import Requests from "./pages/Requests";
 import Rules from "./pages/Rules";
+import Tasks from "./pages/Tasks";
 import Layout from "./components/Layout";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/requests" element={<Requests />} />
         <Route path="/rules" element={<Rules />} />
+        <Route path="/tasks" element={<Tasks />} />
         <Route path="/device/:id" element={<DeviceDetail />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

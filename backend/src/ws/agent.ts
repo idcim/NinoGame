@@ -15,6 +15,11 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { lookupDeviceByToken } from "../routes/devices.js";
+import {
+  createTaskClaimFromAgent,
+  fetchActiveTasksForChild,
+  recordResponsibilityTickFromAgent,
+} from "../routes/tasks.js";
 import { createUnlockRequestFromAgent } from "../routes/unlock_requests.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
@@ -191,13 +196,16 @@ async function handleMessage(
       await onHeartbeat(meta, msg);
       break;
     case "event":
-      await onEvent(meta, msg);
+      await onEvent(app, meta, msg);
       break;
     case "usage_report":
       await onUsageReport(app, meta, msg);
       break;
     case "unlock_request":
       await onUnlockRequest(app, meta, msg);
+      break;
+    case "task_claim":
+      await onTaskClaim(app, meta, msg);
       break;
     default:
       app.log.warn({ device_id: meta.device_id, type: msg.type }, "unknown ws message type");
@@ -262,6 +270,10 @@ async function onHello(
   ).catch(() => { /* 后台清理失败不影响主流程 */ });
 
   const [rules, wallet, cmds] = await Promise.all([rulesQuery, walletQuery, cmdQuery]);
+
+  // 任务模板: 给 Agent 让它写本地 tasks.json + 重载 checklist
+  const tasks = meta.child_id ? await fetchActiveTasksForChild(meta.child_id) : [];
+
   socket.send(
     JSON.stringify({
       type: "hello_ack",
@@ -269,6 +281,7 @@ async function onHello(
         device_id: meta.device_id,
         child_id: meta.child_id,
         rules: rules.rows,
+        tasks,
         wallet_balance: wallet.rows[0]?.balance ?? 0,
         pending_commands: cmds.rows,
         server_time: new Date().toISOString(),
@@ -276,7 +289,12 @@ async function onHello(
     }),
   );
   app.log.info(
-    { device_id: meta.device_id, rules: rules.rows.length, cmds: cmds.rows.length },
+    {
+      device_id: meta.device_id,
+      rules: rules.rows.length,
+      tasks: tasks.length,
+      cmds: cmds.rows.length,
+    },
     "hello_ack sent",
   );
 
@@ -314,6 +332,26 @@ async function onUnlockRequest(
     meta.device_id,
     text,
     p.structured || {},
+  );
+}
+
+async function onTaskClaim(
+  app: FastifyInstance,
+  meta: AgentConnection,
+  msg: WsMessage,
+): Promise<void> {
+  const p = (msg.payload || {}) as {
+    task_id?: string;
+    child_note?: string;
+  };
+  const task_id = String(p.task_id || "").trim();
+  if (!task_id || !meta.child_id) return;
+  await createTaskClaimFromAgent(
+    app,
+    meta.child_id,
+    meta.device_id,
+    task_id,
+    p.child_note,
   );
 }
 
@@ -446,7 +484,7 @@ async function onHeartbeat(meta: AgentConnection, _msg: WsMessage): Promise<void
   );
 }
 
-async function onEvent(meta: AgentConnection, msg: WsMessage): Promise<void> {
+async function onEvent(app: FastifyInstance, meta: AgentConnection, msg: WsMessage): Promise<void> {
   const payload = msg.payload as { event_type?: string; payload?: unknown };
   if (!payload?.event_type) return;
   const occurred_at = new Date().toISOString();
@@ -455,6 +493,20 @@ async function onEvent(meta: AgentConnection, msg: WsMessage): Promise<void> {
      VALUES ($1, $2, $3, $4)`,
     [meta.child_id, meta.device_id, payload.event_type, payload.payload ?? {}],
   );
+
+  // 责任清单勾选 → upsert responsibility_checks (Agent 不直接调 REST,
+  // 走 bus 转发的事件统一通道; 这里在 server 端拆出来落表)
+  if (payload.event_type === "checklist_tick" && meta.child_id) {
+    const p = (payload.payload || {}) as { task_id?: string; completed?: boolean };
+    if (p.task_id) {
+      await recordResponsibilityTickFromAgent(
+        app,
+        meta.child_id,
+        String(p.task_id),
+        Boolean(p.completed),
+      );
+    }
+  }
 
   // 解析孩子的 parent_id, 推到所有该家长打开的浏览器
   if (meta.child_id) {

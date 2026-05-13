@@ -1,4 +1,4 @@
-import { LogOut, LayoutGrid, MessageSquare, Shield } from "lucide-react";
+import { ClipboardList, LogOut, LayoutGrid, MessageSquare, Shield } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { clearAuth, getParent } from "../lib/auth";
 
@@ -52,6 +52,18 @@ export default function Layout() {
             >
               <Shield size={14} />
               规则
+            </NavLink>
+            <NavLink
+              to="/tasks"
+              className={({ isActive }) =>
+                "px-3 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition-colors " +
+                (isActive
+                  ? "bg-brand-50 text-brand-600"
+                  : "text-ink-dim hover:text-ink")
+              }
+            >
+              <ClipboardList size={14} />
+              任务
             </NavLink>
           </nav>
           <div className="flex items-center gap-3 text-sm text-ink-dim">

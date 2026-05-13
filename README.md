@@ -23,6 +23,13 @@
 - 备注: 孩子可见
 - 立即推 `wallet_update` 给在线 Agent (本地缓存秒级同步) + 推 `token_credit/deduct` 事件给浏览器实时面板
 
+### 任务管理 (`/tasks`)
+- **三个 tab**: 申报队列 (默认, 显示孩子点「我做完了」后待审批) · 任务模板 (按激励/责任分组 CRUD) · 责任清单历史 (7/14/30 天日历视图 + 完成率%)
+- **激励任务** (incentive): `name`, `reward_tokens` (≤500), `verification` (家长审批/拍照/自报/自动), `schedule` (每日/每周/一次性), `daily_max_completions`; 审批通过会写一笔 `task_reward` ledger 并推 `wallet_update` 给在线 Agent
+- **责任清单** (responsibility): 强制 `reward_tokens=0` (§8.6), 孩子在 Agent 托盘菜单勾选 → 通过 bus `checklist_tick` 事件传到 server → upsert `responsibility_checks` (按 task+date 唯一)
+- **Agent 同步**: 模板增删改后 server 立刻全量推 `tasks_update`; Agent 收到后覆写本地 `config/tasks.json` + 重载 `ResponsibilityChecklist` (responsibility 类立即在托盘菜单刷新)
+- **审批拒绝**: 不扣已有余额, 仅标 status=rejected, reward_granted=0; 孩子端目前只在浏览器可见家长意见
+
 ## 后续计划 (P2 收尾 / P3)
 
 | 优先 | 事项 | 形态 |
@@ -34,6 +41,8 @@
 | ✅ | ~~申请-审批流（§13）~~ | Agent 端「申请游戏时间」对话框 → WS 上报 → 家长浏览器 /requests 一键批准 (10/30/60 分钟) → 自动 push temporary_unlock |
 | ✅ | ~~信任值机制（§8.7）~~ | server `recomputeTrust` 在每次审批后异步触发: 30 天窗口 ≥5 样本, reject_rate >30%→ -1, <5%→ +1; 24h 冷却; 写 `trust_changes` ledger; frontend 卡片显示星级 |
 | ✅ | ~~鼠标轨迹防刷（§16）~~ | Agent 端 JigglerDetector: 每 1s 采样 cursor, 60s 窗口 bounding box <80px 判定机械感 → is_active_earning 返回 False (不刷分) + 发 JIGGLER_ALERT 事件 (家长浏览器实时看到, 5min 限频) |
+| ✅ | ~~任务管理 (§8.3 Path 3 + §8.6 责任清单)~~ | 浏览器 `/tasks` 页面: 模板 CRUD + 申报队列 (待审批/已批/已拒) + 责任清单 14/30 天历史日历; server `tasks_update` 全量推 → Agent 写本地 `tasks.json` + 重载 checklist; 责任勾选走 `event:checklist_tick` → server upsert `responsibility_checks`; 激励任务 approve 自动走 `task_reward` ledger + 推 `wallet_update` |
+| 🟡 | Agent 端激励任务申报 UI | 托盘/状态面板加「申报完成」入口 → 发 `task_claim` WS; 当前 backend 已支持, 仅缺 Agent UI |
 | 🟢 | **Android Agent** | Kotlin + AccessibilityService |
 
 ## 当前状态

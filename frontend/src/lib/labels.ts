@@ -152,6 +152,50 @@ export function onlineLabel(online: boolean): string {
   return online ? "在线" : "离线";
 }
 
+// 任务类别 (§8)
+export const TASK_CATEGORY_LABELS: Record<string, string> = {
+  responsibility: "责任 (不挣分)",
+  incentive:      "激励 (挣 token)",
+};
+
+export function taskCategoryLabel(v?: string | null): string {
+  return TASK_CATEGORY_LABELS[v || ""] || v || "—";
+}
+
+// 任务验证方式 (§8.2)
+export const TASK_VERIFICATION_LABELS: Record<string, string> = {
+  parent_approve: "家长审批",
+  photo:          "拍照证明",
+  self_report:    "自报为准",
+  auto:           "自动检测",
+};
+
+export function taskVerificationLabel(v?: string | null): string {
+  return TASK_VERIFICATION_LABELS[v || ""] || v || "—";
+}
+
+// 任务周期
+export const TASK_SCHEDULE_LABELS: Record<string, string> = {
+  daily:  "每日",
+  weekly: "每周",
+  once:   "一次性",
+};
+
+export function taskScheduleLabel(v?: string | null): string {
+  return TASK_SCHEDULE_LABELS[v || ""] || v || "—";
+}
+
+// 任务完成状态
+export const TASK_COMPLETION_STATUS_LABELS: Record<string, string> = {
+  pending:  "待审批",
+  approved: "已批准",
+  rejected: "已拒绝",
+};
+
+export function taskCompletionStatusLabel(v?: string | null): string {
+  return TASK_COMPLETION_STATUS_LABELS[v || ""] || v || "—";
+}
+
 // 时长格式化: 86400 → "1 天" / 3600 → "1 小时" / 90 → "1 分 30 秒"
 export function formatDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds < 0) return "—";

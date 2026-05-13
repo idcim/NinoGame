@@ -577,13 +577,15 @@ class Agent:
         def on_hello_ack(msg):
             payload = msg.get("payload", {}) or {}
             rules = payload.get("rules") or []
+            tasks = payload.get("tasks") or []
             balance = payload.get("wallet_balance", None)
             pending = payload.get("pending_commands") or []
             _log.info(
-                "收到 hello_ack: server rules=%d, wallet=%s, pending_cmds=%d",
-                len(rules), balance, len(pending),
+                "收到 hello_ack: server rules=%d, tasks=%d, wallet=%s, pending_cmds=%d",
+                len(rules), len(tasks), balance, len(pending),
             )
             self._apply_server_rules(rules)
+            self._apply_server_tasks(tasks)
             if balance is not None:
                 self._apply_server_wallet(balance)
             for cmd in pending:
@@ -593,6 +595,11 @@ class Agent:
             rules = (msg.get("payload") or {}).get("rules") or []
             _log.info("收到 rules_update: %d 条", len(rules))
             self._apply_server_rules(rules)
+
+        def on_tasks_update(msg):
+            tasks = (msg.get("payload") or {}).get("tasks") or []
+            _log.info("收到 tasks_update: %d 条", len(tasks))
+            self._apply_server_tasks(tasks)
 
         def on_wallet_update(msg):
             balance = (msg.get("payload") or {}).get("balance")
@@ -606,6 +613,7 @@ class Agent:
         self.transport.subscribe("_connected", on_connected)
         self.transport.subscribe("hello_ack", on_hello_ack)
         self.transport.subscribe("rules_update", on_rules_update)
+        self.transport.subscribe("tasks_update", on_tasks_update)
         self.transport.subscribe("wallet_update", on_wallet_update)
         self.transport.subscribe("command", on_command)
 
@@ -635,6 +643,7 @@ class Agent:
             EventType.JIGGLER_ALERT,
             EventType.PIN_FAIL,
             EventType.UNKNOWN_APP,
+            EventType.CHECKLIST_TICK,
         ):
             self.bus.subscribe(evt.value, forward_event_to_server)
 
@@ -667,6 +676,43 @@ class Agent:
                 )
         except Exception:
             _log.exception("startup diagnostic 失败")
+
+    def _apply_server_tasks(self, server_tasks: list[dict]) -> None:
+        """server tasks: [{id, child_id, name, category, reward_tokens, ...}, ...]
+        覆写本地 config/tasks.json + 重载 checklist (responsibility 类立刻刷新)。
+
+        激励类 (incentive) 现在仅写入本地 (P2 留给 P3 在托盘加"申报完成"按钮);
+        责任类 (responsibility) 立刻通过 checklist 展示在 tray 菜单。
+        """
+        if not server_tasks:
+            _log.info("server 端无任务模板; 保留本地 tasks.json")
+            return
+        try:
+            normalized = []
+            for t in server_tasks:
+                normalized.append({
+                    "id": str(t.get("id", "")),
+                    "name": str(t.get("name", "")),
+                    "category": str(t.get("category", "incentive")),
+                    "reward_tokens": int(t.get("reward_tokens", 0) or 0),
+                    "schedule": str(t.get("schedule", "daily")),
+                    "verification": str(t.get("verification", "parent_approve")),
+                    "daily_max_completions": int(t.get("daily_max_completions", 1) or 1),
+                    "active": bool(t.get("active", True)),
+                })
+            tasks_path = self.config_dir / "tasks.json"
+            tasks_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tasks_path, "w", encoding="utf-8") as f:
+                json.dump(normalized, f, ensure_ascii=False, indent=2)
+            self.checklist.reload()
+            resp_count = sum(1 for t in normalized if t["category"] == "responsibility")
+            inc_count = sum(1 for t in normalized if t["category"] == "incentive")
+            _log.info(
+                "server tasks 已写入本地: %d 条 (责任=%d, 激励=%d)",
+                len(normalized), resp_count, inc_count,
+            )
+        except Exception:
+            _log.exception("应用 server tasks 失败")
 
     def _apply_server_rules(self, server_rules: list[dict]) -> None:
         """server rules: [{id, name, enabled, spec}, ...]; spec 是 jsonb 包含

@@ -48,3 +48,9 @@ agent/config/child_profile.local.json
 
 # 调试截图（design/ 仅放设计稿，不放测试输出）
 design/screenshot_*.png
+
+# OMC / Claude Code 运行时缓存
+.omc/
+
+# TS 增量构建缓存
+*.tsbuildinfo

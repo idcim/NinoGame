@@ -11,6 +11,7 @@ import { registerChildrenRoutes } from "./routes/children.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerRuleRoutes } from "./routes/rules.js";
+import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerUnlockRequestRoutes } from "./routes/unlock_requests.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 import { registerParentWebSocket } from "./ws/parent.js";
@@ -45,6 +46,7 @@ export async function buildServer() {
   await registerDeviceRoutes(app);
   await registerCommandRoutes(app);
   await registerRuleRoutes(app);
+  await registerTaskRoutes(app);
   await registerUnlockRequestRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);
@@ -86,6 +88,14 @@ export async function buildServer() {
       "POST /api/rules               (Bearer)",
       "PUT  /api/rules/:id           (Bearer)",
       "DEL  /api/rules/:id           (Bearer)",
+      "GET  /api/tasks?child_id      (Bearer)",
+      "POST /api/tasks               (Bearer)",
+      "PUT  /api/tasks/:id           (Bearer)",
+      "DEL  /api/tasks/:id           (Bearer)",
+      "GET  /api/task-completions?status     (Bearer)",
+      "POST /api/task-completions/:id/approve (Bearer)",
+      "POST /api/task-completions/:id/reject  (Bearer)",
+      "GET  /api/responsibility-checks?child_id&days (Bearer)",
       "WS   /ws/agent?token=<agent_token>",
       "WS   /ws/parent?token=<jwt>",
     ],
