@@ -54,13 +54,15 @@ class TaskClaimDialog(QWidget):
     def __init__(
         self,
         get_tasks: Callable[[], list[dict]],
-        on_submit: Callable[[str, str], bool],
+        on_submit: Callable[[str, str], "tuple[bool, str] | bool"],
         logo_path: str | Path | None = None,
+        get_transport_warning: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__()
         self._get_tasks = get_tasks
         self._on_submit = on_submit
         self._logo_path = str(logo_path) if logo_path else None
+        self._get_transport_warning = get_transport_warning
 
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -134,6 +136,17 @@ class TaskClaimDialog(QWidget):
         intro.setObjectName("hint")
         intro.setWordWrap(True)
         bl.addWidget(intro)
+
+        # 配对状态横幅 (show_for_user 时刷新)
+        self._warning = QLabel("", body)
+        self._warning.setWordWrap(True)
+        self._warning.setVisible(False)
+        self._warning.setStyleSheet(
+            "background-color: #fff5e6; color: #b56500; border: 1px solid #ffd591;"
+            " border-radius: 6px; padding: 8px 10px;"
+            " font-family: 'Microsoft YaHei UI'; font-size: 9pt;"
+        )
+        bl.addWidget(self._warning)
 
         # 任务列表 (可滚)
         self._scroll = QScrollArea(body)
@@ -302,38 +315,68 @@ class TaskClaimDialog(QWidget):
         self._list_layout.addStretch(1)
 
     def _submit(self, task_id: str, btn: QPushButton) -> None:
+        _log.info("[TaskClaimDialog] 申报按钮被点击 task_id=%s", task_id)
         if not task_id:
             return
         note = self._note.text().strip()
         btn.setEnabled(False)
         btn.setText("发送中...")
-        self._status.setText("发送中...")
+        self._set_status("发送中...", tone="info")
         QApplication.processEvents()
         ok = False
+        msg = "发送失败"
         try:
-            ok = bool(self._on_submit(task_id, note))
-        except Exception:
+            result = self._on_submit(task_id, note)
+            if isinstance(result, tuple) and len(result) == 2:
+                ok, msg = bool(result[0]), str(result[1])
+            else:
+                ok = bool(result)
+                msg = "已发送" if ok else "发送失败, 看 agent.log"
+        except Exception as e:
             _log.exception("on_submit failed")
             ok = False
+            msg = f"内部错误: {e}"
         if ok:
             btn.setText("✓ 已申报")
-            self._status.setText(
-                "✓ 已发送给家长。批准后浏览器会发奖励, 余额会自动更新, "
-                "你可以继续做别的事。"
-            )
+            self._set_status(f"✓ {msg}", tone="ok")
             self._note.clear()
         else:
             btn.setEnabled(True)
             btn.setText("申报完成")
-            self._status.setText(
-                "× 发送失败 — 检查 Agent 是否已配对 + WebSocket 是否连上。"
-            )
+            self._set_status(f"× {msg}", tone="warn")
+
+    def _set_status(self, text: str, tone: str = "info") -> None:
+        """tone in {info, warn, ok}; 不同 tone 不同色显示。"""
+        color = {
+            "ok": COLOR_OK,
+            "warn": COLOR_CLOSE_HOVER,
+            "info": COLOR_TEXT_DIM,
+        }.get(tone, COLOR_TEXT_DIM)
+        self._status.setStyleSheet(
+            f"color: {color}; font-family: 'Microsoft YaHei UI'; "
+            f"font-size: 9pt; min-height: 32px; padding: 4px;"
+        )
+        self._status.setText(text)
 
     # ── 入口 ───────────────────────────────────────────────────
     def show_for_user(self) -> None:
         self._reload_tasks()
         self._note.clear()
         self._status.clear()
+        # 配对/连接横幅: 让孩子提前知道"现在能不能发"
+        if self._get_transport_warning is not None:
+            try:
+                w = self._get_transport_warning()
+                if w:
+                    self._warning.setText("⚠ " + w)
+                    self._warning.setVisible(True)
+                else:
+                    self._warning.setVisible(False)
+            except Exception:
+                _log.exception("get_transport_warning failed")
+                self._warning.setVisible(False)
+        else:
+            self._warning.setVisible(False)
         self.show()
         self.raise_()
         self.activateWindow()

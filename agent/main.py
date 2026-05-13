@@ -1138,6 +1138,7 @@ class Agent:
                 self.request_dialog = RequestDialog(
                     logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
                     on_submit=self._submit_unlock_request,
+                    get_transport_warning=self._transport_warning,
                 )
             self.request_dialog.show()
             self.request_dialog.raise_()
@@ -1145,13 +1146,30 @@ class Agent:
         except Exception:
             _log.exception("RequestDialog 显示失败")
 
-    def _submit_unlock_request(self, text: str) -> bool:
-        """RequestDialog 回调; 通过 transport 发 unlock_request 给 server。"""
-        if not text.strip():
-            return False
+    def _transport_warning(self) -> str | None:
+        """共享给 dialog 用: 当前 transport 状态 → 用户可读的警告文案 (或 None 表示一切就绪)。"""
+        if isinstance(self.transport, NullTransport):
+            return (
+                "Agent 还没配对家长后台 (离线模式)。\n"
+                "现在点「发送」会失败。\n"
+                "让爸妈在家长后台 → 设备页生成配对码, 然后托盘 →「重新配对家长后台...」"
+            )
         if not self.transport.is_connected():
-            _log.warning("transport 未连接, 申请发送失败")
-            return False
+            return "WebSocket 已断开 (Agent 在自动重连)。等连接恢复后再发, 避免丢失。"
+        return None
+
+    def _submit_unlock_request(self, text: str) -> tuple[bool, str]:
+        """RequestDialog 回调; 返回 (ok, message); 失败时 message 是具体原因。"""
+        _log.info("[submit_unlock_request] 点击发送, text=%r", text[:60])
+        if not text.strip():
+            return False, "请先输入想说的话"
+        if isinstance(self.transport, NullTransport):
+            return False, (
+                "Agent 还没配对家长后台 (离线模式)。\n"
+                "让爸妈在家长后台 → 设备页生成配对码, 然后托盘 →「重新配对家长后台...」"
+            )
+        if not self.transport.is_connected():
+            return False, "WebSocket 已断开 (Agent 会自动重连, 稍后再试)"
         try:
             self.transport.send({
                 "type": "unlock_request",
@@ -1160,11 +1178,11 @@ class Agent:
                     "structured": {},
                 },
             })
-            _log.info("孩子已发起申请: %r", text[:60])
-            return True
-        except Exception:
+            _log.info("已发送 unlock_request: %r", text[:60])
+            return True, "已发送给家长。批准后浏览器会推命令过来, 你可以等通知, 或先去做别的事。"
+        except Exception as e:
             _log.exception("发送 unlock_request 失败")
-            return False
+            return False, f"网络错误: {e}"
 
     def _request_show_task_claim_dialog(self) -> None:
         """孩子在托盘点「申报任务完成」→ 派发到 Qt 主线程开 TaskClaimDialog。"""
@@ -1182,6 +1200,7 @@ class Agent:
                     get_tasks=self._get_incentive_tasks,
                     on_submit=self._submit_task_claim,
                     logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
+                    get_transport_warning=self._transport_warning,
                 )
             self.task_claim_dialog.show_for_user()
         except Exception:
@@ -1205,20 +1224,19 @@ class Agent:
             _log.exception("读 tasks.json 失败")
             return []
 
-    def _submit_task_claim(self, task_id: str, child_note: str) -> bool:
-        """TaskClaimDialog 回调; 发 task_claim WS 给 server。
-
-        server 端 onTaskClaim 收到后:
-          1) 验证 task 属于该孩子 + active + 不是 responsibility
-          2) INSERT task_completions (status=pending)
-          3) 推家长浏览器 (实时事件流)
-          4) 家长在 /tasks 批准 → 写 task_reward ledger → wallet_update 推回 Agent
-        """
+    def _submit_task_claim(self, task_id: str, child_note: str) -> tuple[bool, str]:
+        """TaskClaimDialog 回调; 返回 (ok, message); 失败时 message 是具体原因。"""
+        _log.info("[submit_task_claim] 点击申报, task_id=%s note=%r",
+                  task_id, (child_note or "")[:40])
         if not task_id:
-            return False
+            return False, "任务 id 缺失 (内部错误)"
+        if isinstance(self.transport, NullTransport):
+            return False, (
+                "Agent 还没配对家长后台 (离线模式)。\n"
+                "让爸妈在家长后台 → 设备页生成配对码, 然后托盘 →「重新配对家长后台...」"
+            )
         if not self.transport.is_connected():
-            _log.warning("transport 未连接, 任务申报发送失败")
-            return False
+            return False, "WebSocket 已断开 (Agent 会自动重连, 稍后再试)"
         try:
             self.transport.send({
                 "type": "task_claim",
@@ -1227,13 +1245,11 @@ class Agent:
                     "child_note": (child_note or "").strip()[:512],
                 },
             })
-            _log.info(
-                "孩子已申报任务完成: task_id=%s note=%r", task_id, child_note[:40],
-            )
-            return True
-        except Exception:
+            _log.info("已发送 task_claim: task_id=%s", task_id)
+            return True, "已发送给家长。批准后浏览器会发奖励, 余额会自动更新。"
+        except Exception as e:
             _log.exception("发送 task_claim 失败")
-            return False
+            return False, f"网络错误: {e}"
 
     def _show_pair_dialog_on_main(self) -> None:
         """启动时未配对的"首次配对"路径。Qt 主线程上调用, 同样走 bridge

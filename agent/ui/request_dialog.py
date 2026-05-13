@@ -49,11 +49,13 @@ class RequestDialog(QWidget):
     def __init__(
         self,
         logo_path: str | Path | None = None,
-        on_submit: Callable[[str], bool] | None = None,
+        on_submit: Callable[[str], "tuple[bool, str] | bool"] | None = None,
+        get_transport_warning: Callable[[], str | None] | None = None,
     ) -> None:
         super().__init__()
         self._logo_path = str(logo_path) if logo_path else None
         self._on_submit = on_submit
+        self._get_transport_warning = get_transport_warning
 
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -125,6 +127,17 @@ class RequestDialog(QWidget):
         intro.setWordWrap(True)
         bl.addWidget(intro)
 
+        # 配对状态横幅 (show() 时刷新)
+        self._warning = QLabel("", body)
+        self._warning.setWordWrap(True)
+        self._warning.setVisible(False)
+        self._warning.setStyleSheet(
+            "background-color: #fff5e6; color: #b56500; border: 1px solid #ffd591;"
+            " border-radius: 6px; padding: 8px 10px;"
+            " font-family: 'Microsoft YaHei UI'; font-size: 9pt;"
+        )
+        bl.addWidget(self._warning)
+
         self._input = QTextEdit(body)
         self._input.setPlaceholderText("我...")
         self._input.setFixedHeight(120)
@@ -180,6 +193,23 @@ class RequestDialog(QWidget):
             border-top-right-radius: 14px; }}
         """)
 
+    def show(self) -> None:  # type: ignore[override]
+        # 每次显示前刷新配对/连接状态横幅, 让孩子提前看到"现在能不能发出去"
+        if self._get_transport_warning is not None:
+            try:
+                w = self._get_transport_warning()
+                if w:
+                    self._warning.setText("⚠ " + w)
+                    self._warning.setVisible(True)
+                else:
+                    self._warning.setVisible(False)
+            except Exception:
+                _log.exception("get_transport_warning failed")
+                self._warning.setVisible(False)
+        else:
+            self._warning.setVisible(False)
+        super().show()
+
     def _center(self) -> None:
         s = QApplication.primaryScreen()
         if s is None:
@@ -201,28 +231,48 @@ class RequestDialog(QWidget):
             event.accept()
 
     def _on_send(self) -> None:
+        _log.info("[RequestDialog] 发送按钮被点击")
         text = self._input.toPlainText().strip()
         if not text:
-            self._status.setText("× 请先输入想说的话")
+            self._set_status("× 请先输入想说的话", tone="warn")
+            return
+        if len(text) < 4:
+            self._set_status("× 写一句完整的话呗 (至少 4 个字)", tone="warn")
             return
         self._send.setEnabled(False)
-        self._status.setText("发送中...")
+        self._set_status("发送中...", tone="info")
         QApplication.processEvents()
         ok = False
+        msg = "发送失败"
         if self._on_submit is not None:
             try:
-                ok = bool(self._on_submit(text))
-            except Exception:
+                result = self._on_submit(text)
+                # 兼容: 旧版返回 bool, 新版返回 (bool, str)
+                if isinstance(result, tuple) and len(result) == 2:
+                    ok, msg = bool(result[0]), str(result[1])
+                else:
+                    ok = bool(result)
+                    msg = "已发送" if ok else "发送失败, 看 agent.log"
+            except Exception as e:
                 _log.exception("on_submit failed")
                 ok = False
+                msg = f"内部错误: {e}"
         if ok:
-            self._status.setText(
-                "✓ 已发送给家长。批准后浏览器会推命令过来, "
-                "你可以等通知, 或先去做别的事。",
-            )
+            self._set_status(f"✓ {msg}", tone="ok")
             self._input.clear()
         else:
-            self._status.setText(
-                "× 发送失败 — 检查 Agent 是否已配对 + WebSocket 是否连上。",
-            )
+            self._set_status(f"× {msg}", tone="warn")
         self._send.setEnabled(True)
+
+    def _set_status(self, text: str, tone: str = "info") -> None:
+        """tone in {info, warn, ok}; 不同 tone 不同色显示。"""
+        color = {
+            "ok": COLOR_OK,
+            "warn": COLOR_CLOSE_HOVER,
+            "info": COLOR_TEXT_DIM,
+        }.get(tone, COLOR_TEXT_DIM)
+        self._status.setStyleSheet(
+            f"color: {color}; font-family: 'Microsoft YaHei UI'; "
+            f"font-size: 9pt; min-height: 36px; padding: 4px;"
+        )
+        self._status.setText(text)
