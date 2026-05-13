@@ -5,6 +5,7 @@ import {
   Loader2,
   MessageSquare,
   RefreshCw,
+  Sparkles,
   X,
 } from "lucide-react";
 import { api, ApiError, type UnlockRequest } from "../lib/api";
@@ -33,6 +34,9 @@ export default function Requests() {
 
   useEffect(() => {
     load();
+    // LLM 翻译异步执行, 重拉一次让 llm_summary / structured_request 进来
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
   }, [tab]);
 
   return (
@@ -136,6 +140,19 @@ function RequestRow({ req, onChanged }: { req: UnlockRequest; onChanged: () => v
             </span>
           </div>
           <p className="mt-1 text-ink">{req.request_text}</p>
+
+          {/* LLM 翻译摘要 (异步, 几秒后到; 没配 LLM 时 null) */}
+          {req.llm_summary && (
+            <div className="mt-2 p-2 rounded bg-brand-50/60 border border-brand-50 text-sm text-ink flex items-start gap-2">
+              <Sparkles size={14} className="text-brand-600 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs text-brand-600 font-medium mb-0.5">AI 摘要</div>
+                <div>{req.llm_summary}</div>
+                <StructuredHint structured={req.structured_request} />
+              </div>
+            </div>
+          )}
+
           {req.parent_comment && (
             <p className="mt-1 text-xs text-ink-dim">家长备注: {req.parent_comment}</p>
           )}
@@ -182,6 +199,32 @@ function RequestRow({ req, onChanged }: { req: UnlockRequest; onChanged: () => v
             </button>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function StructuredHint({ structured }: { structured: unknown }) {
+  if (!structured || typeof structured !== "object") return null;
+  const s = structured as {
+    duration_minutes?: number;
+    activity?: string;
+    tone?: string;
+    claimed_completions?: string[];
+  };
+  if (!s.duration_minutes && !s.activity) return null;
+  const tone =
+    s.tone === "demanding" ? "急切"
+    : s.tone === "negotiating" ? "协商"
+    : s.tone === "polite" ? "礼貌"
+    : null;
+  return (
+    <div className="text-xs text-ink-dim mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+      {s.duration_minutes && <span>⏱ {s.duration_minutes} 分钟</span>}
+      {s.activity && <span>🎮 {s.activity}</span>}
+      {tone && <span>语气: {tone}</span>}
+      {Array.isArray(s.claimed_completions) && s.claimed_completions.length > 0 && (
+        <span>已完成: {s.claimed_completions.join(", ")}</span>
       )}
     </div>
   );

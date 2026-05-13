@@ -12,6 +12,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { pool } from "../db.js";
+import { translateUnlockRequest } from "../services/llm_request_translator.js";
 import { recomputeTrust } from "../services/trust.js";
 import { pushToDevice } from "../ws/agent.js";
 import { publishToParent } from "../ws/event_bus.js";
@@ -80,6 +81,40 @@ export async function createUnlockRequestFromAgent(
         },
         occurred_at: row.created_at,
       });
+
+      // 异步 LLM 翻译: 不阻塞 Agent 那边的 WS 响应; 拿到结果再 UPDATE +
+      // 二次 publishToParent 让浏览器实时刷新摘要 (§12.2 / §13.1)
+      void (async () => {
+        try {
+          const t = await translateUnlockRequest(parent_id, request_text);
+          if (!t) return;
+          await pool.query(
+            `UPDATE "NinoGame".unlock_requests
+                SET structured_request = $2::jsonb,
+                    llm_summary = $3
+              WHERE id = $1`,
+            [row.id, JSON.stringify(t), t.summary],
+          );
+          publishToParent({
+            parent_id,
+            child_id,
+            device_id,
+            event_type: "unlock_request_translated",
+            payload: {
+              request_id: row.id,
+              llm_summary: t.summary,
+              structured: t,
+            },
+            occurred_at: new Date().toISOString(),
+          });
+          app.log.info(
+            { request_id: row.id, duration: t.duration_minutes, activity: t.activity },
+            "unlock_request LLM translated",
+          );
+        } catch (err) {
+          app.log.warn({ err, request_id: row.id }, "translate unlock_request failed");
+        }
+      })();
     }
     app.log.info({ child_id, request_id: row.id }, "unlock_request created");
     return row;

@@ -102,6 +102,15 @@ export default function About() {
 /** 更新日志手动维护; 每次有意义的版本更新追加一项。 */
 const CHANGELOG: Array<{ tag: string; title: string; bullets: string[] }> = [
   {
+    tag: "2026-05-14 d",
+    title: "申请翻译 + 扣分简化 + 弹窗保活",
+    bullets: [
+      "新增: LLM 翻译器 — 孩子的自然语言申请 → server 异步调 LLM 输出 {duration_minutes, activity, claimed_completions, tone, summary} → /requests 卡片显示 AI 摘要 + 时长/活动/语气/已完成事项 hint",
+      "改: 决策 #36 — child 模式在跑即扣 (取消最近 2 分钟键鼠活跃判定); 闲置 10 分钟自动 Lock 仍兜底",
+      "修: 通知弹窗一闪就没 — 根因是 d=WarningDialog() 局部变量被 GC; bridge 加 _active_dialogs set 保活, finished/destroyed 信号自动移除",
+    ],
+  },
+  {
     tag: "2026-05-14 c",
     title: "LLM 多平台支持 + 家长后台填写",
     bullets: [
