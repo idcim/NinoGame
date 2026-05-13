@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Ban,
   Check,
+  Clock,
   Edit3,
   Loader2,
   Plus,
@@ -12,6 +13,37 @@ import {
 } from "lucide-react";
 import { api, ApiError, type Child, type Matcher, type Rule, type RuleSpec } from "../lib/api";
 import { actionLabel } from "../lib/labels";
+
+// 时间窗类型 (CLAUDE.md §9.1 schedule.windows): days 用 JS 习惯
+// 0=周日..6=周六 (与前端 Date.getDay 一致), agent 端 Python 做换算。
+type Window = { days: number[]; from: string; to: string };
+type ScheduleMode = "always" | "windowed" | "disabled";
+
+const DAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+const WEEKDAYS = [1, 2, 3, 4, 5];
+const WEEKENDS = [0, 6];
+
+function describeSchedule(s: RuleSpec["schedule"]): string {
+  const mode = s.mode as ScheduleMode;
+  if (mode === "disabled") return "已暂停";
+  if (mode === "always") return "始终生效";
+  const ws = (s.windows as Window[]) || [];
+  if (ws.length === 0) return "始终生效 (无窗口)";
+  if (ws.length === 1) {
+    const w = ws[0];
+    return `${describeDays(w.days)} ${w.from}-${w.to}`;
+  }
+  return `${ws.length} 段时段`;
+}
+
+function describeDays(days: number[]): string {
+  if (days.length === 0) return "每天";
+  if (days.length === 7) return "每天";
+  const sorted = [...days].sort((a, b) => a - b);
+  if (sorted.length === 5 && sorted.every((d, i) => d === WEEKDAYS[i])) return "工作日";
+  if (sorted.length === 2 && sorted[0] === 0 && sorted[1] === 6) return "周末";
+  return sorted.map((d) => DAY_LABELS[d]).join("");
+}
 
 export default function Rules() {
   const [children, setChildren] = useState<Child[]>([]);
@@ -214,7 +246,8 @@ function RuleRow({
           {!rule.enabled && <span className="badge badge-muted">已禁用</span>}
         </div>
         <div className="text-xs text-ink-dim mt-0.5 truncate">
-          {rule.spec.matchers.length} 个 matcher · {totalKeywords} 个关键词 · {rule.spec.matcher_logic}
+          {rule.spec.matchers.length} 个 matcher · {totalKeywords} 个关键词 ·{" "}
+          <Clock size={10} className="inline -mt-0.5" /> {describeSchedule(rule.spec.schedule)}
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
@@ -271,8 +304,38 @@ function RuleEditor({
   );
   const [message, setMessage] = useState(rule?.spec.action.message || "");
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
+    (rule?.spec.schedule.mode as ScheduleMode) || "always",
+  );
+  const [windows, setWindows] = useState<Window[]>(
+    (rule?.spec.schedule.windows as Window[]) || [],
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  function addWindow() {
+    setWindows((ws) => [...ws, { days: [...WEEKDAYS], from: "21:00", to: "23:00" }]);
+  }
+  function removeWindow(i: number) {
+    setWindows((ws) => ws.filter((_, idx) => idx !== i));
+  }
+  function updateWindow(i: number, patch: Partial<Window>) {
+    setWindows((ws) => ws.map((w, idx) => (idx === i ? { ...w, ...patch } : w)));
+  }
+  function toggleDay(i: number, day: number) {
+    setWindows((ws) =>
+      ws.map((w, idx) =>
+        idx === i
+          ? {
+              ...w,
+              days: w.days.includes(day)
+                ? w.days.filter((d) => d !== day)
+                : [...w.days, day].sort((a, b) => a - b),
+            }
+          : w,
+      ),
+    );
+  }
 
   function buildMatchers(): Matcher[] {
     const kws = keywords
@@ -295,11 +358,27 @@ function RuleEditor({
       setErr("至少输入一个关键词");
       return;
     }
+    // 校验时间窗
+    if (scheduleMode === "windowed") {
+      for (const w of windows) {
+        if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(w.from) || !/^([01]?\d|2[0-3]):[0-5]\d$/.test(w.to)) {
+          setErr("时段格式必须是 HH:MM (如 21:00)");
+          return;
+        }
+        if (w.from === w.to) {
+          setErr("起止时间不能相同");
+          return;
+        }
+      }
+    }
     const spec: RuleSpec = {
       matchers,
       matcher_logic: "OR",
       exclude_processes: [],
-      schedule: { mode: "always", windows: [] },
+      schedule: {
+        mode: scheduleMode,
+        windows: scheduleMode === "windowed" ? windows : [],
+      },
       action: { type: actionType, message },
       notify_parent: true,
     };
@@ -407,6 +486,117 @@ function RuleEditor({
               maxLength={512}
               placeholder="留空用全局默认; 例: 原神还没被授权使用, 先和家长沟通"
             />
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <label className="label flex items-center gap-1.5">
+              <Clock size={14} className="text-brand" />
+              生效时段
+            </label>
+            <select
+              className="input"
+              value={scheduleMode}
+              onChange={(e) => setScheduleMode(e.target.value as ScheduleMode)}
+            >
+              <option value="always">始终生效 (24/7)</option>
+              <option value="windowed">仅指定时段</option>
+              <option value="disabled">暂停 (规则保留但不拦截)</option>
+            </select>
+            <p className="text-xs text-ink-light mt-1">
+              "仅指定时段": 可加多段窗口, 每段选星期 + 起止时间; 任一窗口命中即拦截。
+              起止跨午夜 (例如 21:00→02:00) 支持。
+            </p>
+
+            {scheduleMode === "windowed" && (
+              <div className="mt-3 space-y-3">
+                {windows.length === 0 && (
+                  <p className="text-xs text-ink-dim">
+                    没有时段时, 该规则会保守视为 "始终生效"。点下面按钮添加第一段。
+                  </p>
+                )}
+                {windows.map((w, i) => (
+                  <div key={i} className="border border-border rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-ink-dim">
+                        时段 #{i + 1} · {describeDays(w.days)} {w.from}-{w.to}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeWindow(i)}
+                        className="text-xs text-ink-dim hover:text-warn"
+                        title="删除该时段"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {DAY_LABELS.map((lbl, d) => {
+                        const on = w.days.includes(d);
+                        return (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => toggleDay(i, d)}
+                            className={
+                              "w-7 h-7 rounded-md text-xs font-medium border " +
+                              (on
+                                ? "bg-brand text-white border-brand"
+                                : "bg-transparent text-ink-dim border-border hover:border-brand")
+                            }
+                          >
+                            {lbl}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => updateWindow(i, { days: [...WEEKDAYS] })}
+                        className="text-xs px-2 rounded text-ink-dim hover:text-brand"
+                      >
+                        工作日
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateWindow(i, { days: [...WEEKENDS] })}
+                        className="text-xs px-2 rounded text-ink-dim hover:text-brand"
+                      >
+                        周末
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateWindow(i, { days: [0, 1, 2, 3, 4, 5, 6] })}
+                        className="text-xs px-2 rounded text-ink-dim hover:text-brand"
+                      >
+                        每天
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        className="input flex-1"
+                        value={w.from}
+                        onChange={(e) => updateWindow(i, { from: e.target.value })}
+                      />
+                      <span className="text-ink-dim">→</span>
+                      <input
+                        type="time"
+                        className="input flex-1"
+                        value={w.to}
+                        onChange={(e) => updateWindow(i, { to: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addWindow}
+                  className="btn-ghost text-xs w-full"
+                >
+                  <Plus size={12} />
+                  添加时段
+                </button>
+              </div>
+            )}
           </div>
 
           {err && (

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, time
 from typing import Iterable
 
 from comms.message_types import (
@@ -72,10 +73,73 @@ def _single_match(text: str, value: str, op: str) -> bool:
     return False
 
 
+def _parse_hhmm(s: str) -> time | None:
+    """'21:00' / '7:5' → time。无效返回 None。"""
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        h_str, m_str = s.split(":", 1)
+        h, m = int(h_str), int(m_str)
+        if 0 <= h < 24 and 0 <= m < 60:
+            return time(hour=h, minute=m)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _window_matches_now(window: dict, now: datetime) -> bool:
+    """单个时间窗判定: 当前 weekday ∈ days 且 当前时间 ∈ [from, to)。
+
+    weekday 用 JS 习惯 0=周日..6=周六 (与前端 Date.getDay 一致),
+    Python 默认 monday=0 sunday=6, 用 (weekday + 1) % 7 转换。
+    to < from 表示跨午夜 (例如 "21:00"→"02:00"); 把窗口拆成"今日 from..23:59"
+    和"次日 00:00..to" 两段, 用 OR 命中。
+    """
+    days = window.get("days") or []
+    if days:
+        js_weekday = (now.weekday() + 1) % 7  # python mon=0 → js sun=0
+        if js_weekday not in days:
+            # 跨午夜情况: 如果"昨天"weekday 在 days 里, 且当前时间 < to, 也算命中
+            t = _parse_hhmm(window.get("from", ""))
+            t_to = _parse_hhmm(window.get("to", ""))
+            if t and t_to and t_to < t:
+                yesterday_weekday = (js_weekday - 1) % 7
+                if yesterday_weekday in days and now.time() < t_to:
+                    return True
+            return False
+
+    t_from = _parse_hhmm(window.get("from", ""))
+    t_to = _parse_hhmm(window.get("to", ""))
+    if t_from is None or t_to is None:
+        return False
+    now_t = now.time()
+    if t_to == t_from:
+        return False  # 退化, 0 长度
+    if t_to > t_from:
+        return t_from <= now_t < t_to
+    # 跨午夜: 命中区间 = [from, 24:00) ∪ [00:00, to)
+    return now_t >= t_from or now_t < t_to
+
+
 def _schedule_allows(rule: Rule) -> bool:
-    """P1 只支持 always / disabled。windowed 留给 P3+。"""
-    mode = rule.schedule.mode if rule.schedule else ScheduleMode.ALWAYS.value
+    """always / windowed / disabled。
+
+    windowed: rule.schedule.windows 任一窗口命中即允许; windows 空保守视为 always。
+    """
+    sched = rule.schedule
+    mode = sched.mode if sched else ScheduleMode.ALWAYS.value
     if mode == ScheduleMode.DISABLED.value:
+        return False
+    if mode == ScheduleMode.WINDOWED.value:
+        windows = sched.windows or []
+        if not windows:
+            return True  # 没配窗口, 不当作 "永远不允许"
+        now = datetime.now()
+        for w in windows:
+            if not isinstance(w, dict):
+                continue
+            if _window_matches_now(w, now):
+                return True
         return False
     return True
 

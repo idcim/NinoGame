@@ -24,13 +24,23 @@ const MatcherSchema = z.object({
   value: z.string().min(1).max(255),
 });
 
+// 时间窗 (§9.1 schedule.windows)。days 用 JS 习惯 0=周日..6=周六, 与前端
+// Date.getDay() 一致; agent 端 rule_engine 做了 python weekday→js 的换算。
+// to < from 表示跨午夜 (eg 21:00 → 02:00)。
+const HHMM_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
+const WindowSchema = z.object({
+  days: z.array(z.number().int().min(0).max(6)).default([]),
+  from: z.string().regex(HHMM_RE, "from 必须是 HH:MM"),
+  to:   z.string().regex(HHMM_RE, "to 必须是 HH:MM"),
+});
+
 const SpecSchema = z.object({
   matchers: z.array(MatcherSchema).min(1),
   matcher_logic: z.enum(["OR", "AND"]).default("OR"),
   exclude_processes: z.array(z.string()).default([]),
   schedule: z.object({
     mode: z.enum(["always", "windowed", "disabled"]).default("always"),
-    windows: z.array(z.unknown()).default([]),
+    windows: z.array(WindowSchema).default([]),
   }).default({ mode: "always", windows: [] }),
   action: z.object({
     type: z.enum(["kill_and_warn", "warn_only", "kill_silent"]).default("kill_and_warn"),

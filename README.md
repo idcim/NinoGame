@@ -53,6 +53,7 @@
 | ✅ | ~~Agent 端激励任务申报 UI~~ | 托盘菜单 (child 模式) →「申报任务完成…」→ 列出本地 `tasks.json` 中所有 active+incentive 任务, 一行一个「申报完成」按钮 + 可选备注 → 发 `task_claim` WS → server 写 pending + 推家长浏览器; 家长批准后 `wallet_update` 推回 Agent, Agent 弹通知"+30 token 到账" |
 | ✅ | ~~限免活动 (§14.4)~~ | 设备详情页「限免 30 分 / 1 小时 / 2 小时」一键; backend `POST /api/free-pass` 写 `free_pass_periods` + push `start_free_pass` 到该孩子所有在线 Agent; Agent 期间 consumption 跳扣 token (规则仍生效); 浏览器实时显示倒计时 + 终止按钮; Agent 重连 hello_ack 带活跃段, 重启不丢限免态 |
 | ✅ | ~~行为基线异常告警 (§16.1 ④)~~ | server 后台调度器每小时跑一次 `scanAllChildrenBaseline`: 按 `child × category` 拉过去 14 天每天 `active_seconds` 算均值, 今日 >2x 均值 (且 >30 min, 样本天数 ≥5) 触发, 写 `events(event_type='behavior_anomaly')` + push 给该家长浏览器实时面板; 单 child+category 24h 限频。"不阻止使用, 只是提醒" |
+| ✅ | ~~时间窗口规则 (§9.1 schedule.windows)~~ | 规则编辑器加"生效时段"区: 始终生效 / 仅指定时段 / 暂停。"仅指定时段"可加多段窗口, 每段挑星期 + HH:MM 起止 (跨午夜支持)。Agent rule_engine 按本地 wall-clock 判定, 任一窗口命中即生效; 列表卡片展示概要 ("工作日 21:00-23:00")。Zod 严格校验 from/to 格式 + days ∈ [0..6]。 |
 | 🟢 | **Android Agent** | Kotlin + AccessibilityService |
 
 ## 当前状态

@@ -1845,7 +1845,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [ ] LLM 翻译器（申请结构化）
 - [ ] LLM 后台分类器（unknown apps）
 - [x] ~~LLM 验证助手（照片初筛）~~ — 已下线 (改私下协商 + 家长后台 +token, 见 §22 #32)
-- [ ] 时间窗口规则（schedule.windows）
+- [x] 时间窗口规则（schedule.windows）
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [ ] 企业微信机器人推送
 - [ ] 使用时长统计/报表
