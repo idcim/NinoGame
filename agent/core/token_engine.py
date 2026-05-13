@@ -96,16 +96,6 @@ class TokenEngine:
         self._oot_triggered: bool = False  # 0 余额状态去重 flag
         self._oot_lock = threading.Lock()
 
-    def set_oot_triggered(self, value: bool) -> None:
-        """main.py 在 on_wallet_update 即时检测时同步状态, 防止下个 tick
-        重复触发 callback. 也用于"已通过家长 PIN 切 Parent 但余额仍 0"场景."""
-        with self._oot_lock:
-            self._oot_triggered = bool(value)
-
-    def is_oot_triggered(self) -> bool:
-        with self._oot_lock:
-            return self._oot_triggered
-
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -115,6 +105,16 @@ class TokenEngine:
         # (kind, date) 集合: daily_cap / out_of_balance 这种"全天同一原因"的
         # 通知一天只弹一次, 避免每 60s 一次刷屏
         self._notified_today: set[tuple[str, str]] = set()
+
+    def set_oot_triggered(self, value: bool) -> None:
+        """main.py 在 on_wallet_update 即时检测时同步状态, 防止下个 tick
+        重复触发 callback. 也用于"已通过家长 PIN 切 Parent 但余额仍 0"场景."""
+        with self._oot_lock:
+            self._oot_triggered = bool(value)
+
+    def is_oot_triggered(self) -> bool:
+        with self._oot_lock:
+            return self._oot_triggered
 
     # ── 启停 ─────────────────────────────────────────────────────
     def start(self) -> None:
