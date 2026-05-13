@@ -637,7 +637,8 @@ class Agent:
             self._apply_server_rules(rules)
             self._apply_server_tasks(tasks)
             if balance is not None:
-                self._apply_server_wallet(balance)
+                # hello_ack 是重连后 server 给的权威值 (含每日发放等), 无条件应用
+                self._apply_server_wallet(balance, reason="hello_sync")
             self._apply_active_free_pass(active_fp)
             for cmd in pending:
                 self._handle_command(cmd)
@@ -697,7 +698,9 @@ class Agent:
                 balance, reason, delta,
             )
             if balance is not None:
-                self._apply_server_wallet(balance)
+                # 透传 reason: server_sync (scheduler 定期推) 时 sync_balance 内部
+                # 会跳过 delta>0 的情况 (防 stale-read 回滚); 其它 reason 正常应用
+                self._apply_server_wallet(balance, reason=reason or "server_sync")
 
             # 静默 reason: 每分钟的 app_consumption / server 主动同步 — 不弹 / 不入历史
             SILENT_REASONS = {"app_consumption", "server_sync"}
@@ -1126,12 +1129,12 @@ class Agent:
         except Exception:
             _log.exception("应用 active_free_pass 失败")
 
-    def _apply_server_wallet(self, server_balance: int) -> None:
+    def _apply_server_wallet(self, server_balance: int, reason: str = "server_sync") -> None:
         try:
-            delta = self.wallet.sync_balance(int(server_balance), reason="server_sync")
+            delta = self.wallet.sync_balance(int(server_balance), reason=reason)
             if delta != 0:
-                _log.info("钱包从 server 同步: delta=%+d, balance=%d",
-                          delta, self.wallet.get_balance())
+                _log.info("钱包从 server 同步: delta=%+d, balance=%d (reason=%s)",
+                          delta, self.wallet.get_balance(), reason)
         except Exception:
             _log.exception("应用 server wallet 失败")
 
