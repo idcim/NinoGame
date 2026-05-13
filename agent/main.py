@@ -619,20 +619,31 @@ class Agent:
             )
             if balance is not None:
                 self._apply_server_wallet(balance)
-            # 任务奖励 / 家长发奖 → 弹通知告诉孩子
+
+            # 决定要不要弹通知 + 文案。家长发起的调账 (task_reward / parent_grant /
+            # adjustment) 不论正负都要让孩子知道; 否则孩子只看到余额突然变了不知所以。
+            # 系统内部 (server_sync / app_consumption / daily_grant 等) 不打扰。
             try:
-                if reason == "task_reward" and isinstance(delta, (int, float)) and delta > 0:
-                    self.notifier.info_async(
-                        f"家长批准了你的任务{(' (' + comment + ')') if comment else ''}, "
-                        f"+{int(delta)} token 已到账。",
-                        title="NinoGame · 任务奖励",
-                    )
-                elif reason == "parent_grant" and isinstance(delta, (int, float)) and delta > 0:
-                    self.notifier.info_async(
-                        f"家长给你发了 +{int(delta)} token"
-                        f"{(' (' + comment + ')') if comment else ''}。",
-                        title="NinoGame · 家长发奖",
-                    )
+                if not isinstance(delta, (int, float)) or int(delta) == 0:
+                    return
+                n = int(delta)
+                amount_str = f"+{n}" if n > 0 else str(n)
+                tail = f" ({comment})" if comment else ""
+                if reason == "task_reward":
+                    title = "NinoGame · 任务奖励"
+                    body = f"家长批准了你的任务{tail}, {amount_str} token 已到账。" if n > 0 \
+                        else f"任务奖励调整{tail}: {amount_str} token。"
+                    self.notifier.info_async(body, title=title)
+                elif reason == "parent_grant":
+                    title = "NinoGame · 家长发奖" if n > 0 else "NinoGame · 家长扣分"
+                    body = f"家长给你发了 {amount_str} token{tail}。" if n > 0 \
+                        else f"家长扣了 {abs(n)} token{tail}。"
+                    self.notifier.info_async(body, title=title)
+                elif reason == "adjustment":
+                    title = "NinoGame · 余额调整"
+                    body = f"家长调整了余额: {amount_str} token{tail}。"
+                    self.notifier.info_async(body, title=title)
+                # 其它 reason (server_sync / app_consumption / daily_grant) 不通知
             except Exception:
                 _log.exception("wallet_update 通知失败")
 

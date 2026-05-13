@@ -169,6 +169,42 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── ledger 历史 (查最近 N 条 token 变动) ──────────────
+  app.get(
+    "/api/children/:id/ledger",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const child_id = (req.params as { id: string }).id;
+      const q = (req.query ?? {}) as Record<string, string>;
+      const limit = Math.max(1, Math.min(200, Number(q.limit) || 50));
+      // 验证归属
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "NinoGame".children
+          WHERE id = $1 AND parent_id = $2`,
+        [child_id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      const r = await pool.query<{
+        id: string;
+        delta: number;
+        balance_after: number;
+        reason: string;
+        occurred_at: string;
+      }>(
+        `SELECT l.id, l.delta, l.balance_after, l.reason, l.occurred_at
+           FROM "NinoGame".token_ledger l
+           JOIN "NinoGame".wallets w ON w.id = l.wallet_id
+          WHERE w.child_id = $1
+          ORDER BY l.occurred_at DESC
+          LIMIT $2`,
+        [child_id, limit],
+      );
+      return { entries: r.rows };
+    },
+  );
+
   // ── 列出当前家长的孩子 ────────────────────────────────
   app.get("/api/children", { preHandler: app.parentAuth }, async (req) => {
     const r = await pool.query<ChildRow & { balance: number }>(

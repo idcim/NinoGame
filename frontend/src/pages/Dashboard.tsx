@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Baby,
   Check,
   Copy,
   Gem,
+  History,
   Loader2,
   Minus,
   Monitor,
@@ -13,11 +14,14 @@ import {
   RotateCw,
   TabletSmartphone,
   Trash2,
+  X,
 } from "lucide-react";
-import { api, ApiError, type Child, type Device } from "../lib/api";
+import { api, ApiError, type Child, type Device, type LedgerEntry } from "../lib/api";
 import EventFeed from "../components/EventFeed";
+import { useEventStream } from "../lib/eventStream";
 import {
   deviceTypeLabel,
+  ledgerReasonLabel,
   maturityLabel,
   onlineLabel,
   platformLabel,
@@ -29,6 +33,10 @@ export default function Dashboard() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // 顶层订阅事件流, 既给 EventFeed 用, 也用于触发余额刷新 (其它家长设备
+  // 调账后, 这台浏览器自动同步)。EventFeed 拿到 props 后不会再开第二条 WS。
+  const stream = useEventStream();
 
   async function load() {
     setLoading(true);
@@ -47,6 +55,19 @@ export default function Dashboard() {
   useEffect(() => {
     load();
   }, []);
+
+  // 监听最新事件: 钱包相关的 → 即时拉新余额
+  const latestKey = useMemo(
+    () => (stream.events.length > 0 ? stream.events[0].occurred_at : ""),
+    [stream.events],
+  );
+  useEffect(() => {
+    if (stream.events.length === 0) return;
+    const top = stream.events[0];
+    if (top.event_type === "token_credit" || top.event_type === "token_deduct") {
+      load();
+    }
+  }, [latestKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-6">
@@ -80,7 +101,7 @@ export default function Dashboard() {
         onChanged={load}
       />
 
-      <EventFeed />
+      <EventFeed events={stream.events} state={stream.state} clear={stream.clear} />
     </div>
   );
 }
@@ -125,6 +146,7 @@ function ChildrenSection({
 
 function ChildCard({ child, onChanged }: { child: Child; onChanged: () => void }) {
   const [showGrant, setShowGrant] = useState(false);
+  const [showLedger, setShowLedger] = useState(false);
   return (
     <div className="card p-5 flex items-center gap-4">
       <div className="w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center">
@@ -146,12 +168,23 @@ function ChildCard({ child, onChanged }: { child: Child; onChanged: () => void }
           {child.balance}
         </div>
         <div className="text-xs text-ink-dim">token</div>
-        <button
-          onClick={() => setShowGrant(true)}
-          className="text-xs text-brand hover:underline mt-1"
-        >
-          调账 / 发奖
-        </button>
+        <div className="flex items-center gap-2 justify-end mt-1">
+          <button
+            onClick={() => setShowGrant(true)}
+            className="text-xs text-brand hover:underline"
+          >
+            调账 / 发奖
+          </button>
+          <span className="text-ink-light text-xs">·</span>
+          <button
+            onClick={() => setShowLedger(true)}
+            className="text-xs text-ink-dim hover:text-brand inline-flex items-center gap-0.5"
+            title="查看 token 变动记录"
+          >
+            <History size={11} />
+            变动记录
+          </button>
+        </div>
       </div>
       {showGrant && (
         <GrantDialog
@@ -163,6 +196,116 @@ function ChildCard({ child, onChanged }: { child: Child; onChanged: () => void }
           }}
         />
       )}
+      {showLedger && (
+        <LedgerDialog
+          child={child}
+          onClose={() => setShowLedger(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function LedgerDialog({ child, onClose }: { child: Child; onClose: () => void }) {
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await api.listLedger(child.id, 100);
+      setEntries(r.entries);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [child.id]);
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="card p-6 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg flex items-center gap-2">
+            <History size={18} className="text-brand" />
+            Token 变动记录 · {child.display_name || child.username}
+          </h3>
+          <div className="flex items-center gap-2">
+            <button onClick={load} disabled={loading} className="btn-ghost text-xs">
+              {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              刷新
+            </button>
+            <button onClick={onClose} className="text-ink-dim hover:text-ink">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {err && (
+          <div className="text-sm text-warn bg-warn/10 border border-warn/30 rounded px-3 py-2 mb-3">
+            {err}
+          </div>
+        )}
+
+        <div className="flex-1 overflow-auto -mx-2">
+          {entries.length === 0 && !loading && !err ? (
+            <div className="text-center text-ink-dim text-sm py-8">
+              还没有任何 token 变动记录
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-card">
+                <tr className="text-xs text-ink-light border-b border-border">
+                  <th className="text-left px-2 py-2 font-normal">时间</th>
+                  <th className="text-left px-2 py-2 font-normal">原因</th>
+                  <th className="text-right px-2 py-2 font-normal">变化</th>
+                  <th className="text-right px-2 py-2 font-normal">余额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e) => {
+                  const positive = e.delta > 0;
+                  return (
+                    <tr key={e.id} className="border-b border-border/60 last:border-0 hover:bg-brand-50/30">
+                      <td className="px-2 py-2 text-ink-dim text-xs whitespace-nowrap">
+                        {new Date(e.occurred_at).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-2">{ledgerReasonLabel(e.reason)}</td>
+                      <td
+                        className={
+                          "px-2 py-2 text-right font-mono font-medium " +
+                          (positive ? "text-accent-600" : "text-warn")
+                        }
+                      >
+                        {positive ? "+" : ""}{e.delta}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-ink-dim">
+                        {e.balance_after}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="text-xs text-ink-light mt-3">
+          最多显示 100 条; 记录按时间倒序。
+        </div>
+      </div>
     </div>
   );
 }

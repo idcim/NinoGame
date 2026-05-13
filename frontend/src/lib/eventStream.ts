@@ -30,12 +30,16 @@ export interface UseEventStreamResult {
 
 const MAX_EVENTS = 80;
 
-export function useEventStream(): UseEventStreamResult {
+export function useEventStream(enabled: boolean = true): UseEventStreamResult {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [state, setState] = useState<ConnState>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      setState("closed");
+      return;
+    }
     const token = getToken();
     if (!token) {
       setState("closed");
@@ -87,7 +91,7 @@ export function useEventStream(): UseEventStreamResult {
         /* ignore */
       }
     };
-  }, []);
+  }, [enabled]);
 
   return {
     events,

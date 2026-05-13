@@ -106,8 +106,20 @@ function _formatTime(iso: string): string {
   }
 }
 
-export default function EventFeed() {
-  const { events, state, clear } = useEventStream();
+/** Stream 由调用方注入: 避免本组件再单独开一条 WS。
+ *  无参时默认自己 hook (兼容旧调用方)。 */
+export default function EventFeed(props: {
+  events?: LiveEvent[];
+  state?: "connecting" | "open" | "closed" | "error";
+  clear?: () => void;
+}) {
+  const hasInjected = props.events !== undefined;
+  // 仅当未注入时才建自己的 WS; React 不允许条件 hook, 所以 hook 始终调用,
+  // 但用 enabled flag 在 hook 内决定是否真连。
+  const inner = useEventStream(!hasInjected);
+  const events = hasInjected ? (props.events as LiveEvent[]) : inner.events;
+  const state = hasInjected ? (props.state ?? "open") : inner.state;
+  const clear = hasInjected ? (props.clear ?? (() => undefined)) : inner.clear;
 
   const indicator =
     state === "open" ? (

@@ -115,6 +115,11 @@ export const api = {
       { method: "POST", body: JSON.stringify(data) },
     ),
 
+  listLedger: (child_id: string, limit = 50) =>
+    request<{ entries: LedgerEntry[] }>(
+      `/api/children/${child_id}/ledger?limit=${limit}`,
+    ),
+
   // ── commands ──────────────────────────────────────────────
   pushCommand: (data: {
     device_id: string;
@@ -409,6 +414,15 @@ export interface ResponsibilityCheck {
   task_id: string;
   task_name: string;
   completed: boolean;
+}
+
+// ── ledger ────────────────────────────────────────────────────
+export interface LedgerEntry {
+  id: string;
+  delta: number;
+  balance_after: number;
+  reason: string;
+  occurred_at: string;
 }
 
 // ── free pass ─────────────────────────────────────────────────
