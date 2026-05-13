@@ -460,6 +460,10 @@ class Agent:
         )
         self.usage_reporter.start()
 
+        # LLM 应用分类 (§9.3 / §12.3): 每 5 分钟把本地 unknown_apps_queue 推 server
+        _log.info("启动 unknown_apps_reporter (每 5 分钟推未分类 app 给 server LLM) ...")
+        self._start_unknown_apps_reporter(interval_seconds=300)
+
         _log.info("启动 tray_icon ...")
         self.tray.start()
         from ui.tray_icon import HAS_TRAY
@@ -643,6 +647,40 @@ class Agent:
             _log.info("收到 rules_update: %d 条", len(rules))
             self._apply_server_rules(rules)
 
+        def on_app_categories_update(msg):
+            """server LLM 分类回来的 app_categories 写本地 cache + 标 processed."""
+            payload = msg.get("payload") or {}
+            updates = payload.get("updates") or []
+            if not isinstance(updates, list) or not updates:
+                return
+            from comms.message_types import AppCategory as AC
+            written: list[str] = []
+            for u in updates:
+                if not isinstance(u, dict):
+                    continue
+                aid = str(u.get("app_identifier") or "").strip().lower()
+                if not aid:
+                    continue
+                try:
+                    self.app_categories.upsert(AC(
+                        app_identifier=aid,
+                        category=str(u.get("category") or "neutral"),
+                        sub_type=str(u.get("sub_type") or ""),
+                        rate_multiplier=float(u.get("rate_multiplier") or 1.0),
+                        source="llm",
+                    ))
+                    written.append(aid)
+                except Exception:
+                    _log.exception("写 app_categories 失败 aid=%s", aid)
+            if written:
+                try:
+                    self.unknown_queue.mark_processed(written)
+                except Exception:
+                    _log.exception("标记 unknown_apps processed 失败")
+                _log.info(
+                    "收到 app_categories_update: 写入 %d 条 (server LLM 分类)", len(written),
+                )
+
         def on_tasks_update(msg):
             tasks = (msg.get("payload") or {}).get("tasks") or []
             _log.info("收到 tasks_update: %d 条", len(tasks))
@@ -713,6 +751,7 @@ class Agent:
         self.transport.subscribe("hello_ack", on_hello_ack)
         self.transport.subscribe("rules_update", on_rules_update)
         self.transport.subscribe("tasks_update", on_tasks_update)
+        self.transport.subscribe("app_categories_update", on_app_categories_update)
         self.transport.subscribe("wallet_update", on_wallet_update)
         self.transport.subscribe("command", on_command)
 
@@ -1194,6 +1233,48 @@ class Agent:
             self.request_dialog.activateWindow()
         except Exception:
             _log.exception("RequestDialog 显示失败")
+
+    def _start_unknown_apps_reporter(self, interval_seconds: int = 300) -> None:
+        """轻量周期任务: 每 N 秒拉 unknown_apps_queue.list_pending → WS 推 server.
+        server 端 LLM 分类完会推回 app_categories_update; 落本地由 on_app_categories_update
+        + mark_processed 完成。
+        """
+        import threading
+
+        def _loop():
+            stop = self._unknown_apps_stop
+            while not stop.is_set():
+                stop.wait(interval_seconds)
+                if stop.is_set():
+                    return
+                try:
+                    if not self.transport.is_connected():
+                        continue
+                    rows = self.unknown_queue.list_pending(50)
+                    if not rows:
+                        continue
+                    apps = [
+                        {
+                            "app_identifier": r["app_identifier"],
+                            "exe_path": r.get("exe_path") or "",
+                            "window_title": r.get("window_title") or "",
+                        }
+                        for r in rows
+                    ]
+                    self.transport.send({
+                        "type": "unknown_apps",
+                        "payload": {"apps": apps},
+                    })
+                    _log.info("推 unknown_apps 给 server LLM 分类: %d 个", len(apps))
+                except Exception:
+                    _log.exception("unknown_apps_reporter tick failed")
+
+        import threading as _t
+        self._unknown_apps_stop = _t.Event()
+        self._unknown_apps_thread = _t.Thread(
+            target=_loop, name="unknown-apps-reporter", daemon=True,
+        )
+        self._unknown_apps_thread.start()
 
     def _send_token_tick(self, payload: dict) -> bool:
         """token_engine 每 tick 调; 把扣分意图推给 server 单一权威 (决策 #34)。

@@ -21,6 +21,10 @@ import {
   stopBehaviorBaselineScheduler,
 } from "./services/behavior_baseline_scheduler.js";
 import { seedDefaultRulesForChild } from "./services/default_rules.js";
+import {
+  startWalletSyncScheduler,
+  stopWalletSyncScheduler,
+} from "./services/wallet_sync_scheduler.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 import { registerParentWebSocket } from "./ws/parent.js";
 
@@ -167,9 +171,13 @@ export async function buildServer() {
   // ── 后台任务 ────────────────────────────────────────────
   // 行为基线异常告警 (§16.1 ④): 每小时扫一次, 异常推家长浏览器
   startBehaviorBaselineScheduler(app.log);
+  // 每 60s 主动给所有在线 Agent push 当前 server balance, 兜底 wallet_update
+  // 漏 push 的场景 (用户报 "server 在扣但 Agent 显示不动")
+  startWalletSyncScheduler(app.log);
 
   app.addHook("onClose", async () => {
     stopBehaviorBaselineScheduler();
+    stopWalletSyncScheduler();
     await pool.end();
   });
 

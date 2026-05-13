@@ -23,6 +23,7 @@ import {
 } from "../routes/tasks.js";
 import { createUnlockRequestFromAgent } from "../routes/unlock_requests.js";
 import { setAgentDecision, clearAgentDecision } from "../services/agent_state.js";
+import { classifyBatch, type AppToClassify } from "../services/llm_app_classifier.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
 
@@ -212,6 +213,9 @@ async function handleMessage(
       break;
     case "token_tick":
       await onTokenTick(app, meta, msg);
+      break;
+    case "unknown_apps":
+      await onUnknownApps(app, meta, msg);
       break;
     default:
       app.log.warn({ device_id: meta.device_id, type: msg.type }, "unknown ws message type");
@@ -619,4 +623,79 @@ async function onEvent(app: FastifyInstance, meta: AgentConnection, msg: WsMessa
       // 推送失败不影响事件入库
     }
   }
+}
+
+/** Agent 周期推 unknown_apps WS → 服务端 LLM 分类 → UPSERT server app_categories
+ *  → 推回 Agent 写本地缓存 (§9.3 / §12.3 LLM 后台分类器).
+ *  失败 (LLM 未配置 / 调用错误) → 单 app 跳过, 下次周期再试.
+ */
+async function onUnknownApps(
+  app: FastifyInstance,
+  meta: AgentConnection,
+  msg: WsMessage,
+): Promise<void> {
+  const p = (msg.payload || {}) as { apps?: AppToClassify[] };
+  const apps = Array.isArray(p.apps) ? p.apps : [];
+  if (apps.length === 0 || !meta.child_id) return;
+  // 拿 parent_id (LLM 配置走家长粒度)
+  const pq = await pool.query<{ parent_id: string }>(
+    `SELECT parent_id FROM "NinoGame".children WHERE id = $1`,
+    [meta.child_id],
+  );
+  const parent_id = pq.rows[0]?.parent_id;
+  if (!parent_id) return;
+
+  // 调 LLM batch 分类 (内部并发 5)
+  const results = await classifyBatch(parent_id, apps, 5);
+  const successful = results.filter((r) => r.result !== null);
+  if (successful.length === 0) {
+    app.log.info(
+      { device_id: meta.device_id, batch: apps.length },
+      "onUnknownApps: 全部分类失败 (LLM 未配置/调用错误), 静默",
+    );
+    return;
+  }
+
+  // 写 server 端 app_categories (child_id NULL 表全局; LLM 推断的全局可用)
+  // 同时按 child_id 写一份个人 override 也可, 这里先走全局, 简单。
+  const updates: Array<{
+    app_identifier: string;
+    category: string;
+    sub_type: string;
+    rate_multiplier: number;
+  }> = [];
+  for (const r of successful) {
+    if (!r.result) continue;
+    const rate = 1.0;  // 决策 #33 后 rate_multiplier 不参与扣分; 仅元数据
+    try {
+      await pool.query(
+        `INSERT INTO "NinoGame".app_categories
+           (app_identifier, category, sub_type, rate_multiplier, classification_source, child_id)
+         VALUES ($1, $2, $3, $4, 'llm', NULL)
+         ON CONFLICT DO NOTHING`,
+        [r.app_identifier, r.result.category, r.result.sub_type, rate],
+      );
+      updates.push({
+        app_identifier: r.app_identifier,
+        category: r.result.category,
+        sub_type: r.result.sub_type,
+        rate_multiplier: rate,
+      });
+    } catch (err) {
+      app.log.warn({ err, app: r.app_identifier }, "app_categories upsert failed");
+    }
+  }
+
+  if (updates.length === 0) return;
+
+  // 推回 Agent 让它写本地缓存 + 标 processed
+  pushToDevice(meta.device_id, {
+    type: "app_categories_update",
+    payload: { updates },
+  });
+
+  app.log.info(
+    { device_id: meta.device_id, classified: updates.length, total: apps.length },
+    "onUnknownApps processed",
+  );
 }

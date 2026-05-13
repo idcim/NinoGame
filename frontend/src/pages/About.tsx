@@ -102,6 +102,14 @@ export default function About() {
 /** 更新日志手动维护; 每次有意义的版本更新追加一项。 */
 const CHANGELOG: Array<{ tag: string; title: string; bullets: string[] }> = [
   {
+    tag: "2026-05-14 e",
+    title: "LLM 应用分类 + 余额周期 sync 兜底",
+    bullets: [
+      "新增: LLM 后台分类器 — Agent 每 5 分钟把 unknown_apps_queue 推 server, server 并发调 LLM 分类 (consumption/productive/neutral + sub_type + 置信度), UPSERT app_categories, app_categories_update 推回 Agent 写本地缓存 + 标 processed",
+      "修: 用户报「server 在扣 token 但 Agent 显示不动」— 加 server 主动周期 push wallet_update (balance + reason=server_sync) 给所有在线 Agent (每 60s), 兜底 wallet_update 漏 push 的场景, Agent 静默 sync 不弹通知",
+    ],
+  },
+  {
     tag: "2026-05-14 d",
     title: "申请翻译 + 扣分简化 + 弹窗保活",
     bullets: [

@@ -602,6 +602,37 @@ class SqliteUnknownAppQueue(UnknownAppQueue):
             ),
         )
 
+    def list_pending(self, limit: int = 50) -> list[dict]:
+        """供 LLM 分类器周期推送 (CLAUDE.md §12.3): 未处理的最早 N 条。"""
+        rows = self._conn.execute(
+            "SELECT id, app_identifier, exe_path, window_title, first_seen_at "
+            "FROM unknown_apps_queue "
+            "WHERE processed = 0 "
+            "ORDER BY first_seen_at LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "app_identifier": r["app_identifier"],
+                "exe_path": r["exe_path"],
+                "window_title": r["window_title"],
+                "first_seen_at": r["first_seen_at"],
+            }
+            for r in rows
+        ]
+
+    def mark_processed(self, app_identifiers: list[str]) -> None:
+        if not app_identifiers:
+            return
+        placeholders = ",".join("?" * len(app_identifiers))
+        self._conn.execute(
+            f"UPDATE unknown_apps_queue SET processed = 1 "
+            f"WHERE app_identifier IN ({placeholders})",
+            tuple(s.lower() for s in app_identifiers),
+        )
+        self._conn.commit()
+
 
 # ────────────────────────────────────────────────────────────────
 # 责任清单
