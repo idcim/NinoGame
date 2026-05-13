@@ -62,6 +62,7 @@ from ui.notifier import Notifier  # noqa: E402
 from ui.overlay import FloatingOverlay  # noqa: E402
 from ui.pair_dialog import PairDialog  # noqa: E402
 from ui.request_dialog import RequestDialog  # noqa: E402
+from ui.task_claim_dialog import TaskClaimDialog  # noqa: E402
 from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
@@ -205,6 +206,7 @@ class Agent:
         self.panel: StatusPanel | None = None        # run() 创建
         self.pair_dialog: PairDialog | None = None   # 按需 lazy 创建
         self.request_dialog: RequestDialog | None = None  # 同上
+        self.task_claim_dialog: TaskClaimDialog | None = None  # 同上
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
@@ -235,6 +237,7 @@ class Agent:
             on_show_panel=self._request_show_panel,
             on_show_pair=self._request_show_pair,
             on_show_request=self._request_show_request_dialog,
+            on_show_task_claim=self._request_show_task_claim_dialog,
         )
 
         self._stop = False
@@ -602,10 +605,33 @@ class Agent:
             self._apply_server_tasks(tasks)
 
         def on_wallet_update(msg):
-            balance = (msg.get("payload") or {}).get("balance")
-            _log.info("收到 wallet_update: balance=%s", balance)
+            payload = msg.get("payload") or {}
+            balance = payload.get("balance")
+            reason = str(payload.get("reason") or "")
+            delta = payload.get("delta")
+            comment = str(payload.get("comment") or "")
+            _log.info(
+                "收到 wallet_update: balance=%s reason=%s delta=%s",
+                balance, reason, delta,
+            )
             if balance is not None:
                 self._apply_server_wallet(balance)
+            # 任务奖励 / 家长发奖 → 弹通知告诉孩子
+            try:
+                if reason == "task_reward" and isinstance(delta, (int, float)) and delta > 0:
+                    self.notifier.info_async(
+                        f"家长批准了你的任务{(' (' + comment + ')') if comment else ''}, "
+                        f"+{int(delta)} token 已到账。",
+                        title="NinoGame · 任务奖励",
+                    )
+                elif reason == "parent_grant" and isinstance(delta, (int, float)) and delta > 0:
+                    self.notifier.info_async(
+                        f"家长给你发了 +{int(delta)} token"
+                        f"{(' (' + comment + ')') if comment else ''}。",
+                        title="NinoGame · 家长发奖",
+                    )
+            except Exception:
+                _log.exception("wallet_update 通知失败")
 
         def on_command(msg):
             self._handle_command(msg.get("payload") or {})
@@ -1037,6 +1063,75 @@ class Agent:
             _log.exception("发送 unlock_request 失败")
             return False
 
+    def _request_show_task_claim_dialog(self) -> None:
+        """孩子在托盘点「申报任务完成」→ 派发到 Qt 主线程开 TaskClaimDialog。"""
+        try:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._show_task_claim_dialog_on_main)
+        except Exception:
+            _log.exception("show task claim dialog 失败")
+
+    def _show_task_claim_dialog_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            if self.task_claim_dialog is None:
+                self.task_claim_dialog = TaskClaimDialog(
+                    get_tasks=self._get_incentive_tasks,
+                    on_submit=self._submit_task_claim,
+                    logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
+                )
+            self.task_claim_dialog.show_for_user()
+        except Exception:
+            _log.exception("TaskClaimDialog 显示失败")
+
+    def _get_incentive_tasks(self) -> list[dict]:
+        """读 config/tasks.json, 返回所有 active 的 incentive 任务。
+        责任类 (responsibility) 通过 tray 菜单的 checklist 完成, 不走这里。
+        """
+        tasks_path = self.config_dir / "tasks.json"
+        if not tasks_path.exists():
+            return []
+        try:
+            with open(tasks_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return [
+                t for t in data
+                if t.get("category") == "incentive" and t.get("active", True)
+            ]
+        except Exception:
+            _log.exception("读 tasks.json 失败")
+            return []
+
+    def _submit_task_claim(self, task_id: str, child_note: str) -> bool:
+        """TaskClaimDialog 回调; 发 task_claim WS 给 server。
+
+        server 端 onTaskClaim 收到后:
+          1) 验证 task 属于该孩子 + active + 不是 responsibility
+          2) INSERT task_completions (status=pending)
+          3) 推家长浏览器 (实时事件流)
+          4) 家长在 /tasks 批准 → 写 task_reward ledger → wallet_update 推回 Agent
+        """
+        if not task_id:
+            return False
+        if not self.transport.is_connected():
+            _log.warning("transport 未连接, 任务申报发送失败")
+            return False
+        try:
+            self.transport.send({
+                "type": "task_claim",
+                "payload": {
+                    "task_id": task_id,
+                    "child_note": (child_note or "").strip()[:512],
+                },
+            })
+            _log.info(
+                "孩子已申报任务完成: task_id=%s note=%r", task_id, child_note[:40],
+            )
+            return True
+        except Exception:
+            _log.exception("发送 task_claim 失败")
+            return False
+
     def _show_pair_dialog_on_main(self) -> None:
         """启动时未配对的"首次配对"路径。Qt 主线程上调用, 同样走 bridge
         信号 (统一通道, 跟 tray 重新配对走一样的代码)。
@@ -1232,6 +1327,18 @@ class Agent:
             if self.overlay is not None:
                 self.overlay.hide()
                 self.overlay.deleteLater()
+        except Exception:
+            pass
+        try:
+            if self.task_claim_dialog is not None:
+                self.task_claim_dialog.hide()
+                self.task_claim_dialog.deleteLater()
+        except Exception:
+            pass
+        try:
+            if self.request_dialog is not None:
+                self.request_dialog.hide()
+                self.request_dialog.deleteLater()
         except Exception:
             pass
         try:

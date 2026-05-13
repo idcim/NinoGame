@@ -30,6 +30,14 @@
 - **Agent 同步**: 模板增删改后 server 立刻全量推 `tasks_update`; Agent 收到后覆写本地 `config/tasks.json` + 重载 `ResponsibilityChecklist` (responsibility 类立即在托盘菜单刷新)
 - **审批拒绝**: 不扣已有余额, 仅标 status=rejected, reward_granted=0; 孩子端目前只在浏览器可见家长意见
 
+### Agent 端任务申报 (孩子端 UX)
+- **入口**: 托盘菜单 (child 模式) 看到「申报任务完成…」, 点开弹 TaskClaimDialog
+- **列表**: 读本地 `config/tasks.json` 中所有 `category=incentive` 且 `active=true` 的任务, 每行显示 任务名 + verification 提示 + `+N token` 徽章 + 「申报完成」按钮
+- **备注**: 可选 (256 字), 家长在浏览器 /tasks 申报队列里看得到
+- **WS 上报**: 点按钮发 `{type:"task_claim", payload:{task_id, child_note}}`, server 端 onTaskClaim 写 `task_completions(status=pending)`
+- **批准通知**: 家长在浏览器 /tasks 审批后, server 推 `wallet_update {reason:"task_reward", delta:+N}`, Agent 弹原生通知 "+N token 到账" (家长发奖 `parent_grant` 同理)
+- **未配对/掉线**: 按钮发送失败时 dialog 显示提示, 不静默丢消息
+
 ## 后续计划 (P2 收尾 / P3)
 
 | 优先 | 事项 | 形态 |
@@ -42,7 +50,7 @@
 | ✅ | ~~信任值机制（§8.7）~~ | server `recomputeTrust` 在每次审批后异步触发: 30 天窗口 ≥5 样本, reject_rate >30%→ -1, <5%→ +1; 24h 冷却; 写 `trust_changes` ledger; frontend 卡片显示星级 |
 | ✅ | ~~鼠标轨迹防刷（§16）~~ | Agent 端 JigglerDetector: 每 1s 采样 cursor, 60s 窗口 bounding box <80px 判定机械感 → is_active_earning 返回 False (不刷分) + 发 JIGGLER_ALERT 事件 (家长浏览器实时看到, 5min 限频) |
 | ✅ | ~~任务管理 (§8.3 Path 3 + §8.6 责任清单)~~ | 浏览器 `/tasks` 页面: 模板 CRUD + 申报队列 (待审批/已批/已拒) + 责任清单 14/30 天历史日历; server `tasks_update` 全量推 → Agent 写本地 `tasks.json` + 重载 checklist; 责任勾选走 `event:checklist_tick` → server upsert `responsibility_checks`; 激励任务 approve 自动走 `task_reward` ledger + 推 `wallet_update` |
-| 🟡 | Agent 端激励任务申报 UI | 托盘/状态面板加「申报完成」入口 → 发 `task_claim` WS; 当前 backend 已支持, 仅缺 Agent UI |
+| ✅ | ~~Agent 端激励任务申报 UI~~ | 托盘菜单 (child 模式) →「申报任务完成…」→ 列出本地 `tasks.json` 中所有 active+incentive 任务, 一行一个「申报完成」按钮 + 可选备注 → 发 `task_claim` WS → server 写 pending + 推家长浏览器; 家长批准后 `wallet_update` 推回 Agent, Agent 弹通知"+30 token 到账" |
 | 🟢 | **Android Agent** | Kotlin + AccessibilityService |
 
 ## 当前状态
