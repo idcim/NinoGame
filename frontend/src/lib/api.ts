@@ -543,6 +543,7 @@ export interface ChildSettingsForm {
   jiggler_detector_enabled: boolean;
   jiggler_box_threshold_px: number;
   messages: Record<string, string>;
+  request_quick_options: string[];
 }
 
 // ── llm ───────────────────────────────────────────────────────

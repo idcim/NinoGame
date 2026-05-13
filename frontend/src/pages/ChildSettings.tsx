@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Loader2, RotateCcw, Settings, Sliders } from "lucide-react";
+import { Check, Loader2, Plus, RotateCcw, Settings, Sliders, Trash2 } from "lucide-react";
 import {
   api,
   ApiError,
@@ -93,6 +93,29 @@ export default function ChildSettings() {
       prev ? { ...prev, messages: { ...prev.messages, [k]: v } } : prev,
     );
   }
+  function patchQuickOption(idx: number, v: string) {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const arr = [...(prev.request_quick_options ?? [])];
+      arr[idx] = v;
+      return { ...prev, request_quick_options: arr };
+    });
+  }
+  function addQuickOption() {
+    setForm((prev) =>
+      prev
+        ? { ...prev, request_quick_options: [...(prev.request_quick_options ?? []), ""] }
+        : prev,
+    );
+  }
+  function removeQuickOption(idx: number) {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const arr = [...(prev.request_quick_options ?? [])];
+      arr.splice(idx, 1);
+      return { ...prev, request_quick_options: arr };
+    });
+  }
 
   async function save() {
     if (!form || !activeChild) return;
@@ -100,7 +123,14 @@ export default function ChildSettings() {
     setErr(null);
     setMsg(null);
     try {
-      const r = await api.saveChildSettings(activeChild, form);
+      // 提交前清理快捷选项 (trim + 去空), 避免空字符串污染孩子端 UI
+      const cleaned: ChildSettingsForm = {
+        ...form,
+        request_quick_options: (form.request_quick_options ?? [])
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
+      };
+      const r = await api.saveChildSettings(activeChild, cleaned);
       setForm(r.merged);
       setRaw(r.raw);
       setMsg(`✓ 已保存${r.pushed > 0 ? ` (推送到 ${r.pushed} 台在线 Agent)` : " (Agent 离线, 上线时拉)"}`);
@@ -230,6 +260,49 @@ export default function ChildSettings() {
                   </div>
                 </div>
               ))}
+            </div>
+          </section>
+
+          {/* 申请快捷选项 */}
+          <section>
+            <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3">
+              申请快捷选项 (孩子点 chip 直接填入申请框)
+            </h2>
+            <div className="card p-5 space-y-3">
+              <p className="text-xs text-ink-light">
+                孩子在「申请游戏时间」对话框里看到这些 chip 按钮。
+                适合不太会打字的小孩 — 一点直接填进输入框, 还能再改。
+                {"request_quick_options" in raw && (
+                  <span className="badge badge-info ml-2">已改</span>
+                )}
+              </p>
+              {(form.request_quick_options ?? []).map((opt, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input flex-1"
+                    value={opt}
+                    onChange={(e) => patchQuickOption(i, e.target.value)}
+                    placeholder="例: 作业写完了, 想玩 30 分钟"
+                    maxLength={80}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeQuickOption(i)}
+                    className="btn-ghost text-warn"
+                    title="删除"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addQuickOption}
+                className="btn-ghost"
+              >
+                <Plus size={14} /> 增加一条
+              </button>
             </div>
           </section>
 

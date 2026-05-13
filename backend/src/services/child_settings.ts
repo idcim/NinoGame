@@ -39,11 +39,18 @@ export interface ChildSettings {
 
   // 自定义文案
   messages?: Record<string, string>;
+
+  // 申请游戏时间的快捷选项 (不会打字的孩子直接点选)
+  // RequestDialog 在输入框上方渲染按钮 chip; 点 → 填进输入框 (允许再改)
+  request_quick_options?: string[];
 }
 
 /** 字段白名单 + 默认值. PUT 时仅这些 key 可写 (防注入 pin_hash 等). */
-export const DEFAULT_SETTINGS: Required<Omit<ChildSettings, "messages">> & {
+export const DEFAULT_SETTINGS: Required<
+  Omit<ChildSettings, "messages" | "request_quick_options">
+> & {
   messages: Record<string, string>;
+  request_quick_options: string[];
 } = {
   idle_lock_minutes: 10,
   billing_tick_seconds: 60,
@@ -60,6 +67,14 @@ export const DEFAULT_SETTINGS: Required<Omit<ChildSettings, "messages">> & {
   jiggler_detector_enabled: false,
   jiggler_box_threshold_px: 80,
   messages: {},
+  // 不会打字也能申请: 5 条覆盖最常见场景
+  request_quick_options: [
+    "作业写完了, 想玩 30 分钟",
+    "想看一集动画片",
+    "想玩 30 分钟游戏",
+    "想跟朋友联机玩",
+    "想休息一下放松",
+  ],
 };
 
 const ALLOWED_KEYS = new Set(Object.keys(DEFAULT_SETTINGS));
@@ -128,6 +143,13 @@ function mergeWithDefaults(stored: ChildSettings): ChildSettings {
     if (!ALLOWED_KEYS.has(k)) continue;
     if (k === "messages" && typeof v === "object" && v !== null) {
       out.messages = { ...DEFAULT_SETTINGS.messages, ...(v as Record<string, string>) };
+    } else if (k === "request_quick_options") {
+      // 数组: stored 整段覆盖 default; null/非数组 fall back default
+      if (Array.isArray(v)) {
+        out.request_quick_options = v.filter(
+          (x): x is string => typeof x === "string" && x.trim().length > 0,
+        );
+      }
     } else if (v !== null && v !== undefined) {
       out[k] = v;
     }

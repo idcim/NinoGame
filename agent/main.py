@@ -1264,12 +1264,23 @@ class Agent:
                     logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
                     on_submit=self._submit_unlock_request,
                     get_transport_warning=self._transport_warning,
+                    get_quick_options=self._get_request_quick_options,
                 )
             self.request_dialog.show()
             self.request_dialog.raise_()
             self.request_dialog.activateWindow()
         except Exception:
             _log.exception("RequestDialog 显示失败")
+
+    def _get_request_quick_options(self) -> list[str]:
+        """家长后台配的"申请快捷选项", 由 settings_update 推送; 每次弹 dialog 时调."""
+        try:
+            v = self.settings.get("request_quick_options")
+            if isinstance(v, list):
+                return [str(x).strip() for x in v if str(x).strip()]
+        except Exception:
+            _log.exception("get_request_quick_options failed")
+        return []
 
     def _start_unknown_apps_reporter(self, interval_seconds: int = 300) -> None:
         """轻量周期任务: 每 N 秒拉 unknown_apps_queue.list_pending → WS 推 server.
@@ -1563,6 +1574,13 @@ class Agent:
         如果余额仍 0, token_engine 下一个 tick 会再触发 OutOfTokenDialog 锁屏。
         """
         _log.info("★ 切回孩子模式 (恢复计费)")
+        # 关键: reset token_engine 的 oot flag, 否则上一轮触发过 OOT 后 flag
+        # 留在 True, 下一个 tick 即便余额仍 0 也不会再调 _on_out_of_token,
+        # 锁屏永不再弹 → 家长切回孩子 = 0 余额白嫖。
+        try:
+            self.token_engine.set_oot_triggered(False)
+        except Exception:
+            _log.exception("reset oot_triggered 失败")
         try:
             self.session_manager.change_mode(
                 SessionMode.CHILD.value, SessionEndReason.SWITCHED.value,

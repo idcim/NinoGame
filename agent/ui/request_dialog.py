@@ -13,7 +13,7 @@ from typing import Callable
 
 import qtawesome as qta
 from PySide6.QtCore import Qt, QSize, QPoint
-from PySide6.QtGui import QColor, QPixmap, QIcon
+from PySide6.QtGui import QColor, QPixmap, QIcon, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -51,11 +51,15 @@ class RequestDialog(QWidget):
         logo_path: str | Path | None = None,
         on_submit: Callable[[str], "tuple[bool, str] | bool"] | None = None,
         get_transport_warning: Callable[[], str | None] | None = None,
+        get_quick_options: Callable[[], list[str]] | None = None,
     ) -> None:
+        """get_quick_options: 返回当前快捷选项 list (家长后台配, settings_update 推送).
+        每次 show() 重渲染 chip 区, 设置改了立刻生效."""
         super().__init__()
         self._logo_path = str(logo_path) if logo_path else None
         self._on_submit = on_submit
         self._get_transport_warning = get_transport_warning
+        self._get_quick_options = get_quick_options
         # 关闭后的一次性回调 (外部赋值); hide/close 触发后清零防止重入。
         # 用途: OutOfTokenDialog 锁屏态下弹 RequestDialog, 关掉时必须立刻
         # 把锁屏拉回, 否则孩子能点申请绕过锁。
@@ -142,6 +146,15 @@ class RequestDialog(QWidget):
         )
         bl.addWidget(self._warning)
 
+        # 快捷选项 chips (不会打字的小孩点 chip 直接填进输入框)
+        # 容器永远在, chips 在 show() 时根据 get_quick_options 动态重建
+        self._chip_container = QWidget(body)
+        self._chip_layout = QVBoxLayout(self._chip_container)
+        self._chip_layout.setContentsMargins(0, 0, 0, 0)
+        self._chip_layout.setSpacing(6)
+        self._chip_container.setVisible(False)
+        bl.addWidget(self._chip_container)
+
         self._input = QTextEdit(body)
         self._input.setPlaceholderText("我...")
         self._input.setFixedHeight(120)
@@ -212,7 +225,55 @@ class RequestDialog(QWidget):
                 self._warning.setVisible(False)
         else:
             self._warning.setVisible(False)
+        self._rebuild_chips()
         super().show()
+
+    def _rebuild_chips(self) -> None:
+        """清空 chip 区, 拿最新的 quick_options 重渲染 (家长后台改后即时生效)."""
+        # 清掉旧 chip
+        while self._chip_layout.count():
+            it = self._chip_layout.takeAt(0)
+            w = it.widget() if it is not None else None
+            if w is not None:
+                w.deleteLater()
+        options: list[str] = []
+        if self._get_quick_options is not None:
+            try:
+                raw = self._get_quick_options() or []
+                options = [str(s).strip() for s in raw if str(s).strip()]
+            except Exception:
+                _log.exception("get_quick_options failed")
+                options = []
+        if not options:
+            self._chip_container.setVisible(False)
+            return
+        hint = QLabel("不会打字? 直接点下面的:", self._chip_container)
+        hint.setStyleSheet(
+            f"color: {COLOR_TEXT_DIM}; font-family: 'Microsoft YaHei UI';"
+            f" font-size: 9pt; padding: 0;"
+        )
+        self._chip_layout.addWidget(hint)
+        for opt in options:
+            btn = QPushButton(opt, self._chip_container)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                f"QPushButton {{ background-color: {COLOR_BG}; color: {COLOR_TEXT};"
+                f" border: 1px solid {COLOR_BORDER}; border-radius: 14px;"
+                f" padding: 6px 14px; text-align: left;"
+                f" font-family: 'Microsoft YaHei UI'; font-size: 10pt; }}"
+                f" QPushButton:hover {{ border-color: {COLOR_PRIMARY};"
+                f" color: {COLOR_PRIMARY}; background-color: white; }}"
+            )
+            # 闭包陷阱: 用默认参数捕获 opt
+            btn.clicked.connect(lambda _checked=False, t=opt: self._fill_input(t))
+            self._chip_layout.addWidget(btn)
+        self._chip_container.setVisible(True)
+
+    def _fill_input(self, text: str) -> None:
+        """点 chip → 填到输入框, 光标放末尾, 孩子可以再添补."""
+        self._input.setPlainText(text)
+        self._input.moveCursor(QTextCursor.End)
+        self._input.setFocus()
 
     def _center(self) -> None:
         s = QApplication.primaryScreen()
