@@ -187,7 +187,8 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
         `UPDATE "NinoGame".devices
             SET pairing_code = $1,
                 agent_token = NULL,
-                last_seen_at = NULL
+                last_seen_at = NULL,
+                created_at = NOW()
           WHERE id = $2
           RETURNING id, pairing_code`,
         [code, id],
