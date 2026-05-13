@@ -431,17 +431,25 @@ class Agent:
             except Exception:
                 _log.exception("发 JIGGLER_ALERT 事件失败")
 
+        # 决策 #36 后扣分不再看活跃判定, jiggler_detector 价值大幅降低,
+        # 且现有逻辑 "任何 1px 位移 + box<80" 对孩子键盘打字 / 滚轮 / 点击
+        # 但鼠标几乎不动的场景大量误报。默认禁用; settings.json
+        # "jiggler_detector_enabled": true 才启动。
         self.jiggler = JigglerDetector(
             sample_interval_seconds=1.0,
             window_size=60,
-            box_threshold_px=80,
+            box_threshold_px=int(self.settings.get("jiggler_box_threshold_px", 80)),
             alert_callback=_on_jiggler_alert,
             alert_cooldown_seconds=300,
         )
-        self.activity.set_jiggler(self.jiggler)
-        self.jiggler.start()
-        if self.activity.fallback_only:
-            _log.info("  → fallback 模式 (鼠标抖动器无法识别)")
+        if bool(self.settings.get("jiggler_detector_enabled", False)):
+            self.activity.set_jiggler(self.jiggler)
+            self.jiggler.start()
+            _log.info("启动 jiggler_detector (settings 显式开启)")
+            if self.activity.fallback_only:
+                _log.info("  → fallback 模式 (鼠标抖动器无法识别)")
+        else:
+            _log.info("跳过 jiggler_detector (默认禁用; settings jiggler_detector_enabled=true 启用)")
 
         _log.info("启动 session_manager (初始模式=%s) ...", self._initial_mode())
         self.session_manager.start(initial_mode=self._initial_mode())

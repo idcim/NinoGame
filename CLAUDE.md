@@ -1925,6 +1925,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 | 34   | 扣分权威源            | **server 单一权威**: Agent token_engine 每 tick 通过 WS `token_tick` 把扣分意图推给 server, server 写 ledger + UPDATE wallets + 推 `wallet_update` 回。Agent 本地不再 deduct, balance 完全由 server 推送驱动。`usage_report` 退化为纯审计 (写 app_sessions, 不再据 segments 减 wallet, 修复双重扣分)。离线时跳过扣分 (与 §7.6 一致)。 | §10, §11.2, §19 |
 | 35   | 每日硬上限默认        | **取消默认 daily_hard_cap_minutes=120, 改 0=不限**: 决策 #33 已经把扣分和 active 时长绑定 (用就扣, 不够申请), 再叠加 "用满 N 分钟即停" 反而让孩子"卡到 X token 后免费玩剩下时间"。家长想用硬上限仍可手动设非 0 启用。 | §7.4, §10.2 |
 | 36   | 取消活跃判定          | **child 模式在跑即扣**: 不再判定"最近 2 分钟有键鼠输入"。理由: 用户报"不管什么情况, 模式在运行就要扣费" (孩子看视频不动鼠也该扣)。闲置 10 分钟自动 Lock 仍兜底, 真正离开屏幕的场景由 Lock 停扣。`is_active_consumption` 函数保留但仅用于活跃事件流, 不参与扣分决策。 | §10.2, §10.3 |
+| 37   | jiggler_detector 默认禁用 | 决策 #36 后扣分不看活跃判定, jiggler 检测价值消失。原 "1px 位移 + box<80" 逻辑对孩子键盘打字 / 滚轮 / 点击 但鼠标几乎不动的场景大量误报。默认 disabled, settings.json `jiggler_detector_enabled: true` 才启动。代码保留, 阈值可调 (`jiggler_box_threshold_px`). | §16.1 |
 
 ------
 
