@@ -1850,7 +1850,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 
 ### P3 — LLM 与跨端（目标 6-8 周）
 
-- [ ] LLM Service 接入（Anthropic API）
+- [x] LLM Service 接入 (多平台: OpenAI / DeepSeek / Qwen / Moonshot / 智谱 / Anthropic / 自定义; 家长后台 /llm-config 配置)
 - [ ] LLM 翻译器（申请结构化）
 - [ ] LLM 后台分类器（unknown apps）
 - [x] ~~LLM 验证助手（照片初筛）~~ — 已下线 (改私下协商 + 家长后台 +token, 见 §22 #32)

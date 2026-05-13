@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, ClipboardList, Info, LogOut, LayoutGrid, MessageSquare, Shield } from "lucide-react";
+import { BarChart3, ClipboardList, Info, LogOut, LayoutGrid, MessageSquare, Shield, Sparkles } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearAuth, getParent } from "../lib/auth";
@@ -162,6 +162,18 @@ export default function Layout() {
             >
               <BarChart3 size={14} />
               报表
+            </NavLink>
+            <NavLink
+              to="/llm-config"
+              className={({ isActive }) =>
+                "px-3 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition-colors " +
+                (isActive
+                  ? "bg-brand-50 text-brand-600"
+                  : "text-ink-dim hover:text-ink")
+              }
+            >
+              <Sparkles size={14} />
+              LLM
             </NavLink>
             <NavLink
               to="/about"

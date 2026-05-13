@@ -136,6 +136,34 @@ export const api = {
       `/api/children/${child_id}/reports/top-apps?days=${days}&limit=${limit}`,
     ),
 
+  // ── LLM 配置 (P3) ─────────────────────────────────────────
+  getLlmConfig: () =>
+    request<{ config: LlmConfigMasked | null }>("/api/llm/config"),
+  saveLlmConfig: (data: {
+    provider: "openai_compatible" | "anthropic";
+    api_key: string;
+    base_url: string;
+    model: string;
+    enabled?: boolean;
+  }) =>
+    request<{ config: LlmConfigMasked }>("/api/llm/config", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  testLlm: (prompt?: string) =>
+    request<{
+      ok: boolean;
+      reply: string;
+      ms: number;
+      error?: string;
+      status?: number | null;
+    }>("/api/llm/test", {
+      method: "POST",
+      body: JSON.stringify(prompt ? { prompt } : {}),
+    }),
+  deleteLlmConfig: () =>
+    request<{ ok: boolean }>("/api/llm/config", { method: "DELETE" }),
+
   // ── commands ──────────────────────────────────────────────
   pushCommand: (data: {
     device_id: string;
@@ -472,6 +500,17 @@ export interface LedgerEntry {
   balance_after: number;
   reason: string;
   occurred_at: string;
+}
+
+// ── llm ───────────────────────────────────────────────────────
+export interface LlmConfigMasked {
+  provider: string;
+  base_url: string;
+  model: string;
+  enabled: boolean;
+  api_key_masked: string;
+  has_key: boolean;
+  updated_at: string;
 }
 
 // ── reports ───────────────────────────────────────────────────

@@ -102,6 +102,17 @@ export default function About() {
 /** 更新日志手动维护; 每次有意义的版本更新追加一项。 */
 const CHANGELOG: Array<{ tag: string; title: string; bullets: string[] }> = [
   {
+    tag: "2026-05-14 c",
+    title: "LLM 多平台支持 + 家长后台填写",
+    bullets: [
+      "新增: 家长后台 /llm-config 页 — 配置 OpenAI / DeepSeek / Qwen / Moonshot / 智谱 GLM / Anthropic Claude / 自定义 (Ollama / vLLM / LLM Gateway)",
+      "新增: services/llm.ts 统一抽象 — OpenAI 兼容走 /chat/completions, Anthropic 走 /messages, 用原生 fetch 不引外部 SDK",
+      "新增: routes/llm.ts — GET/POST/DELETE /api/llm/config + POST /api/llm/test (返回 reply + 耗时 ms); api_key 脱敏 (前 4+后 4)",
+      "新增: llm_config 表 (parent_id PK; provider/api_key/base_url/model/enabled/updated_at) + 60s 内存 LRU cache",
+      "支持: 申请翻译 / 应用分类 等后续 P3 功能可直接 chat(parent_id, messages) 调用, 未配置/未启用时自动 throw LlmNotConfiguredError, 调用方降级到无 LLM 行为",
+    ],
+  },
+  {
     tag: "2026-05-14 b",
     title: "全局通知 + 报表页 + 扣分上限取消",
     bullets: [

@@ -11,6 +11,7 @@ import { registerChildrenRoutes } from "./routes/children.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerFreePassRoutes } from "./routes/free_pass.js";
+import { registerLlmRoutes } from "./routes/llm.js";
 import { registerReportRoutes } from "./routes/reports.js";
 import { registerRuleRoutes } from "./routes/rules.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
@@ -57,6 +58,7 @@ export async function buildServer() {
   await registerUnlockRequestRoutes(app);
   await registerFreePassRoutes(app);
   await registerReportRoutes(app);
+  await registerLlmRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);
 
@@ -111,6 +113,10 @@ export async function buildServer() {
       "GET  /api/free-pass?child_id  (Bearer)",
       "GET  /api/children/:id/reports/daily?days     (Bearer)",
       "GET  /api/children/:id/reports/top-apps?days&limit (Bearer)",
+      "GET  /api/llm/config          (Bearer)",
+      "POST /api/llm/config          (Bearer)",
+      "POST /api/llm/test            (Bearer)",
+      "DEL  /api/llm/config          (Bearer)",
       "WS   /ws/agent?token=<agent_token>",
       "WS   /ws/parent?token=<jwt>",
     ],

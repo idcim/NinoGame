@@ -4,6 +4,7 @@ import About from "./pages/About";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DeviceDetail from "./pages/DeviceDetail";
+import LlmConfig from "./pages/LlmConfig";
 import Reports from "./pages/Reports";
 import Requests from "./pages/Requests";
 import Rules from "./pages/Rules";
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/rules" element={<Rules />} />
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/reports" element={<Reports />} />
+        <Route path="/llm-config" element={<LlmConfig />} />
         <Route path="/device/:id" element={<DeviceDetail />} />
         <Route path="/about" element={<About />} />
       </Route>
