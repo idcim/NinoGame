@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import ctypes
 import logging
 import subprocess
 import sys
@@ -81,6 +82,8 @@ class OutOfTokenDialog(QWidget):
         # 关机倒计时
         self._shutdown_timer: QTimer | None = None
         self._shutdown_remaining = 0
+        # 防 Alt-Tab 切走的"抢焦点"循环 timer (200ms 一次)
+        self._reclaim_timer: QTimer | None = None
 
         self._build()
 
@@ -351,14 +354,41 @@ class OutOfTokenDialog(QWidget):
         self._btn_parent_unlock.setEnabled(True)
         # 全屏 + 抢焦点
         self.showFullScreen()
-        self.raise_()
-        self.activateWindow()
+        self._reclaim_focus()
+        # 启动抢焦点 timer: Alt-Tab 切走后 200ms 内被抢回, 防孩子切到底下窗口
+        if self._reclaim_timer is None:
+            self._reclaim_timer = QTimer(self)
+            self._reclaim_timer.timeout.connect(self._reclaim_focus)
+        self._reclaim_timer.start(200)
 
     def hide_for_user(self) -> None:
         # 退出锁屏 (token 回正 / 家长解锁后调)
+        if self._reclaim_timer is not None:
+            self._reclaim_timer.stop()
         if self._shutdown_timer is not None:
             self._cancel_shutdown()
         self.hide()
+
+    def _reclaim_focus(self) -> None:
+        """每 200ms 把焦点抢回. 视觉效果: 孩子按 Alt-Tab 几乎没反应,
+        锁屏一直在最前."""
+        if not self.isVisible():
+            return
+        try:
+            self.raise_()
+            self.activateWindow()
+            # Windows: 直接调 SetForegroundWindow 比 Qt 抢得稳; 失败也无所谓
+            if sys.platform == "win32":
+                try:
+                    hwnd = int(self.winId())
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    # 顺手 BringWindowToTop 让 z-order 也最前
+                    ctypes.windll.user32.BringWindowToTop(hwnd)
+                except Exception:
+                    pass
+        except Exception:
+            # 不让抢焦点失败炸整个 timer 循环
+            pass
 
     # 阻止用户按 Esc / Alt-F4 关掉 (这俩在 frameless 下本来也很难触发,
     # 但保险起见无视 close event 让 main.py 决定 hide)
