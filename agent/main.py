@@ -68,6 +68,7 @@ from ui.history_window import (  # noqa: E402
     render_ledger_row,
     render_notification_row,
 )
+from ui.out_of_token_dialog import OutOfTokenDialog  # noqa: E402
 from ui.task_claim_dialog import TaskClaimDialog  # noqa: E402
 from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
@@ -211,6 +212,8 @@ class Agent:
             get_active_session_id=self.session_manager.active_session_id,
             is_free_pass_active=self._is_free_pass_active,
             send_token_tick=self._send_token_tick,
+            on_out_of_token=self._on_out_of_token,
+            on_token_replenished=self._on_token_replenished,
         )
         self.checklist = ResponsibilityChecklist(
             self.config_dir / "tasks.json", self.resp_repo, self.events, self.bus
@@ -236,6 +239,7 @@ class Agent:
         self.task_claim_dialog: TaskClaimDialog | None = None  # 同上
         self.messages_window: HistoryWindow | None = None  # 我的消息
         self.ledger_window: HistoryWindow | None = None    # 余额变动
+        self.out_of_token_dialog: OutOfTokenDialog | None = None  # 余额耗尽锁屏
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
@@ -1278,6 +1282,100 @@ class Agent:
             target=_loop, name="unknown-apps-reporter", daemon=True,
         )
         self._unknown_apps_thread.start()
+
+    # ── 余额耗尽全屏锁屏 (网吧模式) ─────────────────────────
+    def _on_out_of_token(self) -> None:
+        """token_engine 检测到余额耗尽时触发. 工作线程调; bridge 派发到 GUI 线程."""
+        _log.info("★ 余额耗尽, 触发锁屏 + 切 Lock 模式")
+        # 立即切 Lock 模式 (停 child session)
+        try:
+            self.session_manager.change_mode(
+                SessionMode.LOCK.value, SessionEndReason.SWITCHED.value,
+            )
+        except Exception:
+            _log.exception("切 Lock 失败")
+        # 弹全屏锁屏对话框 (GUI 线程)
+        get_bridge().run_on_gui(self._show_out_of_token_dialog_on_main)
+
+    def _on_token_replenished(self) -> None:
+        """余额回正 (家长发奖 / 任务批准 / 第二天发放) → 关锁屏 + 切回 Child."""
+        _log.info("★ 余额回正, 关锁屏 + 切回 Child 模式")
+        try:
+            self.session_manager.change_mode(
+                SessionMode.CHILD.value, SessionEndReason.SWITCHED.value,
+            )
+        except Exception:
+            _log.exception("切 Child 失败")
+        get_bridge().run_on_gui(self._hide_out_of_token_dialog_on_main)
+
+    def _show_out_of_token_dialog_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            if self.out_of_token_dialog is None:
+                logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+                self.out_of_token_dialog = OutOfTokenDialog(
+                    on_request=self._oot_on_request,
+                    on_parent_unlock=self._oot_on_parent_unlock,
+                    logo_path=logo,
+                )
+            self.out_of_token_dialog.show_for_user()
+        except Exception:
+            _log.exception("OutOfTokenDialog 显示失败")
+
+    def _hide_out_of_token_dialog_on_main(self) -> None:
+        if self.out_of_token_dialog is not None:
+            try:
+                self.out_of_token_dialog.hide_for_user()
+            except Exception:
+                _log.exception("OutOfTokenDialog 隐藏失败")
+
+    def _oot_on_request(self) -> None:
+        """孩子在锁屏上点"申请游戏时间" → 关锁屏 + 弹 RequestDialog."""
+        if self.out_of_token_dialog is not None:
+            self.out_of_token_dialog.hide_for_user()
+        # 不切 Child (余额还是 0); 等家长批准后 temporary_unlock 才能玩
+        self._show_request_dialog_on_main()
+
+    def _oot_on_parent_unlock(self) -> None:
+        """孩子在锁屏上点"家长 PIN 解锁" → bridge.ask_pin → 通过则切 Parent."""
+        if not self.pin.has_pin():
+            # 没设 PIN → 直接切 (家长信任本地物理在场)
+            _log.warning("家长 PIN 未设置, 直接切 Parent 模式")
+            self._switch_to_parent_after_unlock()
+            return
+        # 走 bridge ask_pin (会阻塞当前调用线程; 走 GUI 线程槽)
+        try:
+            from ui.assets import dialog_image_path
+            logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+            ok = get_bridge().ask_pin(
+                title="家长验证",
+                prompt="输入家长 PIN 解锁切到家长模式 (不计费)",
+                logo_path=logo,
+                verify=self.pin.verify,
+                on_wrong=lambda remaining: f"× PIN 错, 还剩 {remaining} 次",
+                on_locked=lambda mins: f"× PIN 多次错误, 锁 {mins} 分钟",
+                is_locked=self.pin.is_locked,
+                seconds_until_unlock=self.pin.seconds_until_unlock,
+                max_attempts=3,
+            )
+            if ok:
+                self._switch_to_parent_after_unlock()
+        except Exception:
+            _log.exception("家长 PIN 解锁失败")
+
+    def _switch_to_parent_after_unlock(self) -> None:
+        """PIN 通过后: 关锁屏 + 切 Parent + 重置 token_engine 的 oot flag."""
+        _log.info("★ 家长 PIN 通过, 切到 Parent 模式 (不计费)")
+        if self.out_of_token_dialog is not None:
+            self.out_of_token_dialog.hide_for_user()
+        try:
+            self.session_manager.change_mode(
+                SessionMode.PARENT.value, SessionEndReason.SWITCHED.value,
+            )
+        except Exception:
+            _log.exception("切 Parent 失败")
+        # 不重置 token_engine._oot_triggered: 如果再切回 Child 且余额仍 0,
+        # 应该再触发一次 (但通常家长会先发 token, 余额回正会自动 reset).
 
     def _send_token_tick(self, payload: dict) -> bool:
         """token_engine 每 tick 调; 把扣分意图推给 server 单一权威 (决策 #34)。

@@ -73,6 +73,8 @@ class TokenEngine:
         get_active_session_id: Callable[[], str | None],
         is_free_pass_active: Callable[[], bool] | None = None,
         send_token_tick: Callable[[dict], bool] | None = None,
+        on_out_of_token: Callable[[], None] | None = None,
+        on_token_replenished: Callable[[], None] | None = None,
     ) -> None:
         self._cfg = config
         self._get_foreground = get_foreground
@@ -88,6 +90,10 @@ class TokenEngine:
         self._is_free_pass_active = is_free_pass_active or (lambda: False)
         # WS 推 token_tick 到 server (server 单一权威 #34); None → 离线模式不扣
         self._send_token_tick = send_token_tick or (lambda payload: False)
+        # 余额耗尽 / 回正 callback: main.py 用来弹全屏锁屏 / 关闭锁屏 + 切模式
+        self._on_out_of_token = on_out_of_token
+        self._on_token_replenished = on_token_replenished
+        self._oot_triggered: bool = False  # 0 余额状态去重 flag
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -205,19 +211,29 @@ class TokenEngine:
         # 余额检查 (用 local cache, server 最近一次推过来的值; 防止过冲)
         cur_balance = self._wallet.get_balance()
         if cur_balance < cost:
-            _log.info("[tick] 余额不足 (local=%d, cost=%d), 不扣 (前台=%s)",
-                      cur_balance, cost, fg_name or "—")
-            self._notify_once_per_day("out_of_balance", self._messages.get(
-                "block_out_of_balance",
-                balance=cur_balance,
-                cost=cost,
-                process_name=fg_name or "",
-            ))
+            _log.info("[tick] 余额不足 (local=%d, cost=%d), 触发余额耗尽锁屏",
+                      cur_balance, cost)
+            # 第一次进入耗尽态 → 通知 main.py 弹全屏锁屏 + 切 Lock 模式
+            if not self._oot_triggered and self._on_out_of_token is not None:
+                self._oot_triggered = True
+                try:
+                    self._on_out_of_token()
+                except Exception:
+                    _log.exception("on_out_of_token 回调失败")
             self._write_segment(session_id, app_id, category_label, tick_seconds, 0, 0,
                                 period_start, period_end)
             self._emit_decision(foreground=fg_name, category=category_label,
                                 mode_active=True, deducted=0, skip_reason="out_of_balance")
             return
+
+        # 余额充足 → 如果之前是耗尽态, 通知 main.py 关锁屏 + 切回 Child
+        if self._oot_triggered:
+            self._oot_triggered = False
+            if self._on_token_replenished is not None:
+                try:
+                    self._on_token_replenished()
+                except Exception:
+                    _log.exception("on_token_replenished 回调失败")
 
         # 决策 #34: 推 WS token_tick 让 server 单一权威扣分; Agent 本地不再 deduct。
         # transport 没连接时跳过 (孩子离线时停扣, 与 CLAUDE.md §7.6 一致)。
