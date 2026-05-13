@@ -76,9 +76,11 @@ class FloatingOverlay(QWidget):
         get_active_unlock: Callable[[], tuple[str, int] | None] | None = None,
         daily_credit_cap: int = 120,
         refresh_seconds: int = 5,
+        on_double_click: Callable[[], None] | None = None,
     ) -> None:
         """get_active_unlock: 返回 (rule_name, seconds_remaining) 或 None.
-        非 None 时浮层优先显示"已放行 X 分钟" + 绿色 gift 图标 + 倒计时。"""
+        非 None 时浮层优先显示"已放行 X 分钟" + 绿色 gift 图标 + 倒计时。
+        on_double_click: 双击浮层时调用 (通常拉起状态面板)。"""
         super().__init__()
         self._get_balance = get_balance
         self._get_mode = get_mode
@@ -88,6 +90,7 @@ class FloatingOverlay(QWidget):
         self._get_active_unlock = get_active_unlock
         self._cap = daily_credit_cap
         self._enabled = True
+        self._on_double_click = on_double_click
 
         self._build_window()
         self._build_ui()
@@ -267,3 +270,12 @@ class FloatingOverlay(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         self._drag_pos = None
         event.accept()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """双击 → 拉起状态面板 (孩子常用入口, 比找托盘快)."""
+        if event.button() == Qt.LeftButton and self._on_double_click is not None:
+            try:
+                self._on_double_click()
+            except Exception:
+                _log.exception("on_double_click 回调失败")
+            event.accept()

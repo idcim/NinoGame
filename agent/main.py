@@ -495,6 +495,7 @@ class Agent:
             is_active=self.activity.is_active_consumption,
             get_active_unlock=self._first_active_unlock_for_overlay,
             daily_credit_cap=self._daily_credit_cap,
+            on_double_click=self._request_show_panel,
         )
         self.overlay.set_enabled(self._overlay_enabled)
 
