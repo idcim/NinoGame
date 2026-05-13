@@ -132,6 +132,7 @@ class TrayController:
         on_resume: Callable[[], None],
         on_quit_request: Callable[[], None],
         on_show_panel: Callable[[], None] | None = None,
+        on_show_pair: Callable[[], None] | None = None,
         get_checklist: Callable[[], list[tuple[object, bool]]] | None = None,
         on_check_tick: Callable[[str, bool], None] | None = None,
         get_tooltip: Callable[[], str] | None = None,
@@ -147,6 +148,7 @@ class TrayController:
         self._on_resume = on_resume
         self._on_quit_request = on_quit_request
         self._on_show_panel = on_show_panel
+        self._on_show_pair = on_show_pair
         self._get_checklist = get_checklist
         self._on_check_tick = on_check_tick
         self._get_tooltip = get_tooltip
@@ -247,6 +249,14 @@ class TrayController:
             label = ("[√] " if enabled else "[  ] ") + "右上角浮层"
             items.append(pystray.MenuItem(
                 label, lambda icon, item: self._safe(self._toggle_overlay),
+            ))
+            items.append(pystray.Menu.SEPARATOR)
+
+        # 重新配对 (链家长后台用; 链接到服务器变了时也用)
+        if self._on_show_pair is not None:
+            items.append(pystray.MenuItem(
+                "重新配对家长后台...",
+                lambda icon, item: self._safe(self._on_show_pair),
             ))
             items.append(pystray.Menu.SEPARATOR)
 

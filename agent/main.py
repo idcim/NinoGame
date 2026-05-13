@@ -58,6 +58,7 @@ from ui.assets import (  # noqa: E402
 )
 from ui.notifier import Notifier  # noqa: E402
 from ui.overlay import FloatingOverlay  # noqa: E402
+from ui.pair_dialog import PairDialog  # noqa: E402
 from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
@@ -197,6 +198,7 @@ class Agent:
         self._overlay_enabled = bool(self.settings.get("overlay_enabled", True))
         self.overlay: FloatingOverlay | None = None  # run() 创建
         self.panel: StatusPanel | None = None        # run() 创建
+        self.pair_dialog: PairDialog | None = None   # 按需 lazy 创建
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
@@ -225,6 +227,7 @@ class Agent:
             is_overlay_enabled=lambda: self._overlay_enabled,
             toggle_overlay=self._toggle_overlay,
             on_show_panel=self._request_show_panel,
+            on_show_pair=self._request_show_pair,
         )
 
         self._stop = False
@@ -824,6 +827,49 @@ class Agent:
             QMetaObject.invokeMethod(self.panel, "show_panel", Qt.QueuedConnection)
         except Exception:
             _log.exception("show panel 失败")
+
+    def _request_show_pair(self) -> None:
+        """tray 「重新配对」→ 跨线程派发 PairDialog 显示到 Qt 主线程。
+        Agent 不是 QObject, 通过 bridge (是 QObject) 的 timer 中转。"""
+        try:
+            from PySide6.QtCore import QTimer
+            bridge = get_bridge()
+            # bridge 在主线程; 用 it 的 QTimer.singleShot 把 callable post 过去
+            QTimer.singleShot(0, self._show_pair_dialog_on_main)
+        except Exception:
+            _log.exception("show pair 失败")
+
+    def _show_pair_dialog_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            current_url = str(self.settings.get("backend_url", "")).strip()
+            if self.pair_dialog is None:
+                self.pair_dialog = PairDialog(
+                    settings_path=self.config_dir / "settings.json",
+                    logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
+                    on_done=self._on_pair_done,
+                    current_url=current_url,
+                )
+            else:
+                # 已存在: 更新当前 url 提示用户
+                self.pair_dialog._url_input.setText(current_url)
+            self.pair_dialog.show()
+            self.pair_dialog.raise_()
+            self.pair_dialog.activateWindow()
+        except Exception:
+            _log.exception("PairDialog 显示失败")
+
+    def _on_pair_done(self, ok: bool, server_url: str, agent_token: str) -> None:
+        if not ok:
+            return
+        _log.info("配对完成 (server=%s); 请重启 Agent 让 WebSocketTransport 生效", server_url)
+        try:
+            self.notifier.info_async(
+                "配对完成。请关闭后重新打开 NinoGame Agent 以连接新服务器。",
+                title="NinoGame · 配对成功",
+            )
+        except Exception:
+            pass
 
     def _toggle_overlay(self) -> None:
         """tray 菜单切换浮层开关。注意 tray 在 pystray 线程,

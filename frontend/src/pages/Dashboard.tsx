@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Baby,
+  Check,
+  Copy,
   Gem,
   Loader2,
   Monitor,
@@ -329,6 +331,104 @@ function AddChildDialog({ onClose, onDone }: { onClose: () => void; onDone: () =
   );
 }
 
+function PairCodeResult({ code, onClose }: { code: string; onClose: () => void }) {
+  const magicLink = `${window.location.origin}/#pair=${code}`;
+  const cliCommand = `python agent/pair.py "${magicLink}"`;
+  return (
+    <div className="space-y-4">
+      <div className="text-center py-2">
+        <div className="text-sm text-ink-dim mb-2">把链接粘贴到 Agent 的「重新配对」对话框</div>
+        <div className="text-4xl font-mono font-bold text-brand tracking-widest select-all mb-1">
+          {code}
+        </div>
+        <div className="text-xs text-ink-light">30 分钟内有效</div>
+      </div>
+
+      <CopyableBox
+        label="魔法链接 (粘贴到 Agent 对话框)"
+        value={magicLink}
+        kind="link"
+      />
+
+      <CopyableBox
+        label="或: 命令行 (PowerShell)"
+        value={cliCommand}
+        kind="code"
+      />
+
+      <details className="text-xs text-ink-dim">
+        <summary className="cursor-pointer hover:text-brand">还有别的办法?</summary>
+        <div className="mt-2 pl-3 border-l-2 border-border space-y-1">
+          <p>• <b>Agent 端</b>: 托盘菜单 → 「重新配对家长后台」 → 粘贴上面的链接</p>
+          <p>• <b>无 GUI 时</b>: 终端跑上面的 python 命令</p>
+          <p>• <b>手动</b>: <code>python agent/pair.py {window.location.origin} {code}</code></p>
+        </div>
+      </details>
+
+      <button onClick={onClose} className="btn-primary w-full justify-center">
+        完成
+      </button>
+    </div>
+  );
+}
+
+function CopyableBox({
+  label,
+  value,
+  kind,
+}: {
+  label: string;
+  value: string;
+  kind: "link" | "code";
+}) {
+  const [copied, setCopied] = useState(false);
+  async function doCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // older browsers
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+  return (
+    <div className="space-y-1">
+      <div className="text-xs text-ink-dim">{label}</div>
+      <div className="flex items-stretch gap-2">
+        <div
+          className={
+            "flex-1 min-w-0 px-3 py-2 rounded-lg bg-brand-50 text-ink truncate select-all " +
+            (kind === "code" ? "font-mono text-xs" : "text-xs")
+          }
+          title={value}
+        >
+          {value}
+        </div>
+        <button
+          onClick={doCopy}
+          className={
+            "px-3 rounded-lg border flex items-center gap-1.5 text-xs whitespace-nowrap transition-colors " +
+            (copied
+              ? "bg-accent text-white border-accent"
+              : "border-border text-ink-dim hover:text-brand hover:border-brand")
+          }
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? "已复制" : "复制"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CreatePairDialog({
   children, onClose, onDone,
 }: {
@@ -391,24 +491,7 @@ function CreatePairDialog({
           </div>
         </form>
       ) : (
-        <div className="space-y-4">
-          <div className="text-center py-4">
-            <div className="text-sm text-ink-dim mb-2">把这个码输入到 Agent 设备</div>
-            <div className="text-4xl font-mono font-bold text-brand tracking-widest select-all">
-              {code}
-            </div>
-            <div className="text-xs text-ink-light mt-2">30 分钟内有效</div>
-          </div>
-          <div className="bg-brand-50 rounded-lg p-3 text-xs text-ink-dim">
-            <p className="font-medium mb-1">Agent 端操作:</p>
-            <pre className="text-xs whitespace-pre-wrap">
-{`python agent/pair.py ${window.location.origin} ${code}`}
-            </pre>
-          </div>
-          <button onClick={onClose} className="btn-primary w-full justify-center">
-            完成
-          </button>
-        </div>
+        <PairCodeResult code={code} onClose={onClose} />
       )}
     </Modal>
   );
