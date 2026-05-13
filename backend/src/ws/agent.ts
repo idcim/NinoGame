@@ -386,7 +386,20 @@ async function onTokenTick(
     tick_seconds?: number;
   };
   const amount = Math.floor(Math.max(0, Number(p.amount) || 0));
-  if (amount <= 0 || !meta.child_id) return;
+  // 关键诊断: 收到 token_tick 必打日志, 让 docker logs ninogame-backend
+  // 能看见 server 端真在处理 (排查 "Agent 推了但 server 没扣" 用)
+  app.log.info(
+    { device_id: meta.device_id, child_id: meta.child_id, amount, app: p.app },
+    "★ 收到 token_tick",
+  );
+  if (amount <= 0) {
+    app.log.warn({ amount, raw: p.amount }, "token_tick amount<=0 跳过");
+    return;
+  }
+  if (!meta.child_id) {
+    app.log.warn({ device_id: meta.device_id }, "token_tick: meta.child_id 缺失 (设备没绑孩子?), 跳过");
+    return;
+  }
   const ref_id = String(p.ref_id || p.app || "").slice(0, 128);
 
   const client = await pool.connect();
@@ -437,16 +450,21 @@ async function onTokenTick(
         WHERE b.child_id = $1 AND d.agent_token IS NOT NULL`,
       [meta.child_id],
     );
+    let pushed = 0;
     for (const d of devs.rows) {
-      pushToDevice(d.id, {
+      if (pushToDevice(d.id, {
         type: "wallet_update",
         payload: {
           balance: newBalance,
           reason: "app_consumption",
           delta: -amount,
         },
-      });
+      })) pushed++;
     }
+    app.log.info(
+      { child_id: meta.child_id, before, newBalance, amount, pushed },
+      "★ token_tick 扣分成功",
+    );
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch { /* ignore */ }
     app.log.warn({ err, child_id: meta.child_id }, "onTokenTick failed");

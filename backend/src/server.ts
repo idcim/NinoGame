@@ -75,6 +75,14 @@ export async function buildServer() {
       uptime_seconds: Math.round(process.uptime()),
       db: { time: db.now, version: db.version.split(" ").slice(0, 2).join(" ") },
       agents_connected: getConnectedDevices().length,
+      // 关键: 暴露本镜像支持的 WS 消息类型, 让用户排查 "server 没扣" 类问题
+      // 时能立刻判断容器是新代码 (有 token_tick) 还是旧代码。
+      ws_message_types: [
+        "hello", "heartbeat", "event", "usage_report",
+        "unlock_request", "task_claim",
+        "token_tick",         // 决策 #34 加 (server 单一权威扣分)
+        "unknown_apps",       // LLM 应用分类
+      ],
     };
   });
 
