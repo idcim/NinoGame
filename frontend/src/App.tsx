@@ -3,6 +3,7 @@ import { isAuthed } from "./lib/auth";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DeviceDetail from "./pages/DeviceDetail";
+import Requests from "./pages/Requests";
 import Rules from "./pages/Rules";
 import Layout from "./components/Layout";
 
@@ -23,6 +24,7 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
+        <Route path="/requests" element={<Requests />} />
         <Route path="/rules" element={<Rules />} />
         <Route path="/device/:id" element={<DeviceDetail />} />
       </Route>

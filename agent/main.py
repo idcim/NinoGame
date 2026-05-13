@@ -60,6 +60,7 @@ from ui.assets import (  # noqa: E402
 from ui.notifier import Notifier  # noqa: E402
 from ui.overlay import FloatingOverlay  # noqa: E402
 from ui.pair_dialog import PairDialog  # noqa: E402
+from ui.request_dialog import RequestDialog  # noqa: E402
 from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
@@ -202,6 +203,7 @@ class Agent:
         self.overlay: FloatingOverlay | None = None  # run() 创建
         self.panel: StatusPanel | None = None        # run() 创建
         self.pair_dialog: PairDialog | None = None   # 按需 lazy 创建
+        self.request_dialog: RequestDialog | None = None  # 同上
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
@@ -231,6 +233,7 @@ class Agent:
             toggle_overlay=self._toggle_overlay,
             on_show_panel=self._request_show_panel,
             on_show_pair=self._request_show_pair,
+            on_show_request=self._request_show_request_dialog,
         )
 
         self._stop = False
@@ -873,6 +876,49 @@ class Agent:
             QTimer.singleShot(0, self._show_pair_dialog_on_main)
         except Exception:
             _log.exception("show pair 失败")
+
+    def _request_show_request_dialog(self) -> None:
+        """孩子在托盘点「申请游戏时间」→ 派发到 Qt 主线程开 RequestDialog。"""
+        try:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._show_request_dialog_on_main)
+        except Exception:
+            _log.exception("show request dialog 失败")
+
+    def _show_request_dialog_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            if self.request_dialog is None:
+                self.request_dialog = RequestDialog(
+                    logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
+                    on_submit=self._submit_unlock_request,
+                )
+            self.request_dialog.show()
+            self.request_dialog.raise_()
+            self.request_dialog.activateWindow()
+        except Exception:
+            _log.exception("RequestDialog 显示失败")
+
+    def _submit_unlock_request(self, text: str) -> bool:
+        """RequestDialog 回调; 通过 transport 发 unlock_request 给 server。"""
+        if not text.strip():
+            return False
+        if not self.transport.is_connected():
+            _log.warning("transport 未连接, 申请发送失败")
+            return False
+        try:
+            self.transport.send({
+                "type": "unlock_request",
+                "payload": {
+                    "request_text": text,
+                    "structured": {},
+                },
+            })
+            _log.info("孩子已发起申请: %r", text[:60])
+            return True
+        except Exception:
+            _log.exception("发送 unlock_request 失败")
+            return False
 
     def _show_pair_dialog_on_main(self) -> None:
         try:

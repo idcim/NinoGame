@@ -11,6 +11,7 @@ import { registerChildrenRoutes } from "./routes/children.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerRuleRoutes } from "./routes/rules.js";
+import { registerUnlockRequestRoutes } from "./routes/unlock_requests.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 import { registerParentWebSocket } from "./ws/parent.js";
 
@@ -44,6 +45,7 @@ export async function buildServer() {
   await registerDeviceRoutes(app);
   await registerCommandRoutes(app);
   await registerRuleRoutes(app);
+  await registerUnlockRequestRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);
 

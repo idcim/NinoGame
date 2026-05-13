@@ -1,4 +1,4 @@
-import { LogOut, LayoutGrid, Shield } from "lucide-react";
+import { LogOut, LayoutGrid, MessageSquare, Shield } from "lucide-react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { clearAuth, getParent } from "../lib/auth";
 
@@ -28,6 +28,18 @@ export default function Layout() {
             >
               <LayoutGrid size={14} />
               概览
+            </NavLink>
+            <NavLink
+              to="/requests"
+              className={({ isActive }) =>
+                "px-3 py-1.5 rounded-md text-sm flex items-center gap-1.5 transition-colors " +
+                (isActive
+                  ? "bg-brand-50 text-brand-600"
+                  : "text-ink-dim hover:text-ink")
+              }
+            >
+              <MessageSquare size={14} />
+              申请
             </NavLink>
             <NavLink
               to="/rules"

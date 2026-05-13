@@ -145,6 +145,27 @@ export const api = {
     request<{ ok: boolean; pushed: number }>(`/api/rules/${id}`, {
       method: "DELETE",
     }),
+
+  // ── unlock_requests ────────────────────────────────────────
+  listRequests: (status: "pending" | "approved" | "rejected" | "all" = "pending") =>
+    request<{ requests: UnlockRequest[] }>(
+      `/api/unlock-requests?status=${encodeURIComponent(status)}`,
+    ),
+
+  approveRequest: (
+    id: string,
+    data: { duration_minutes: number; rule_id?: string; comment?: string },
+  ) =>
+    request<{ request: UnlockRequest; pushed_to: number; command_id: string | null }>(
+      `/api/unlock-requests/${id}/approve`,
+      { method: "POST", body: JSON.stringify(data) },
+    ),
+
+  rejectRequest: (id: string, comment?: string) =>
+    request<{ request: UnlockRequest }>(`/api/unlock-requests/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ comment }),
+    }),
 };
 
 // ── types ──────────────────────────────────────────────────────
@@ -210,4 +231,19 @@ export interface Rule {
   enabled: boolean;
   spec: RuleSpec;
   updated_at: string;
+}
+
+// ── unlock requests ───────────────────────────────────────────
+export interface UnlockRequest {
+  id: string;
+  child_id: string;
+  child_username?: string;
+  display_name?: string | null;
+  request_text: string;
+  structured_request: unknown;
+  llm_summary: string | null;
+  status: "pending" | "approved" | "rejected" | "expired" | "timeout";
+  parent_decision_at: string | null;
+  parent_comment: string | null;
+  created_at: string;
 }

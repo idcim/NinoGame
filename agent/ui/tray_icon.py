@@ -133,6 +133,7 @@ class TrayController:
         on_quit_request: Callable[[], None],
         on_show_panel: Callable[[], None] | None = None,
         on_show_pair: Callable[[], None] | None = None,
+        on_show_request: Callable[[], None] | None = None,
         get_checklist: Callable[[], list[tuple[object, bool]]] | None = None,
         on_check_tick: Callable[[str, bool], None] | None = None,
         get_tooltip: Callable[[], str] | None = None,
@@ -149,6 +150,7 @@ class TrayController:
         self._on_quit_request = on_quit_request
         self._on_show_panel = on_show_panel
         self._on_show_pair = on_show_pair
+        self._on_show_request = on_show_request
         self._get_checklist = get_checklist
         self._on_check_tick = on_check_tick
         self._get_tooltip = get_tooltip
@@ -227,6 +229,14 @@ class TrayController:
                 "打开状态面板",
                 lambda icon, item: self._safe(self._on_show_panel),
                 default=True,
+            ))
+            items.append(pystray.Menu.SEPARATOR)
+
+        # 孩子端: 申请游戏时间
+        if self._on_show_request is not None and mode == "child":
+            items.append(pystray.MenuItem(
+                "申请游戏时间...",
+                lambda icon, item: self._safe(self._on_show_request),
             ))
             items.append(pystray.Menu.SEPARATOR)
 

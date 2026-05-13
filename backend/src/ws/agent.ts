@@ -15,6 +15,7 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { lookupDeviceByToken } from "../routes/devices.js";
+import { createUnlockRequestFromAgent } from "../routes/unlock_requests.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
 
@@ -159,6 +160,9 @@ async function handleMessage(
     case "usage_report":
       await onUsageReport(app, meta, msg);
       break;
+    case "unlock_request":
+      await onUnlockRequest(app, meta, msg);
+      break;
     default:
       app.log.warn({ device_id: meta.device_id, type: msg.type }, "unknown ws message type");
   }
@@ -223,6 +227,26 @@ async function onHello(
   app.log.info(
     { device_id: meta.device_id, rules: rules.rows.length, cmds: cmds.rows.length },
     "hello_ack sent",
+  );
+}
+
+async function onUnlockRequest(
+  app: FastifyInstance,
+  meta: AgentConnection,
+  msg: WsMessage,
+): Promise<void> {
+  const p = (msg.payload || {}) as {
+    request_text?: string;
+    structured?: Record<string, unknown>;
+  };
+  const text = String(p.request_text || "").trim();
+  if (!text || !meta.child_id) return;
+  await createUnlockRequestFromAgent(
+    app,
+    meta.child_id,
+    meta.device_id,
+    text,
+    p.structured || {},
   );
 }
 

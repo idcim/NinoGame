@@ -6,6 +6,7 @@ import {
   Loader2,
   LogIn,
   LogOut,
+  MessageSquare,
   Wifi,
   WifiOff,
   type LucideIcon,
@@ -16,15 +17,16 @@ const TYPE_META: Record<
   string,
   { icon: LucideIcon; label: string; tone: "warn" | "info" | "ok" }
 > = {
-  block:           { icon: Ban,           label: "应用被拦截",   tone: "warn" },
-  token_deduct:    { icon: Gem,           label: "扣 token",     tone: "warn" },
-  token_credit:    { icon: Gem,           label: "挣 token",     tone: "ok"   },
-  session_open:    { icon: LogIn,         label: "会话开始",     tone: "info" },
-  session_close:   { icon: LogOut,        label: "会话结束",     tone: "info" },
-  pin_fail:        { icon: AlertTriangle, label: "PIN 错误",    tone: "warn" },
-  jiggler_alert:   { icon: AlertTriangle, label: "刷分嫌疑",    tone: "warn" },
-  unknown_app:     { icon: CircleDot,     label: "未知应用",     tone: "info" },
-  status:          { icon: CircleDot,     label: "状态",         tone: "info" },
+  block:           { icon: Ban,            label: "应用被拦截",   tone: "warn" },
+  token_deduct:    { icon: Gem,            label: "扣 token",     tone: "warn" },
+  token_credit:    { icon: Gem,            label: "挣 token",     tone: "ok"   },
+  session_open:    { icon: LogIn,          label: "会话开始",     tone: "info" },
+  session_close:   { icon: LogOut,         label: "会话结束",     tone: "info" },
+  pin_fail:        { icon: AlertTriangle,  label: "PIN 错误",    tone: "warn" },
+  jiggler_alert:   { icon: AlertTriangle,  label: "刷分嫌疑",    tone: "warn" },
+  unknown_app:     { icon: CircleDot,      label: "未知应用",     tone: "info" },
+  unlock_request:  { icon: MessageSquare,  label: "孩子申请",     tone: "info" },
+  status:          { icon: CircleDot,      label: "状态",         tone: "info" },
 };
 
 function _renderSummary(ev: LiveEvent): string {
@@ -53,6 +55,10 @@ function _renderSummary(ev: LiveEvent): string {
   if (ev.event_type === "unknown_app") {
     const proc = p?.process_name as string | undefined;
     return proc ?? "";
+  }
+  if (ev.event_type === "unlock_request") {
+    const text = p?.request_text as string | undefined;
+    return text ? `「${text}」 → 去「申请」页处理` : "新申请, 去「申请」页处理";
   }
   // 默认: 拍扁前 2 个字段
   const keys = Object.keys(p ?? {}).slice(0, 2);
