@@ -892,15 +892,61 @@ class Agent:
             _log.exception("show panel 失败")
 
     def _request_show_pair(self) -> None:
-        """tray 「重新配对」→ 跨线程派发 PairDialog 显示到 Qt 主线程。
-        Agent 不是 QObject, 通过 bridge (是 QObject) 的 timer 中转。"""
+        """tray 「重新配对家长后台」回调 (在 pystray 工作线程)。
+
+        重新配对是敏感操作 (能改服务器), 流程:
+          1) 如果设过 PIN: bridge.ask_pin 阻塞验证 (信号自动派发到 GUI 线程)
+             用户取消 / 错 → 直接退
+          2) bridge.show_pair_dialog 在 GUI 线程开 PairDialog (非阻塞)
+
+        之前用 QTimer.singleShot 从 pystray 线程 schedule 槽, Qt 会偷偷
+        把 timer 绑到 worker 线程上, 槽永远不跑 → 用户报"点了没反应".
+        现在全部走 bridge 信号, GUI 线程槽接收, 行为靠谱。
+        """
+        # PIN 守门
+        if self.pin.has_pin():
+            _log.info("重新配对前先验证家长 PIN")
+            try:
+                from ui.assets import dialog_image_path
+                logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+                ok = get_bridge().ask_pin(
+                    title="家长验证",
+                    prompt="重新配对会断开当前连接，请输入家长 PIN 继续。",
+                    logo_path=logo,
+                    verify=self.pin.verify,
+                    on_wrong=lambda _max: self.messages.get(
+                        "quit_pin_wrong",
+                        remaining=max(0, self.pin._max_fails - self.pin._fails),  # noqa: SLF001
+                    ),
+                    on_locked=lambda mins: self.messages.get("quit_pin_locked", minutes=mins),
+                    is_locked=self.pin.is_locked,
+                    seconds_until_unlock=self.pin.seconds_until_unlock,
+                    max_attempts=3,
+                    confirm_text="继续",
+                    cancel_text="取消",
+                )
+            except Exception:
+                _log.exception("PIN 验证调用失败, 配对取消")
+                return
+            if not ok:
+                _log.info("PIN 验证未通过 / 用户取消, 不开配对页")
+                return
+        else:
+            _log.info("未设 PIN, 直接进配对页")
+
+        # 通过 bridge 开 PairDialog (信号 → GUI 主线程槽)
         try:
-            from PySide6.QtCore import QTimer
-            bridge = get_bridge()
-            # bridge 在主线程; 用 it 的 QTimer.singleShot 把 callable post 过去
-            QTimer.singleShot(0, self._show_pair_dialog_on_main)
+            from ui.assets import dialog_image_path
+            logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+            current_url = str(self.settings.get("backend_url", "")).strip()
+            get_bridge().show_pair_dialog(
+                settings_path=str(self.config_dir / "settings.json"),
+                logo_path=logo,
+                current_url=current_url,
+                on_done=self._on_pair_done,
+            )
         except Exception:
-            _log.exception("show pair 失败")
+            _log.exception("show_pair_dialog 失败")
 
     def _request_show_request_dialog(self) -> None:
         """孩子在托盘点「申请游戏时间」→ 派发到 Qt 主线程开 RequestDialog。"""
@@ -946,22 +992,19 @@ class Agent:
             return False
 
     def _show_pair_dialog_on_main(self) -> None:
+        """启动时未配对的"首次配对"路径。Qt 主线程上调用, 同样走 bridge
+        信号 (统一通道, 跟 tray 重新配对走一样的代码)。
+        首次配对不需要 PIN 守门 (此时设备还没绑定, 也没设 PIN)。"""
         try:
             from ui.assets import dialog_image_path
+            logo = str(dialog_image_path()) if dialog_image_path().exists() else None
             current_url = str(self.settings.get("backend_url", "")).strip()
-            if self.pair_dialog is None:
-                self.pair_dialog = PairDialog(
-                    settings_path=self.config_dir / "settings.json",
-                    logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
-                    on_done=self._on_pair_done,
-                    current_url=current_url,
-                )
-            else:
-                # 已存在: 更新当前 url 提示用户
-                self.pair_dialog._url_input.setText(current_url)
-            self.pair_dialog.show()
-            self.pair_dialog.raise_()
-            self.pair_dialog.activateWindow()
+            get_bridge().show_pair_dialog(
+                settings_path=str(self.config_dir / "settings.json"),
+                logo_path=logo,
+                current_url=current_url,
+                on_done=self._on_pair_done,
+            )
         except Exception:
             _log.exception("PairDialog 显示失败")
 

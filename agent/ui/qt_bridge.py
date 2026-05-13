@@ -22,6 +22,7 @@ from ui.qt_dialogs import (
     PinDialog,
     WarningDialog,
 )
+from ui.pair_dialog import PairDialog
 
 _log = logging.getLogger(__name__)
 
@@ -65,19 +66,32 @@ class _ConfirmRequest:
     done: threading.Event = field(default_factory=threading.Event)
 
 
+@dataclass
+class _PairRequest:
+    settings_path: str
+    logo_path: str | None
+    current_url: str
+    on_done: Callable[[bool, str, str], None]
+
+
 class DialogBridge(QObject):
     """活在 GUI 主线程上的 QObject。"""
 
     _warning_signal = Signal(object)
     _pin_signal = Signal(object)
     _confirm_signal = Signal(object)
+    _pair_signal = Signal(object)
     _quit_signal = Signal()
+
+    # 复用同一个 PairDialog 实例 (避免每次开新窗口)
+    _pair_dialog: PairDialog | None = None
 
     def __init__(self) -> None:
         super().__init__()
         self._warning_signal.connect(self._on_warning)
         self._pin_signal.connect(self._on_pin)
         self._confirm_signal.connect(self._on_confirm)
+        self._pair_signal.connect(self._on_pair)
 
     # ── 槽: 在 GUI 线程上跑 ────────────────────────────────────
     @Slot(object)
@@ -117,6 +131,29 @@ class DialogBridge(QObject):
             _log.exception("PinDialog 创建失败")
         finally:
             req.done.set()
+
+    @Slot(object)
+    def _on_pair(self, req: _PairRequest) -> None:
+        try:
+            if self._pair_dialog is None:
+                self._pair_dialog = PairDialog(
+                    settings_path=req.settings_path,
+                    logo_path=req.logo_path,
+                    on_done=req.on_done,
+                    current_url=req.current_url,
+                )
+            else:
+                # 已有窗口: 更新 URL 提示 + on_done 回调 (可能切换了)
+                try:
+                    self._pair_dialog._url_input.setText(req.current_url)  # noqa: SLF001
+                except Exception:
+                    pass
+                self._pair_dialog._on_done = req.on_done  # noqa: SLF001
+            self._pair_dialog.show()
+            self._pair_dialog.raise_()
+            self._pair_dialog.activateWindow()
+        except Exception:
+            _log.exception("PairDialog 显示失败")
 
     @Slot(object)
     def _on_confirm(self, req: _ConfirmRequest) -> None:
@@ -176,6 +213,22 @@ class DialogBridge(QObject):
         self._pin_signal.emit(req)
         req.done.wait()
         return bool(req.result["ok"])
+
+    def show_pair_dialog(
+        self,
+        settings_path: str,
+        logo_path: str | None,
+        current_url: str,
+        on_done: Callable[[bool, str, str], None],
+    ) -> None:
+        """worker 线程调; 信号派发到 GUI 主线程创建 + 显示 PairDialog。
+        非阻塞 (PairDialog 用户填写期间, 工作线程不被 hold)。"""
+        self._pair_signal.emit(_PairRequest(
+            settings_path=settings_path,
+            logo_path=logo_path,
+            current_url=current_url,
+            on_done=on_done,
+        ))
 
     def ask_confirm(
         self,
