@@ -63,6 +63,26 @@ services:
       retries: 3
       start_period: 15s
 
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: ninogame-frontend
+    restart: unless-stopped
+    ports:
+      # 暴露给宿主, 浏览器打 http://127.0.0.1:8080
+      # (5173 留给 npm run dev 的 vite HMR, 两套不冲突)
+      - "127.0.0.1:8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/__nginx_health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   pgadmin:
     image: dpage/pgadmin4:8
     container_name: ninogame-pgadmin

@@ -17,6 +17,23 @@
 #   - 不暴露 host port; 走 1Panel 反代
 
 services:
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: ninogame-frontend:latest
+    container_name: ninogame-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1/__nginx_health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # 不暴露 host port; 1Panel 反代 ninogame-frontend:80
+
   backend:
     build:
       context: ../backend

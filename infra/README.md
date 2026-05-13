@@ -17,13 +17,18 @@ docker compose up -d
 |---|---|---|
 | `ninogame-postgres` | `127.0.0.1:5433` | 数据库 |
 | `ninogame-backend` | `127.0.0.1:8088` | Fastify + WebSocket |
+| `ninogame-frontend` | `127.0.0.1:8080` | nginx 静态 + 反代 |
 
 验证：
 ```powershell
-curl http://127.0.0.1:8088/health
+curl http://127.0.0.1:8088/health      # backend 直连
+curl http://127.0.0.1:8080/health      # 经 frontend nginx 反代
+浏览器: http://127.0.0.1:8080/         # 完整家长后台
 ```
 
 第一次启动时 backend 容器的 entrypoint 会自动跑 schema migration（21 张表）。后续启动幂等。
+
+frontend 容器的 nginx 在容器网络内通过 `ninogame-backend:8088` 找 backend，把 `/auth /api /health /ws` 都反代过去。整套部署后只需要一个域名（指向 frontend 容器），不用单独暴露 backend 端口给公网。
 
 ### 改代码后
 
@@ -103,7 +108,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 | 字段 | 值 |
 |---|---|
 | 域名 | `ninogame.你的域名` |
-| 代理 URL | `http://ninogame-backend:8088` |
+| 代理 URL | **`http://ninogame-frontend:80`** (而非 backend, frontend 容器 nginx 已内部反代到 backend) |
 | **WebSocket** | ✅ 务必勾选 |
 
 然后申请 Let's Encrypt 证书。完成后 `https://ninogame.你的域名/health` 应该能返回 JSON。

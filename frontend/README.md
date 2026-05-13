@@ -42,9 +42,36 @@ npm run build
 # 输出 dist/ - 静态文件
 ```
 
-生产部署方案两选一：
-1. **1Panel 网站**：把 `dist/` 拷到 1Panel 一个静态网站目录，配 nginx 反代 `/auth` `/api` `/ws` 到 backend 容器
-2. **Backend 直接 serve**（后续可加）：Backend 加个 static handler 把 `dist/` serve 出来
+### 推荐方式: Docker 一起部署 (跟 backend 同 compose)
+
+本地预览生产版本:
+```powershell
+cd ..\infra
+docker compose up -d --build
+# 浏览器: http://127.0.0.1:8080/
+```
+
+3 个容器一起跑：
+- `ninogame-postgres` — 数据库 (127.0.0.1:5433)
+- `ninogame-backend` — Fastify (127.0.0.1:8088)
+- `ninogame-frontend` — nginx 静态 + 反代 (127.0.0.1:8080)
+
+Frontend 容器 nginx 配置 (`frontend/nginx.conf`)：
+- `/auth` `/api` `/health` → 反代到 `ninogame-backend:8088`
+- `/ws/*` → 反代 + 加 `Upgrade` 头, 支持 WebSocket
+- SPA fallback：未匹配路径返回 `index.html`
+- `/assets/` 长缓存 7d；`index.html` no-cache 保证发版立即生效
+
+### 1Panel 部署
+
+跑 `docker-compose.prod.yml`, 两个容器都加入 `1panel-network`:
+
+```bash
+cd /opt/NinoGame/infra
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+1Panel 后台建网站 → 反向代理 → `http://ninogame-frontend:80`, 勾上 WebSocket 支持, 申请证书即可。详见 `infra/README.md`。
 
 ## 设计
 
