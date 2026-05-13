@@ -210,6 +210,9 @@ async function handleMessage(
     case "task_claim":
       await onTaskClaim(app, meta, msg);
       break;
+    case "token_tick":
+      await onTokenTick(app, meta, msg);
+      break;
     default:
       app.log.warn({ device_id: meta.device_id, type: msg.type }, "unknown ws message type");
   }
@@ -362,6 +365,92 @@ async function onTaskClaim(
   );
 }
 
+/** Agent token_engine 每 60s tick 推一次 (决策 #34: server 单一权威).
+ *  payload: {amount, ref_id, app, tick_seconds}
+ *  逻辑: 锁该 child 钱包 → INSERT ledger → UPDATE balance → 推 wallet_update 回。
+ *  余额不足时只警告日志, 不扣 (Agent 端在推之前已经做过 cache 检查; 这里是兜底).
+ */
+async function onTokenTick(
+  app: FastifyInstance,
+  meta: AgentConnection,
+  msg: WsMessage,
+): Promise<void> {
+  const p = (msg.payload || {}) as {
+    amount?: number;
+    ref_id?: string;
+    app?: string;
+    tick_seconds?: number;
+  };
+  const amount = Math.floor(Math.max(0, Number(p.amount) || 0));
+  if (amount <= 0 || !meta.child_id) return;
+  const ref_id = String(p.ref_id || p.app || "").slice(0, 128);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const w = await client.query<{ id: string; balance: number }>(
+      `SELECT id, balance FROM "NinoGame".wallets
+        WHERE child_id = $1 FOR UPDATE`,
+      [meta.child_id],
+    );
+    if (w.rows.length === 0) {
+      await client.query("ROLLBACK");
+      app.log.warn({ child_id: meta.child_id }, "onTokenTick: wallet missing");
+      return;
+    }
+    const before = Number(w.rows[0].balance);
+    if (before < amount) {
+      // server 也兜底拦; Agent 后续 wallet_update 会发现 balance 没变
+      await client.query("ROLLBACK");
+      app.log.warn(
+        { child_id: meta.child_id, before, amount },
+        "onTokenTick: server 余额不足, 跳过",
+      );
+      // 推一次 wallet_update 让 Agent 对齐 (告诉它 server 端余额没动)
+      pushToDevice(meta.device_id, {
+        type: "wallet_update",
+        payload: { balance: before, reason: "server_sync", delta: 0 },
+      });
+      return;
+    }
+    const newBalance = before - amount;
+    await client.query(
+      `INSERT INTO "NinoGame".token_ledger
+         (wallet_id, delta, balance_after, reason, ref_id, device_id, occurred_at)
+       VALUES ($1, $2, $3, 'app_consumption', $4, $5, NOW())`,
+      [w.rows[0].id, -amount, newBalance, ref_id || null, meta.device_id],
+    );
+    await client.query(
+      `UPDATE "NinoGame".wallets SET balance = $1, updated_at = NOW() WHERE id = $2`,
+      [newBalance, w.rows[0].id],
+    );
+    await client.query("COMMIT");
+
+    // 推 wallet_update 给该 child 所有在线设备
+    const devs = await pool.query<{ id: string }>(
+      `SELECT d.id FROM "NinoGame".devices d
+         JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+        WHERE b.child_id = $1 AND d.agent_token IS NOT NULL`,
+      [meta.child_id],
+    );
+    for (const d of devs.rows) {
+      pushToDevice(d.id, {
+        type: "wallet_update",
+        payload: {
+          balance: newBalance,
+          reason: "app_consumption",
+          delta: -amount,
+        },
+      });
+    }
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+    app.log.warn({ err, child_id: meta.child_id }, "onTokenTick failed");
+  } finally {
+    client.release();
+  }
+}
+
 async function onUsageReport(
   app: FastifyInstance,
   meta: AgentConnection,
@@ -416,71 +505,17 @@ async function onUsageReport(
     }
   }
 
-  // 2) server 权威扣钱: 单条聚合 ledger + UPDATE wallets
-  //    Agent 本地 ledger 不再有"权威"地位, 只是 cache 显示用;
-  //    sync_balance 会把 Agent 本地拉回到 server 算出来的余额。
-  if (total_tokens_consumed > 0) {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      const w = await client.query<{ id: string; balance: number }>(
-        `SELECT id, balance FROM "NinoGame".wallets
-          WHERE child_id = $1 FOR UPDATE`,
-        [meta.child_id],
-      );
-      if (w.rows.length > 0) {
-        const before = Number(w.rows[0].balance);
-        const newBalance = Math.max(0, before - total_tokens_consumed);
-        const realDelta = newBalance - before; // 负数
-        await client.query(
-          `INSERT INTO "NinoGame".token_ledger
-             (wallet_id, delta, balance_after, reason, occurred_at)
-           VALUES ($1, $2, $3, 'app_consumption', NOW())`,
-          [w.rows[0].id, realDelta, newBalance],
-        );
-        await client.query(
-          `UPDATE "NinoGame".wallets SET balance = $1, updated_at = NOW() WHERE id = $2`,
-          [newBalance, w.rows[0].id],
-        );
-        await client.query("COMMIT");
-
-        // 推 wallet_update 给该 Agent (和这个孩子的其他在线设备)
-        const devs = await pool.query<{ id: string }>(
-          `SELECT d.id FROM "NinoGame".devices d
-             JOIN "NinoGame".device_bindings b ON b.device_id = d.id
-            WHERE b.child_id = $1 AND d.agent_token IS NOT NULL`,
-          [meta.child_id],
-        );
-        for (const d of devs.rows) {
-          pushToDevice(d.id, {
-            type: "wallet_update",
-            payload: {
-              balance: newBalance,
-              reason: "app_consumption",
-              delta: realDelta,
-            },
-          });
-        }
-      } else {
-        await client.query("ROLLBACK");
-      }
-    } catch (err) {
-      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
-      app.log.warn({ err, child_id: meta.child_id }, "wallet decrement failed");
-    } finally {
-      client.release();
-    }
-  }
-
+  // 决策 #34: 扣分已经在 token_tick 实时做过, 这里不再据 segments 扣 wallet,
+  // 避免双重扣分。usage_report 仅作 app_sessions 历史审计 / 报表数据源。
   app.log.info(
     {
       device_id: meta.device_id,
       child_id: meta.child_id,
       inserted,
       raw: p.segment_count_raw,
-      tokens_deducted: total_tokens_consumed,
+      segment_tokens_total: total_tokens_consumed,
     },
-    "usage_report processed",
+    "usage_report processed (history-only, balance unchanged)",
   );
 }
 

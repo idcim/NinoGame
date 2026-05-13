@@ -72,6 +72,7 @@ class TokenEngine:
         messages: Messages,
         get_active_session_id: Callable[[], str | None],
         is_free_pass_active: Callable[[], bool] | None = None,
+        send_token_tick: Callable[[dict], bool] | None = None,
     ) -> None:
         self._cfg = config
         self._get_foreground = get_foreground
@@ -85,6 +86,8 @@ class TokenEngine:
         self._messages = messages
         self._get_session_id = get_active_session_id
         self._is_free_pass_active = is_free_pass_active or (lambda: False)
+        # WS 推 token_tick 到 server (server 单一权威 #34); None → 离线模式不扣
+        self._send_token_tick = send_token_tick or (lambda payload: False)
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -203,14 +206,14 @@ class TokenEngine:
                                 mode_active=True, deducted=0, skip_reason="zero_cost")
             return
 
-        ok = self._wallet.deduct(
-            cost, LedgerReason.APP_CONSUMPTION.value, ref_id=app_id,
-        )
-        if not ok:
-            _log.info("[tick] 余额不足, 不扣 + 不 kill 进程 (前台=%s)", fg_name or "—")
+        # 余额检查 (用 local cache, server 最近一次推过来的值; 防止过冲)
+        cur_balance = self._wallet.get_balance()
+        if cur_balance < cost:
+            _log.info("[tick] 余额不足 (local=%d, cost=%d), 不扣 (前台=%s)",
+                      cur_balance, cost, fg_name or "—")
             self._notify_once_per_day("out_of_balance", self._messages.get(
                 "block_out_of_balance",
-                balance=self._wallet.get_balance(),
+                balance=cur_balance,
                 cost=cost,
                 process_name=fg_name or "",
             ))
@@ -220,15 +223,36 @@ class TokenEngine:
                                 mode_active=True, deducted=0, skip_reason="out_of_balance")
             return
 
-        # 扣分成功
+        # 决策 #34: 推 WS token_tick 让 server 单一权威扣分; Agent 本地不再 deduct。
+        # transport 没连接时跳过 (孩子离线时停扣, 与 CLAUDE.md §7.6 一致)。
+        sent = False
+        try:
+            sent = bool(self._send_token_tick({
+                "amount": cost,
+                "ref_id": app_id,
+                "app": fg_name or "",
+                "tick_seconds": tick_seconds,
+            }))
+        except Exception:
+            _log.exception("send_token_tick 失败")
+        if not sent:
+            _log.info("[tick] transport 未连, 跳过扣分 (前台=%s)", fg_name or "—")
+            self._write_segment(session_id, app_id, category_label, tick_seconds, 0, 0,
+                                period_start, period_end)
+            self._emit_decision(foreground=fg_name, category=category_label,
+                                mode_active=True, deducted=0, skip_reason="transport_offline")
+            return
+
+        # 已通过 WS 通知 server, 写本地审计 segment (tokens_consumed=cost 表"server 应该扣这么多")。
+        # local balance 会在 server 推 wallet_update 回来时被对齐, 不在这里 deduct。
         self._write_segment(session_id, app_id, category_label, tick_seconds, 0, cost,
                             period_start, period_end)
-        new_balance = self._wallet.get_balance()
-        _log.info("★ 扣 token: -%d (前台=%s) → balance=%d", cost, fg_name or "—", new_balance)
+        _log.info("★ 已推 token_tick: -%d (前台=%s), 等 server wallet_update 同步余额",
+                  cost, fg_name or "—")
         ev = Event(type=EventType.TOKEN_DEDUCT.value, payload={
             "amount": cost,
             "app": fg_name or "",
-            "balance_after": new_balance,
+            "balance_after": cur_balance,  # 乐观显示; server 真实值随后到
         })
         self._events.emit(ev)
         self._bus.publish(ev)

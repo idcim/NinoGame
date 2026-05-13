@@ -1920,6 +1920,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 | 31   | 架构原则              | 接口先行，core/ 模块不直接接触存储/网络        | §17.5.2  |
 | 32   | 拍照证据机制          | **下线**：改"私下协商确认 + 家长后台手动 +token" | §8.2, §12.4, §13 |
 | 33   | 扣分模型              | **统一在线时长扣分**: child + 活跃 + 非限免 → 每分钟扣 N (settings.json 可调, 默认 1)。**Path 1 自动挣分下线**, 不再按 consumption/productive 分类。余额耗尽/硬上限**不再 kill 进程**, 仅弹通知。规则匹配 kill 不变。 | §7, §8.1, §10.2, §16 |
+| 34   | 扣分权威源            | **server 单一权威**: Agent token_engine 每 tick 通过 WS `token_tick` 把扣分意图推给 server, server 写 ledger + UPDATE wallets + 推 `wallet_update` 回。Agent 本地不再 deduct, balance 完全由 server 推送驱动。`usage_report` 退化为纯审计 (写 app_sessions, 不再据 segments 减 wallet, 修复双重扣分)。离线时跳过扣分 (与 §7.6 一致)。 | §10, §11.2, §19 |
 
 ------
 

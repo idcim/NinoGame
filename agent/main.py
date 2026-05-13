@@ -185,6 +185,7 @@ class Agent:
             messages=self.messages,
             get_active_session_id=self.session_manager.active_session_id,
             is_free_pass_active=self._is_free_pass_active,
+            send_token_tick=self._send_token_tick,
         )
         self.checklist = ResponsibilityChecklist(
             self.config_dir / "tasks.json", self.resp_repo, self.events, self.bus
@@ -1145,6 +1146,24 @@ class Agent:
             self.request_dialog.activateWindow()
         except Exception:
             _log.exception("RequestDialog 显示失败")
+
+    def _send_token_tick(self, payload: dict) -> bool:
+        """token_engine 每 tick 调; 把扣分意图推给 server 单一权威 (决策 #34)。
+        返回 True = 已交给 transport 发出去 (并不代表 server 收到)。
+        """
+        if isinstance(self.transport, NullTransport):
+            return False
+        if not self.transport.is_connected():
+            return False
+        try:
+            self.transport.send({
+                "type": "token_tick",
+                "payload": payload,
+            })
+            return True
+        except Exception:
+            _log.exception("send token_tick 失败")
+            return False
 
     def _transport_warning(self) -> str | None:
         """共享给 dialog 用: 当前 transport 状态 → 用户可读的警告文案 (或 None 表示一切就绪)。"""
