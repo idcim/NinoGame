@@ -47,6 +47,7 @@ from store.local_sqlite import (  # noqa: E402
     JsonRuleRepository,
     SqliteAppCategoryRepository,
     SqliteEventSink,
+    SqliteNotificationRepository,
     SqliteResponsibilityRepository,
     SqliteSessionRepository,
     SqliteUnknownAppQueue,
@@ -62,6 +63,11 @@ from ui.notifier import Notifier  # noqa: E402
 from ui.overlay import FloatingOverlay  # noqa: E402
 from ui.pair_dialog import PairDialog  # noqa: E402
 from ui.request_dialog import RequestDialog  # noqa: E402
+from ui.history_window import (  # noqa: E402
+    HistoryWindow,
+    render_ledger_row,
+    render_notification_row,
+)
 from ui.task_claim_dialog import TaskClaimDialog  # noqa: E402
 from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
@@ -141,6 +147,7 @@ class Agent:
         self.sessions_repo = SqliteSessionRepository(self.db)
         self.unknown_queue = SqliteUnknownAppQueue(self.db)
         self.resp_repo = SqliteResponsibilityRepository(self.db)
+        self.notif_repo = SqliteNotificationRepository(self.db)
         seed_app_categories_into_db(self.app_categories)
 
         # 通信: settings 里有 backend_url + agent_token 就走 WS, 否则离线 Null
@@ -155,6 +162,7 @@ class Agent:
             default_title=self.messages.get("block_dialog_title"),
             logo_path=str(dialog_image_path()) if dialog_image_path().exists() else None,
             auto_close_seconds=int(self.settings.get("warning_dialog_auto_close_seconds", 0)),
+            record_history=self.notif_repo.record,
         )
         self.activity = ActivityDetector(
             strict_window=int(self.settings.get("activity_min_event_window_seconds", 60)),
@@ -209,6 +217,8 @@ class Agent:
         self.pair_dialog: PairDialog | None = None   # 按需 lazy 创建
         self.request_dialog: RequestDialog | None = None  # 同上
         self.task_claim_dialog: TaskClaimDialog | None = None  # 同上
+        self.messages_window: HistoryWindow | None = None  # 我的消息
+        self.ledger_window: HistoryWindow | None = None    # 余额变动
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
         # 家长 push temporary_unlock command 后填; rule_engine.evaluate
         # 会跳过这些规则; token_engine 仍按 consumption 扣费
@@ -233,6 +243,8 @@ class Agent:
             on_show_pair=self._request_show_pair,
             on_show_request=self._request_show_request_dialog,
             on_show_task_claim=self._request_show_task_claim_dialog,
+            on_show_messages=self._request_show_messages_window,
+            on_show_ledger=self._request_show_ledger_window,
         )
 
         self._stop = False
@@ -632,32 +644,50 @@ class Agent:
             if balance is not None:
                 self._apply_server_wallet(balance)
 
-            # 决定要不要弹通知 + 文案。家长发起的调账 (task_reward / parent_grant /
-            # adjustment) 不论正负都要让孩子知道; 否则孩子只看到余额突然变了不知所以。
-            # 系统内部 (server_sync / app_consumption / daily_grant 等) 不打扰。
+            # 静默 reason: 每分钟的 app_consumption / server 主动同步 — 不弹 / 不入历史
+            SILENT_REASONS = {"app_consumption", "server_sync"}
+            if reason in SILENT_REASONS:
+                return
+
+            # 家长可见操作: 弹通知 + 写本地 ledger cache + 写 notification 历史
             try:
                 if not isinstance(delta, (int, float)) or int(delta) == 0:
                     return
                 n = int(delta)
                 amount_str = f"+{n}" if n > 0 else str(n)
                 tail = f" ({comment})" if comment else ""
+                title = "NinoGame · 余额变动"
+                body = f"余额变动 {amount_str} token{tail}"
                 if reason == "task_reward":
                     title = "NinoGame · 任务奖励"
                     body = f"家长批准了你的任务{tail}, {amount_str} token 已到账。" if n > 0 \
                         else f"任务奖励调整{tail}: {amount_str} token。"
-                    self.notifier.info_async(body, title=title)
                 elif reason == "parent_grant":
                     title = "NinoGame · 家长发奖" if n > 0 else "NinoGame · 家长扣分"
                     body = f"家长给你发了 {amount_str} token{tail}。" if n > 0 \
                         else f"家长扣了 {abs(n)} token{tail}。"
-                    self.notifier.info_async(body, title=title)
                 elif reason == "adjustment":
                     title = "NinoGame · 余额调整"
                     body = f"家长调整了余额: {amount_str} token{tail}。"
-                    self.notifier.info_async(body, title=title)
-                # 其它 reason (server_sync / app_consumption / daily_grant) 不通知
+                elif reason == "daily_grant":
+                    title = "NinoGame · 每日发放"
+                    body = f"今日基础发放 {amount_str} token 已到账。"
+                elif reason == "refund":
+                    title = "NinoGame · 退款"
+                    body = f"退回 {amount_str} token{tail}。"
+                # 其它未识别 reason 用默认 title/body
+
+                # notifier 内部会把这条写进 notification_history
+                self.notifier.info_async(body, title=title)
+
+                # 写本地 token_ledger cache, 给 "余额变动" 窗口数据源
+                try:
+                    if balance is not None:
+                        self.wallet.record_external_ledger(n, int(balance), reason, comment)
+                except Exception:
+                    _log.exception("写本地 ledger cache 失败")
             except Exception:
-                _log.exception("wallet_update 通知失败")
+                _log.exception("wallet_update 处理失败")
 
         def on_command(msg):
             self._handle_command(msg.get("payload") or {})
@@ -1202,6 +1232,54 @@ class Agent:
         except Exception as e:
             _log.exception("发送 unlock_request 失败")
             return False, f"网络错误: {e}"
+
+    def _request_show_messages_window(self) -> None:
+        """托盘 → "我的消息..." 跨线程触发。"""
+        try:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._show_messages_window_on_main)
+        except Exception:
+            _log.exception("show messages 失败")
+
+    def _show_messages_window_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            if self.messages_window is None:
+                logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+                self.messages_window = HistoryWindow(
+                    title="NinoGame · 我的消息",
+                    fetch_rows=lambda: self.notif_repo.list_recent(50),
+                    render_row=render_notification_row,
+                    empty_text="还没有收到任何通知。",
+                    logo_path=logo,
+                )
+            self.messages_window.show_for_user()
+        except Exception:
+            _log.exception("MessagesWindow 显示失败")
+
+    def _request_show_ledger_window(self) -> None:
+        """托盘 → "查看余额变动..." 跨线程触发。"""
+        try:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._show_ledger_window_on_main)
+        except Exception:
+            _log.exception("show ledger 失败")
+
+    def _show_ledger_window_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            if self.ledger_window is None:
+                logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+                self.ledger_window = HistoryWindow(
+                    title="NinoGame · 余额变动记录",
+                    fetch_rows=lambda: self.wallet.list_recent_ledger(50),
+                    render_row=render_ledger_row,
+                    empty_text="还没有可显示的变动 (每分钟扣分不展示, 只看家长操作 + 任务奖励等)。",
+                    logo_path=logo,
+                )
+            self.ledger_window.show_for_user()
+        except Exception:
+            _log.exception("LedgerWindow 显示失败")
 
     def _request_show_task_claim_dialog(self) -> None:
         """孩子在托盘点「申报任务完成」→ 派发到 Qt 主线程开 TaskClaimDialog。"""

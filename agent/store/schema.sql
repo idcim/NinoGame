@@ -128,6 +128,19 @@ CREATE TABLE IF NOT EXISTS task_completions (
 );
 
 -- ────────────────────────────────────────────────────────────────
+-- 通知历史 (托盘"我的消息..."窗口数据源)
+--   notifier.info_async / warn_async 弹通知时同步写一条
+-- ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS notification_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  level TEXT NOT NULL DEFAULT 'info',  -- info / warn
+  title TEXT,
+  body TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_notif_created ON notification_history(created_at DESC);
+
+-- ────────────────────────────────────────────────────────────────
 -- 未知 App 队列（P2 让后端 LLM 分类）
 -- ────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS unknown_apps_queue (

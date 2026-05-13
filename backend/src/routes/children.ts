@@ -186,6 +186,9 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
   );
 
   // ── ledger 历史 (查最近 N 条 token 变动) ──────────────
+  // 默认隐藏 app_consumption (每分钟 1 条噪音 = 1440/天), 仅展示家长操作
+  // (parent_grant / task_reward / adjustment / daily_grant 等).
+  // ?include_consumption=true 切换看完整明细。
   app.get(
     "/api/children/:id/ledger",
     { preHandler: app.parentAuth },
@@ -193,6 +196,7 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
       const child_id = (req.params as { id: string }).id;
       const q = (req.query ?? {}) as Record<string, string>;
       const limit = Math.max(1, Math.min(200, Number(q.limit) || 50));
+      const includeConsumption = q.include_consumption === "true";
       // 验证归属
       const own = await pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM "NinoGame".children
@@ -202,6 +206,9 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
       if (Number(own.rows[0].count) === 0) {
         return reply.forbidden("孩子不属于当前家长");
       }
+      const filterSql = includeConsumption
+        ? ""
+        : "AND l.reason <> 'app_consumption'";
       const r = await pool.query<{
         id: string;
         delta: number;
@@ -212,7 +219,7 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
         `SELECT l.id, l.delta, l.balance_after, l.reason, l.occurred_at
            FROM "NinoGame".token_ledger l
            JOIN "NinoGame".wallets w ON w.id = l.wallet_id
-          WHERE w.child_id = $1
+          WHERE w.child_id = $1 ${filterSql}
           ORDER BY l.occurred_at DESC
           LIMIT $2`,
         [child_id, limit],

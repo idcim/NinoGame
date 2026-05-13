@@ -133,6 +133,8 @@ class TrayController:
         on_show_pair: Callable[[], None] | None = None,
         on_show_request: Callable[[], None] | None = None,
         on_show_task_claim: Callable[[], None] | None = None,
+        on_show_messages: Callable[[], None] | None = None,
+        on_show_ledger: Callable[[], None] | None = None,
         get_checklist: Callable[[], list[tuple[object, bool]]] | None = None,
         on_check_tick: Callable[[str, bool], None] | None = None,
         get_tooltip: Callable[[], str] | None = None,
@@ -149,6 +151,8 @@ class TrayController:
         self._on_show_pair = on_show_pair
         self._on_show_request = on_show_request
         self._on_show_task_claim = on_show_task_claim
+        self._on_show_messages = on_show_messages
+        self._on_show_ledger = on_show_ledger
         self._get_checklist = get_checklist
         self._on_check_tick = on_check_tick
         self._get_tooltip = get_tooltip
@@ -245,6 +249,20 @@ class TrayController:
         if mode == "child" and (
             self._on_show_request is not None or self._on_show_task_claim is not None
         ):
+            items.append(pystray.Menu.SEPARATOR)
+
+        # 历史记录 (任何模式都可看)
+        if self._on_show_messages is not None:
+            items.append(pystray.MenuItem(
+                "我的消息...",
+                lambda icon, item: self._safe(self._on_show_messages),
+            ))
+        if self._on_show_ledger is not None:
+            items.append(pystray.MenuItem(
+                "查看余额变动...",
+                lambda icon, item: self._safe(self._on_show_ledger),
+            ))
+        if self._on_show_messages is not None or self._on_show_ledger is not None:
             items.append(pystray.Menu.SEPARATOR)
 
         # 注: "暂停计费" 菜单项已移除。新心智下 "用就扣 token, 不够申请家长放行",

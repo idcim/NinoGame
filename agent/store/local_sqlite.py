@@ -277,6 +277,71 @@ class SqliteWalletService(WalletService):
         ).fetchone()
         return int(row["used"] or 0)
 
+    def record_external_ledger(
+        self,
+        delta: int,
+        new_balance: int,
+        reason: str,
+        comment: str | None = None,
+    ) -> None:
+        """server 推过来的 wallet_update 写一条本地 cache; 不动 wallet.balance
+        (sync_balance 已经在 _apply_server_wallet 里做了)。
+
+        ref_id 复用记 comment (家长备注)。
+        """
+        with self._lock:
+            try:
+                self._conn.execute(
+                    "INSERT INTO token_ledger (delta, balance_after, reason, ref_id, synced_to_server) "
+                    "VALUES (?, ?, ?, ?, 1)",
+                    (int(delta), int(new_balance), reason, comment),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def list_recent_ledger_all(self, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, delta, balance_after, reason, ref_id, occurred_at "
+            "FROM token_ledger ORDER BY occurred_at DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "delta": int(r["delta"]),
+                "balance_after": int(r["balance_after"]),
+                "reason": r["reason"],
+                "ref_id": r["ref_id"],
+                "occurred_at": r["occurred_at"],
+            }
+            for r in rows
+        ]
+
+    def list_recent_ledger(self, limit: int = 50, exclude_reasons: list[str] | None = None) -> list[dict]:
+        """供 ledger 历史窗口读。默认排除 app_consumption (每分钟 1 笔噪音)。"""
+        excl = exclude_reasons or ["app_consumption"]
+        placeholders = ",".join("?" * len(excl))
+        sql = (
+            "SELECT id, delta, balance_after, reason, ref_id, occurred_at "
+            "FROM token_ledger "
+            f"WHERE reason NOT IN ({placeholders}) "
+            "ORDER BY occurred_at DESC LIMIT ?"
+        )
+        rows = self._conn.execute(sql, (*excl, int(limit))).fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "delta": int(r["delta"]),
+                "balance_after": int(r["balance_after"]),
+                "reason": r["reason"],
+                "ref_id": r["ref_id"],
+                "occurred_at": r["occurred_at"],
+            }
+            for r in rows
+        ]
+
     def get_daily_credited(self, reason: str | None = None) -> int:
         if reason is None:
             row = self._conn.execute(
@@ -561,3 +626,46 @@ class SqliteResponsibilityRepository(ResponsibilityRepository):
             (today.isoformat(),),
         ).fetchall()
         return {r["task_id"]: bool(r["completed"]) for r in rows}
+
+
+# ────────────────────────────────────────────────────────────────
+# 通知历史 (托盘"我的消息..." 窗口数据源)
+# ────────────────────────────────────────────────────────────────
+class SqliteNotificationRepository:
+    """notifier 弹通知时同步写一条; 不与 server 同步, 纯本地。"""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._lock = threading.RLock()
+
+    def record(self, level: str, title: str, body: str) -> None:
+        if not body:
+            return
+        lvl = "warn" if str(level).lower().startswith("w") else "info"
+        with self._lock:
+            try:
+                self._conn.execute(
+                    "INSERT INTO notification_history (level, title, body) VALUES (?, ?, ?)",
+                    (lvl, str(title or "")[:128], str(body)[:1024]),
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def list_recent(self, limit: int = 50) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, level, title, body, created_at "
+            "FROM notification_history ORDER BY created_at DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+        return [
+            {
+                "id": int(r["id"]),
+                "level": r["level"],
+                "title": r["title"],
+                "body": r["body"],
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
