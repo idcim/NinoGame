@@ -114,6 +114,37 @@ export const api = {
     request<{ commands: Array<CommandRow> }>(
       `/api/commands?device_id=${encodeURIComponent(device_id)}`,
     ),
+
+  // ── rules ──────────────────────────────────────────────────
+  listRules: (child_id: string) =>
+    request<{ rules: Array<Rule> }>(
+      `/api/rules?child_id=${encodeURIComponent(child_id)}`,
+    ),
+
+  createRule: (data: {
+    child_id: string;
+    name: string;
+    enabled?: boolean;
+    spec: RuleSpec;
+  }) =>
+    request<{ rule: Rule; pushed: number }>("/api/rules", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  updateRule: (
+    id: string,
+    data: { name?: string; enabled?: boolean; spec?: RuleSpec },
+  ) =>
+    request<{ rule: Rule; pushed: number }>(`/api/rules/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  deleteRule: (id: string) =>
+    request<{ ok: boolean; pushed: number }>(`/api/rules/${id}`, {
+      method: "DELETE",
+    }),
 };
 
 // ── types ──────────────────────────────────────────────────────
@@ -148,4 +179,35 @@ export interface CommandRow {
   status: string;
   expires_at: string | null;
   created_at: string;
+}
+
+// ── rules ──────────────────────────────────────────────────────
+export interface Matcher {
+  field: "process_name" | "exe_path" | "window_title" | "command_line";
+  op: "equals" | "iequals" | "contains" | "icontains" | "regex";
+  value: string;
+}
+
+export interface RuleAction {
+  type: "kill_and_warn" | "warn_only" | "kill_silent";
+  message: string;
+}
+
+export interface RuleSpec {
+  matchers: Matcher[];
+  matcher_logic: "OR" | "AND";
+  exclude_processes: string[];
+  schedule: { mode: "always" | "windowed" | "disabled"; windows: unknown[] };
+  action: RuleAction;
+  category_link?: string;
+  notify_parent: boolean;
+}
+
+export interface Rule {
+  id: string;
+  child_id: string;
+  name: string;
+  enabled: boolean;
+  spec: RuleSpec;
+  updated_at: string;
 }

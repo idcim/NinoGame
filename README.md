@@ -13,7 +13,7 @@
 | 优先 | 事项 | 形态 |
 |---|---|---|
 | ✅ | ~~配对体验优化~~ | Agent GUI 配对对话框（托盘"重新配对家长后台"）+ 一键复制魔法链接（`URL/#pair=CODE`）+ 智能粘贴解析 |
-| 🔥 | **规则编辑页** | 浏览器添加新游戏关键词，写 server `NinoGame.rules` 表 → WS rules_update 推送 |
+| ✅ | ~~规则编辑页~~ | 浏览器 `/rules` 页面: 增删改 + 启用/禁用 toggle, 保存即推送 WS rules_update; Agent 立即更新本地 rules.json |
 | 🟡 | **每日基础发放搬服务端** | 现在 Agent 本地发, server 也发会双发；server 才是权威 |
 | 🟡 | **usage_report 服务端聚合** | Agent 5min segments → server 写 app_sessions + 重算钱包 |
 | 🟡 | **申请-审批流（§13）** | 孩子端 unlock_request → server → 家长批准 → 自动推 temporary_unlock |

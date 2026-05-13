@@ -10,6 +10,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChildrenRoutes } from "./routes/children.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
+import { registerRuleRoutes } from "./routes/rules.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 import { registerParentWebSocket } from "./ws/parent.js";
 
@@ -42,6 +43,7 @@ export async function buildServer() {
   await registerChildrenRoutes(app);
   await registerDeviceRoutes(app);
   await registerCommandRoutes(app);
+  await registerRuleRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);
 
@@ -72,6 +74,10 @@ export async function buildServer() {
       "GET  /api/devices             (Bearer)",
       "POST /api/commands            (Bearer)",
       "GET  /api/commands?device_id  (Bearer)",
+      "GET  /api/rules?child_id      (Bearer)",
+      "POST /api/rules               (Bearer)",
+      "PUT  /api/rules/:id           (Bearer)",
+      "DEL  /api/rules/:id           (Bearer)",
       "WS   /ws/agent?token=<agent_token>",
       "WS   /ws/parent?token=<jwt>",
     ],
