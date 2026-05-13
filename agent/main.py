@@ -31,6 +31,7 @@ from comms.null_transport import NullTransport  # noqa: E402
 from comms.transport import Transport  # noqa: E402
 from comms.usage_reporter import UsageReporter  # noqa: E402
 from core.activity_detector import ActivityDetector  # noqa: E402
+from core.jiggler_detector import JigglerDetector  # noqa: E402
 from core.checklist import ResponsibilityChecklist  # noqa: E402
 from core.classifier import Classifier  # noqa: E402
 from core.killer import Killer  # noqa: E402
@@ -360,6 +361,30 @@ class Agent:
 
         _log.info("启动 activity_detector ...")
         self.activity.start()
+
+        # 鼠标抖动器检测 (§16.1 ②). 命中时 is_active_earning 返回 False,
+        # 不让 productive 类应用刷 token; 同时 emit JIGGLER_ALERT 事件让
+        # 家长浏览器实时看到。
+        def _on_jiggler_alert(info: dict) -> None:
+            _log.warning("★ 检测到鼠标抖动器嫌疑: %s", info)
+            try:
+                from comms.message_types import Event, EventType
+                self.bus.publish(Event(
+                    type=EventType.JIGGLER_ALERT.value,
+                    payload=info,
+                ))
+            except Exception:
+                _log.exception("发 JIGGLER_ALERT 事件失败")
+
+        self.jiggler = JigglerDetector(
+            sample_interval_seconds=1.0,
+            window_size=60,
+            box_threshold_px=80,
+            alert_callback=_on_jiggler_alert,
+            alert_cooldown_seconds=300,
+        )
+        self.activity.set_jiggler(self.jiggler)
+        self.jiggler.start()
         if self.activity.fallback_only:
             _log.info("  → fallback 模式 (鼠标抖动器无法识别)")
 
@@ -1096,6 +1121,11 @@ class Agent:
         try:
             if hasattr(self.transport, "stop"):
                 self.transport.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "jiggler") and self.jiggler is not None:
+                self.jiggler.stop()
         except Exception:
             pass
         try:

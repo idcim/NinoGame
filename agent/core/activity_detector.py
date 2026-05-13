@@ -64,6 +64,7 @@ class ActivityDetector:
         self._pynput_listeners: list = []
         self._jiggler_callback: Callable[[], None] | None = None
         self._fallback_only = False
+        self._jiggler = None  # main.py set_jiggler() 注入
 
     # ── 启停 ─────────────────────────────────────────────────────
     def start(self) -> None:
@@ -142,8 +143,15 @@ class ActivityDetector:
         return self.seconds_since_any_input() <= self._consumption_window
 
     def is_active_earning(self) -> bool:
-        """赚分活跃判定：严格，必须 key/scroll/click。"""
+        """赚分活跃判定：严格，必须 key/scroll/click。
+        机械感鼠标 (jiggler) 命中时同样不算活跃 (§16.1 ②)。"""
+        if self._jiggler is not None and self._jiggler.is_mechanical():
+            return False
         return self.seconds_since_strict_input() <= self._strict_window
+
+    def set_jiggler(self, jiggler) -> None:
+        """main.py 装配时把 JigglerDetector 注入进来。"""
+        self._jiggler = jiggler
 
     def is_idle_for(self, threshold_seconds: int) -> bool:
         """是否连续 threshold_seconds 无任何输入。用于闲置 Lock。"""

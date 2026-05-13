@@ -18,7 +18,7 @@
 | ✅ | ~~usage_report 服务端聚合~~ | Agent 端 UsageReporter 周期上报未同步 segments → server INSERT `NinoGame.app_sessions` (按 app+category 聚合) |
 | ✅ | ~~申请-审批流（§13）~~ | Agent 端「申请游戏时间」对话框 → WS 上报 → 家长浏览器 /requests 一键批准 (10/30/60 分钟) → 自动 push temporary_unlock |
 | ✅ | ~~信任值机制（§8.7）~~ | server `recomputeTrust` 在每次审批后异步触发: 30 天窗口 ≥5 样本, reject_rate >30%→ -1, <5%→ +1; 24h 冷却; 写 `trust_changes` ledger; frontend 卡片显示星级 |
-| 🟢 | **鼠标轨迹防刷（§16）** + 异常告警 | Agent 端实现 |
+| ✅ | ~~鼠标轨迹防刷（§16）~~ | Agent 端 JigglerDetector: 每 1s 采样 cursor, 60s 窗口 bounding box <80px 判定机械感 → is_active_earning 返回 False (不刷分) + 发 JIGGLER_ALERT 事件 (家长浏览器实时看到, 5min 限频) |
 | 🟢 | **Android Agent** | Kotlin + AccessibilityService |
 
 ## 当前状态
