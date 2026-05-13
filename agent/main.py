@@ -320,8 +320,20 @@ class Agent:
         QTimer.singleShot 只能在 Qt 线程里调用 (否则会打:
         "QObject::startTimer: Timers can only be used with threads
          started with QThread")。
+
+        同时写 data/agent_quit.flag 通知 Watchdog "主动退出, 不要重启";
+        Watchdog 主循环看到此 flag 会自己也退出。Agent crash 时不会写,
+        Watchdog 仍按正常 stale 检测重启。
         """
         self._stop = True
+        try:
+            flag = self.data_dir / "agent_quit.flag"
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            with open(flag, "w", encoding="utf-8") as f:
+                f.write(f"{os.getpid()}\n{int(time.time())}\n")
+            _log.info("已写 agent_quit.flag, Watchdog 看到后将一并退出")
+        except Exception:
+            _log.exception("写 agent_quit.flag 失败")
         try:
             from PySide6.QtCore import QCoreApplication, QMetaObject, Qt
             app = QCoreApplication.instance()
@@ -340,6 +352,17 @@ class Agent:
         _log.info("NinoGame Agent 启动中; root=%s", self.root)
         _log.info("=" * 60)
         self._warn_missing_deps()
+
+        # 清掉上次"主动退出"标记 (这次启动是正常 boot, 不要让 Watchdog
+        # 误以为还在退出态而立即自杀)。Watchdog 主循环每 5s 看一次, 即便
+        # 旧 flag 残留只要 Agent 已经写 alive 文件就不会被重启。
+        try:
+            stale_flag = self.data_dir / "agent_quit.flag"
+            if stale_flag.exists():
+                stale_flag.unlink()
+                _log.info("清掉残留的 agent_quit.flag")
+        except Exception:
+            _log.exception("清 agent_quit.flag 失败")
 
         # 日发放: 服务端是权威源。仅未配对 (离线模式) 时 Agent 本地发,
         # 保证孩子离线也能用 token; 配对后 hello_ack 时 server 端 ensureTodayGrant

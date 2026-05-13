@@ -28,6 +28,10 @@ def run(
     data_dir.mkdir(parents=True, exist_ok=True)
     mine = data_dir / "watchdog.alive"
     peer = data_dir / "agent.alive"
+    # 家长 PIN 通过后 Agent 退出会写这个 flag, 表示 "主动退出, 不要重启";
+    # Watchdog 看到后自己也退出, 让"退出"是真退出而不是被 Watchdog 拉起重启。
+    # Agent crash 时不会写 flag, Watchdog 仍按 stale 检测重启 (自保护不变)。
+    quit_flag = data_dir / "agent_quit.flag"
 
     def _shutdown(_signum, _frame):
         _log.info("watchdog shutting down")
@@ -45,6 +49,9 @@ def run(
     _log.info("watchdog started; pid=%s; peer cmd=%s", os.getpid(), agent_launch_cmd)
     while True:
         try:
+            if quit_flag.exists():
+                _log.info("看到 agent_quit.flag (Agent 主动退出), watchdog 一并退出")
+                return
             _beat(mine)
             _check_agent(peer, agent_launch_cmd)
         except Exception:
