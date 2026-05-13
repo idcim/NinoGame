@@ -171,7 +171,11 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
     },
   );
 
-  // ── 在线历史 (最近 N 段) ───────────────────────────────
+  // ── 在线历史 ────────────────────────────────────────────
+  // 三种 mode 经 query 切换:
+  //   (无参数 / sessions): 最近 50 段 + today_total (向后兼容老前端)
+  //   ?mode=daily&days=N : 最近 N 天每天聚合 (date / total_seconds / session_count)
+  //   ?date=YYYY-MM-DD   : 该天所有 sessions, 用于"点开某天"懒加载下钻
   app.get(
     "/api/devices/:id/online-history",
     { preHandler: app.parentAuth },
@@ -188,6 +192,58 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
       if (Number(own.rows[0].count) === 0) {
         return reply.forbidden("设备不属于当前家长");
       }
+
+      const q = (req.query ?? {}) as Record<string, string>;
+      const mode = q.mode || (q.date ? "by_date" : "sessions");
+
+      // 按天聚合: 每天总时长 + 段数 (跨午夜段全算到 connected_at 的日期)
+      if (mode === "daily") {
+        const days = Math.max(1, Math.min(90, Number(q.days) || 14));
+        const r = await pool.query<{
+          date: string;
+          total_seconds: string;
+          session_count: string;
+        }>(
+          `SELECT connected_at::date AS date,
+                  COALESCE(SUM(
+                    COALESCE(duration_seconds,
+                             EXTRACT(EPOCH FROM (NOW() - connected_at))::int)
+                  ), 0)::text AS total_seconds,
+                  COUNT(*)::text AS session_count
+             FROM "NinoGame".device_online_sessions
+            WHERE device_id = $1
+              AND connected_at >= CURRENT_DATE - ($2::int - 1 || ' days')::interval
+            GROUP BY connected_at::date
+            ORDER BY connected_at::date DESC`,
+          [id, days],
+        );
+        return {
+          days: r.rows.map((row) => ({
+            date: row.date,
+            total_seconds: Number(row.total_seconds),
+            session_count: Number(row.session_count),
+          })),
+        };
+      }
+
+      // 指定日期的所有 sessions (下钻视图)
+      if (mode === "by_date") {
+        const date = q.date;
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return reply.badRequest("date 必须是 YYYY-MM-DD");
+        }
+        const r = await pool.query(
+          `SELECT id, connected_at, disconnected_at, duration_seconds, remote_ip
+             FROM "NinoGame".device_online_sessions
+            WHERE device_id = $1
+              AND connected_at::date = $2::date
+            ORDER BY connected_at DESC`,
+          [id, date],
+        );
+        return { date, sessions: r.rows };
+      }
+
+      // 默认: 最近 50 段 + today_total (兼容老前端调用)
       const r = await pool.query(
         `SELECT id, connected_at, disconnected_at, duration_seconds, remote_ip
            FROM "NinoGame".device_online_sessions
@@ -196,7 +252,6 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
           LIMIT 50`,
         [id],
       );
-      // 今天总时长
       const t = await pool.query<{ total_seconds: string }>(
         `SELECT COALESCE(SUM(
                   COALESCE(duration_seconds,

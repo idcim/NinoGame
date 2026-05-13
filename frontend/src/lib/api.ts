@@ -147,6 +147,19 @@ export const api = {
       today_total_seconds: number;
     }>(`/api/devices/${device_id}/online-history`),
 
+  /** 按天聚合: 每天总时长 + 段数, 默认 14 天 */
+  getDeviceOnlineDaily: (device_id: string, days = 14) =>
+    request<{
+      days: Array<{ date: string; total_seconds: number; session_count: number }>;
+    }>(`/api/devices/${device_id}/online-history?mode=daily&days=${days}`),
+
+  /** 指定一天的全部 sessions (下钻视图) */
+  getDeviceOnlineByDate: (device_id: string, date: string) =>
+    request<{
+      date: string;
+      sessions: Array<OnlineSession>;
+    }>(`/api/devices/${device_id}/online-history?date=${encodeURIComponent(date)}`),
+
   // ── rules ──────────────────────────────────────────────────
   listRules: (child_id: string) =>
     request<{ rules: Array<Rule> }>(

@@ -3,6 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Copy,
   Gamepad2,
@@ -534,19 +536,49 @@ function CommandRowView({ cmd }: { cmd: CommandRow }) {
   );
 }
 
+interface DailyRow {
+  date: string;
+  total_seconds: number;
+  session_count: number;
+}
+
+/** "2026-05-13T00:00:00Z" / "2026-05-13" → "2026-05-13" (本地日期前缀); 用作 group key */
+function todayDateStr(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+/** server 返回的 date 可能是 ISO 时间戳, 截到日期; 今天显示为 "今天 (周几)". */
+function formatDate(isoOrDate: string): string {
+  const d = new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return isoOrDate;
+  const today = new Date();
+  const isToday =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  const wd = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][d.getDay()];
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return isToday ? `今天 ${wd}` : `${m}-${day} ${wd}`;
+}
+
 function OnlineHistory({ deviceId }: { deviceId: string }) {
-  const [sessions, setSessions] = useState<OnlineSession[]>([]);
-  const [todayTotal, setTodayTotal] = useState(0);
+  const [days, setDays] = useState<DailyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // 哪些日期已展开 (date -> sessions, undefined 表示未加载)
+  const [expanded, setExpanded] = useState<Record<string, OnlineSession[] | "loading" | undefined>>({});
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await api.getDeviceOnlineHistory(deviceId);
-      setSessions(r.sessions);
-      setTodayTotal(r.today_total_seconds);
+      const r = await api.getDeviceOnlineDaily(deviceId, 14);
+      setDays(r.days);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "加载失败");
     } finally {
@@ -556,7 +588,28 @@ function OnlineHistory({ deviceId }: { deviceId: string }) {
 
   useEffect(() => {
     load();
+    setExpanded({});
   }, [deviceId]);
+
+  async function toggle(date: string) {
+    const cur = expanded[date];
+    if (cur && cur !== "loading") {
+      // 已展开 → 折叠
+      setExpanded((p) => ({ ...p, [date]: undefined }));
+      return;
+    }
+    // 未展开 → 拉数据
+    setExpanded((p) => ({ ...p, [date]: "loading" }));
+    try {
+      const r = await api.getDeviceOnlineByDate(deviceId, date);
+      setExpanded((p) => ({ ...p, [date]: r.sessions }));
+    } catch (e) {
+      setExpanded((p) => ({ ...p, [date]: [] }));
+      setErr(e instanceof ApiError ? e.message : "加载当天失败");
+    }
+  }
+
+  const todayTotal = days.find((d) => d.date.startsWith(todayDateStr()))?.total_seconds ?? 0;
 
   return (
     <section>
@@ -587,54 +640,90 @@ function OnlineHistory({ deviceId }: { deviceId: string }) {
           </div>
         )}
 
-        {sessions.length === 0 && !loading && !err && (
+        {days.length === 0 && !loading && !err && (
           <div className="text-sm text-ink-dim text-center py-4">
-            还没有在线记录
+            最近 14 天还没有在线记录
           </div>
         )}
 
-        {/* 段列表 */}
-        {sessions.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-ink-light border-b border-border">
-                  <th className="text-left py-2 font-normal">开始</th>
-                  <th className="text-left py-2 font-normal">结束</th>
-                  <th className="text-right py-2 font-normal">时长</th>
-                  <th className="text-right py-2 font-normal hidden sm:table-cell">来源 IP</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => {
-                  const isOpen = !s.disconnected_at;
-                  const dur = isOpen
-                    ? Math.floor((Date.now() - new Date(s.connected_at).getTime()) / 1000)
-                    : s.duration_seconds ?? 0;
-                  return (
-                    <tr key={s.id} className="border-b border-border/60 last:border-0">
-                      <td className="py-2">
-                        {new Date(s.connected_at).toLocaleString()}
-                      </td>
-                      <td className="py-2">
-                        {isOpen ? (
-                          <span className="text-accent-600 font-medium">进行中</span>
-                        ) : (
-                          new Date(s.disconnected_at!).toLocaleString()
-                        )}
-                      </td>
-                      <td className="py-2 text-right font-mono">
-                        {formatDuration(dur)}
-                      </td>
-                      <td className="py-2 text-right text-ink-light hidden sm:table-cell">
-                        {s.remote_ip || "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        {/* 按天列表 */}
+        {days.length > 0 && (
+          <ul className="divide-y divide-border/60">
+            {days.map((d) => {
+              const cur = expanded[d.date];
+              const isOpen = cur && cur !== "loading";
+              const isLoading = cur === "loading";
+              return (
+                <li key={d.date}>
+                  <button
+                    type="button"
+                    onClick={() => toggle(d.date)}
+                    className="w-full flex items-center gap-3 py-3 text-left hover:bg-brand-50/30 -mx-2 px-2 rounded-md"
+                  >
+                    <span className="text-ink-dim shrink-0">
+                      {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                    </span>
+                    <span className="text-sm font-medium text-ink w-28 shrink-0 font-mono">
+                      {formatDate(d.date)}
+                    </span>
+                    <span className="flex-1 text-sm text-ink">
+                      {formatDuration(d.total_seconds)}
+                    </span>
+                    <span className="text-xs text-ink-light shrink-0">
+                      {d.session_count} 段
+                    </span>
+                    {isLoading && <Loader2 size={12} className="animate-spin text-ink-dim" />}
+                  </button>
+                  {isOpen && Array.isArray(cur) && (
+                    <div className="ml-6 mb-3 overflow-x-auto">
+                      {cur.length === 0 ? (
+                        <div className="text-xs text-ink-dim py-2">当天没有 session 记录</div>
+                      ) : (
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-xs text-ink-light border-b border-border/60">
+                              <th className="text-left py-1.5 font-normal">开始</th>
+                              <th className="text-left py-1.5 font-normal">结束</th>
+                              <th className="text-right py-1.5 font-normal">时长</th>
+                              <th className="text-right py-1.5 font-normal hidden sm:table-cell">来源 IP</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cur.map((s) => {
+                              const isLive = !s.disconnected_at;
+                              const dur = isLive
+                                ? Math.floor((Date.now() - new Date(s.connected_at).getTime()) / 1000)
+                                : s.duration_seconds ?? 0;
+                              return (
+                                <tr key={s.id} className="border-b border-border/40 last:border-0">
+                                  <td className="py-1.5 text-xs">
+                                    {new Date(s.connected_at).toLocaleTimeString()}
+                                  </td>
+                                  <td className="py-1.5 text-xs">
+                                    {isLive ? (
+                                      <span className="text-accent-600 font-medium">进行中</span>
+                                    ) : (
+                                      new Date(s.disconnected_at!).toLocaleTimeString()
+                                    )}
+                                  </td>
+                                  <td className="py-1.5 text-right font-mono text-xs">
+                                    {formatDuration(dur)}
+                                  </td>
+                                  <td className="py-1.5 text-right text-ink-light text-xs hidden sm:table-cell">
+                                    {s.remote_ip || "—"}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
     </section>
