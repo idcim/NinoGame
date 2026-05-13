@@ -14,6 +14,10 @@ import { registerFreePassRoutes } from "./routes/free_pass.js";
 import { registerRuleRoutes } from "./routes/rules.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerUnlockRequestRoutes } from "./routes/unlock_requests.js";
+import {
+  startBehaviorBaselineScheduler,
+  stopBehaviorBaselineScheduler,
+} from "./services/behavior_baseline_scheduler.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
 import { registerParentWebSocket } from "./ws/parent.js";
 
@@ -107,7 +111,12 @@ export async function buildServer() {
     ],
   }));
 
+  // ── 后台任务 ────────────────────────────────────────────
+  // 行为基线异常告警 (§16.1 ④): 每小时扫一次, 异常推家长浏览器
+  startBehaviorBaselineScheduler(app.log);
+
   app.addHook("onClose", async () => {
+    stopBehaviorBaselineScheduler();
     await pool.end();
   });
 

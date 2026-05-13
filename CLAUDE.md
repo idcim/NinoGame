@@ -1841,7 +1841,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] 限免活动
 - [x] 移动端响应式
 - [x] 鼠标轨迹检测（防刷 ②）
-- [ ] 行为基线异常告警（防刷 ④）
+- [x] 行为基线异常告警（防刷 ④）
 - [x] **信任值机制**（P2 引入）
 
 **验收：** 家长用手机改规则，5s 内孩子电脑生效；Nino 启动 PvZ，家长手机能在事件流看到；Agent 断网 10min 重连后历史事件全补。
