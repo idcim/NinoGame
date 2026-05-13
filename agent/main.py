@@ -1521,13 +1521,24 @@ class Agent:
             rd.on_closed = _resume_lock_after_close
 
     def _oot_on_parent_unlock(self) -> None:
-        """孩子在锁屏上点"家长 PIN 解锁" → bridge.ask_pin → 通过则切 Parent."""
+        """孩子在锁屏上点"家长 PIN 解锁" → bridge.ask_pin → 通过则切 Parent.
+
+        关键: ask_pin 期间暂停锁屏的"抢焦点 timer", 否则锁屏每 500ms 把自己
+        raise 到前台 → PIN 输入框失焦 → 闪烁 + 无法输入。
+        ask_pin 是阻塞调用, 用 try/finally 保证无论 PIN 验过 / 取消 / 出错
+        都恢复抢焦点 (锁屏若已被 hide, resume 是 no-op, 安全)。
+        """
         if not self.pin.has_pin():
             # 没设 PIN → 直接切 (家长信任本地物理在场)
             _log.warning("家长 PIN 未设置, 直接切 Parent 模式")
             self._switch_to_parent_after_unlock()
             return
-        # 走 bridge ask_pin (会阻塞当前调用线程; 走 GUI 线程槽)
+        oot = self.out_of_token_dialog
+        if oot is not None:
+            try:
+                oot.pause_focus_reclaim()
+            except Exception:
+                _log.exception("pause_focus_reclaim 失败")
         try:
             from ui.assets import dialog_image_path
             logo = str(dialog_image_path()) if dialog_image_path().exists() else None
@@ -1546,6 +1557,15 @@ class Agent:
                 self._switch_to_parent_after_unlock()
         except Exception:
             _log.exception("家长 PIN 解锁失败")
+        finally:
+            # ok=True 时 _switch_to_parent_after_unlock 已 hide 锁屏,
+            # resume 内部 isVisible() 检查会 no-op; ok=False/取消时锁屏仍在,
+            # 立刻把抢焦点 timer 拉回来覆盖桌面。
+            if oot is not None:
+                try:
+                    oot.resume_focus_reclaim()
+                except Exception:
+                    _log.exception("resume_focus_reclaim 失败")
 
     def _switch_to_parent_after_unlock(self) -> None:
         """PIN 通过后: 关锁屏 + 切 Parent + 重置 token_engine 的 oot flag."""
