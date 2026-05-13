@@ -1155,12 +1155,13 @@ class Agent:
             _log.exception("show_pair_dialog 失败")
 
     def _request_show_request_dialog(self) -> None:
-        """孩子在托盘点「申请游戏时间」→ 派发到 Qt 主线程开 RequestDialog。"""
-        try:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._show_request_dialog_on_main)
-        except Exception:
-            _log.exception("show request dialog 失败")
+        """孩子在托盘点「申请游戏时间」→ bridge 派发到 Qt 主线程。
+
+        注意: 不能用 QTimer.singleShot(0, ...) 从 pystray worker 线程调度!
+        Qt 会把 timer 绑到 worker 线程, 槽永远不跑 → "点了没反应"。
+        必须走 get_bridge().run_on_gui (信号通道, 自动 marshal 到 GUI 线程).
+        """
+        get_bridge().run_on_gui(self._show_request_dialog_on_main)
 
     def _show_request_dialog_on_main(self) -> None:
         try:
@@ -1234,12 +1235,8 @@ class Agent:
             return False, f"网络错误: {e}"
 
     def _request_show_messages_window(self) -> None:
-        """托盘 → "我的消息..." 跨线程触发。"""
-        try:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._show_messages_window_on_main)
-        except Exception:
-            _log.exception("show messages 失败")
+        """托盘 → "我的消息..." 跨线程触发 (走 bridge 信号, 避免 worker 线程 timer 失败)。"""
+        get_bridge().run_on_gui(self._show_messages_window_on_main)
 
     def _show_messages_window_on_main(self) -> None:
         try:
@@ -1258,12 +1255,8 @@ class Agent:
             _log.exception("MessagesWindow 显示失败")
 
     def _request_show_ledger_window(self) -> None:
-        """托盘 → "查看余额变动..." 跨线程触发。"""
-        try:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._show_ledger_window_on_main)
-        except Exception:
-            _log.exception("show ledger 失败")
+        """托盘 → "查看余额变动..." 跨线程触发 (走 bridge 信号)。"""
+        get_bridge().run_on_gui(self._show_ledger_window_on_main)
 
     def _show_ledger_window_on_main(self) -> None:
         try:
@@ -1282,12 +1275,8 @@ class Agent:
             _log.exception("LedgerWindow 显示失败")
 
     def _request_show_task_claim_dialog(self) -> None:
-        """孩子在托盘点「申报任务完成」→ 派发到 Qt 主线程开 TaskClaimDialog。"""
-        try:
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(0, self._show_task_claim_dialog_on_main)
-        except Exception:
-            _log.exception("show task claim dialog 失败")
+        """孩子在托盘点「申报任务完成」→ bridge 派发到 Qt 主线程 (同 _request_show_request_dialog)。"""
+        get_bridge().run_on_gui(self._show_task_claim_dialog_on_main)
 
     def _show_task_claim_dialog_on_main(self) -> None:
         try:

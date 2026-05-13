@@ -81,6 +81,7 @@ class DialogBridge(QObject):
     _pin_signal = Signal(object)
     _confirm_signal = Signal(object)
     _pair_signal = Signal(object)
+    _run_signal = Signal(object)  # 通用: 工作线程把 Callable 派发到 GUI
     _quit_signal = Signal()
 
     # 复用同一个 PairDialog 实例 (避免每次开新窗口)
@@ -92,6 +93,22 @@ class DialogBridge(QObject):
         self._pin_signal.connect(self._on_pin)
         self._confirm_signal.connect(self._on_confirm)
         self._pair_signal.connect(self._on_pair)
+        self._run_signal.connect(self._on_run)
+
+    @Slot(object)
+    def _on_run(self, fn) -> None:
+        """通用槽: 在 GUI 主线程跑 callable. 失败不抛 (避免炸 Qt 事件循环)。"""
+        try:
+            fn()
+        except Exception:
+            _log.exception("run_on_gui callable 失败")
+
+    def run_on_gui(self, fn: Callable[[], None]) -> None:
+        """worker 线程把任意 callable 派发到 GUI 主线程。
+        替代 QTimer.singleShot(0, fn) —— 后者从非 Qt 线程调用会静默失败,
+        是托盘菜单 "申请游戏时间 / 申报任务完成 点了没反应" 的根因。
+        """
+        self._run_signal.emit(fn)
 
     # ── 槽: 在 GUI 线程上跑 ────────────────────────────────────
     @Slot(object)
