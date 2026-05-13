@@ -228,6 +228,22 @@ async function onHello(
     { device_id: meta.device_id, rules: rules.rows.length, cmds: cmds.rows.length },
     "hello_ack sent",
   );
+
+  // 关键: 把刚发出去的 pending 命令标 delivered, 防止下次重连又重复推。
+  // 不标的话 "每次开都放行 30 分钟" — 老的 unlock 命令一直 pending。
+  if (cmds.rows.length > 0) {
+    const ids = (cmds.rows as Array<{ id: string }>).map((r) => r.id);
+    try {
+      await pool.query(
+        `UPDATE "NinoGame".commands
+            SET status = 'delivered'
+          WHERE id = ANY($1::uuid[])`,
+        [ids],
+      );
+    } catch (err) {
+      app.log.warn({ err }, "mark commands delivered failed");
+    }
+  }
 }
 
 async function onUnlockRequest(
@@ -274,12 +290,12 @@ async function onUsageReport(
   const startedAt = p.period_start ? new Date(p.period_start) : new Date();
   const endedAt = p.period_end ? new Date(p.period_end) : startedAt;
 
-  // 每个 (app, category) 聚合行 → 一行 app_sessions
-  // 这里只写存档, 不再扣钱 (Agent 本地已扣); 后续如果要 server 端权威重算,
-  // 在这里加 wallet 调整逻辑即可
+  // 1) 写 app_sessions 历史
   let inserted = 0;
+  let total_tokens_consumed = 0;
   for (const seg of segments) {
     if (!seg.app || !seg.category) continue;
+    const tokens = Math.max(0, Math.floor(seg.tokens_consumed || 0));
     try {
       await pool.query(
         `INSERT INTO "NinoGame".app_sessions
@@ -294,16 +310,80 @@ async function onUsageReport(
           startedAt,
           endedAt,
           Math.max(0, Math.floor(seg.active_seconds || 0)),
-          Math.max(0, Math.floor(seg.tokens_consumed || 0)),
+          tokens,
         ],
       );
       inserted++;
+      total_tokens_consumed += tokens;
     } catch (err) {
       app.log.warn({ err, app: seg.app }, "app_sessions insert failed");
     }
   }
+
+  // 2) server 权威扣钱: 单条聚合 ledger + UPDATE wallets
+  //    Agent 本地 ledger 不再有"权威"地位, 只是 cache 显示用;
+  //    sync_balance 会把 Agent 本地拉回到 server 算出来的余额。
+  if (total_tokens_consumed > 0) {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const w = await client.query<{ id: string; balance: number }>(
+        `SELECT id, balance FROM "NinoGame".wallets
+          WHERE child_id = $1 FOR UPDATE`,
+        [meta.child_id],
+      );
+      if (w.rows.length > 0) {
+        const before = Number(w.rows[0].balance);
+        const newBalance = Math.max(0, before - total_tokens_consumed);
+        const realDelta = newBalance - before; // 负数
+        await client.query(
+          `INSERT INTO "NinoGame".token_ledger
+             (wallet_id, delta, balance_after, reason, occurred_at)
+           VALUES ($1, $2, $3, 'app_consumption', NOW())`,
+          [w.rows[0].id, realDelta, newBalance],
+        );
+        await client.query(
+          `UPDATE "NinoGame".wallets SET balance = $1, updated_at = NOW() WHERE id = $2`,
+          [newBalance, w.rows[0].id],
+        );
+        await client.query("COMMIT");
+
+        // 推 wallet_update 给该 Agent (和这个孩子的其他在线设备)
+        const devs = await pool.query<{ id: string }>(
+          `SELECT d.id FROM "NinoGame".devices d
+             JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+            WHERE b.child_id = $1 AND d.agent_token IS NOT NULL`,
+          [meta.child_id],
+        );
+        for (const d of devs.rows) {
+          pushToDevice(d.id, {
+            type: "wallet_update",
+            payload: {
+              balance: newBalance,
+              reason: "app_consumption",
+              delta: realDelta,
+            },
+          });
+        }
+      } else {
+        await client.query("ROLLBACK");
+      }
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* ignore */ }
+      app.log.warn({ err, child_id: meta.child_id }, "wallet decrement failed");
+    } finally {
+      client.release();
+    }
+  }
+
   app.log.info(
-    { device_id: meta.device_id, child_id: meta.child_id, inserted, raw: p.segment_count_raw },
+    {
+      device_id: meta.device_id,
+      child_id: meta.child_id,
+      inserted,
+      raw: p.segment_count_raw,
+      tokens_deducted: total_tokens_consumed,
+    },
     "usage_report processed",
   );
 }

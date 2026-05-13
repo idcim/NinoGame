@@ -157,18 +157,22 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
           ],
         );
         last_cmd_id = ins.rows[0].id;
-        if (
-          pushToDevice(dev.id, {
-            type: "command",
+        const livePushed = pushToDevice(dev.id, {
+          type: "command",
+          id: ins.rows[0].id,
+          payload: {
             id: ins.rows[0].id,
-            payload: {
-              id: ins.rows[0].id,
-              command_type: "temporary_unlock",
-              payload: { rule_id, duration_seconds: duration_minutes * 60 },
-            },
-          })
-        ) {
+            command_type: "temporary_unlock",
+            payload: { rule_id, duration_seconds: duration_minutes * 60 },
+          },
+        });
+        if (livePushed) {
           pushed_to++;
+          // 实时推过去 → 标 delivered, 下次重连不再重复
+          await pool.query(
+            `UPDATE "NinoGame".commands SET status = 'delivered' WHERE id = $1`,
+            [ins.rows[0].id],
+          );
         }
       }
 

@@ -69,6 +69,18 @@ export async function registerCommandRoutes(app: FastifyInstance) {
       },
     });
 
+    // 实时下发成功 → 标 delivered, 下次 Agent 重连不会再补发同一条
+    if (delivered) {
+      try {
+        await pool.query(
+          `UPDATE "NinoGame".commands SET status = 'delivered' WHERE id = $1`,
+          [cmd.id],
+        );
+      } catch (err) {
+        app.log.warn({ err, cmd: cmd.id }, "mark delivered after push failed");
+      }
+    }
+
     app.log.info(
       { device_id, command_type, delivered },
       delivered

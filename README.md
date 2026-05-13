@@ -385,12 +385,17 @@ python agent/main.py
 
 | 数据 | 权威源 | 本地角色 |
 |---|---|---|
-| 钱包余额 / ledger | **Server** | 缓存；hello_ack / wallet_update 覆盖 |
+| 钱包余额 | **Server** | Agent 本地是 cache; sync_balance 强制对齐 server 值 |
+| **token 扣费** | **Server**（onUsageReport 据 usage_report 减 + push wallet_update）| Agent 仅显示, 不动权威账本 |
+| **每日基础发放** | **Server**（hello_ack 触发 ensureTodayGrant, 24h 幂等）| Agent 离线 fallback |
+| ledger 长期账本 | **Server** | Agent 本地 ledger 仅离线缓冲 |
 | 规则 rules | **Server** | 缓存到 `config/rules.json` |
 | app_categories | **Server**（全局）| 缓存 7 天 |
 | events / sessions / app_segments | Agent 产 → **Server** 长期存 | 写缓冲，离线时排队上报 |
 | settings.json（PIN / URL / token / 文案）| 本地 | 本地，不外发 |
 | heartbeat 文件（agent.alive / watchdog.alive）| 本地 | 本地，自保护用 |
+
+**核心原则**：Agent 配对后 token 经济权威源 100% 在 server。Agent 本地的 `wallet.balance` 和 ledger 仅作为离线时的缓冲，连上后 server 推 `wallet_update` 即对齐。
 
 ## P2 Backend：本地开发
 
