@@ -707,6 +707,41 @@ class Agent:
             )
             return
 
+        if ctype == "set_pin":
+            # 家长在后台输 PIN, server 通过 WS 推过来
+            # Agent 用 PinManager 加密保存到本地 settings.json
+            pin = str(payload.get("pin", "")).strip()
+            if not pin or len(pin) < 4:
+                _log.warning("set_pin: PIN 无效 (空或 <4 位), 已拒绝")
+                return
+            try:
+                self.pin.set_pin(pin)
+                _log.info("★ PIN 已由家长远程设置 (长度=%d, 已加密)", len(pin))
+                self.notifier.info_async(
+                    "家长已远程设置新 PIN。下次退出 Agent 时会要求验证。",
+                    title="NinoGame · PIN 已更新",
+                )
+            except Exception:
+                _log.exception("set_pin 失败")
+            return
+
+        if ctype == "clear_pin":
+            # 清空 PIN, 退出回退到普通确认对话框模式
+            try:
+                # PinManager 没有 clear_pin 方法; 直接清 settings.json 两个字段
+                d = self.pin._read_settings()  # noqa: SLF001
+                d["pin_hash"] = ""
+                d["pin_salt"] = ""
+                self.pin._write_settings(d)  # noqa: SLF001
+                _log.info("★ PIN 已由家长远程清空")
+                self.notifier.info_async(
+                    "家长已远程清空 PIN。",
+                    title="NinoGame · PIN 已清空",
+                )
+            except Exception:
+                _log.exception("clear_pin 失败")
+            return
+
         _log.warning("未知 command type: %s", ctype)
 
     def _rule_name(self, rule_id: str) -> str:

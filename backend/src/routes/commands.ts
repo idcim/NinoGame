@@ -19,6 +19,8 @@ const CreateBody = z.object({
     "end_free_pass",
     "request_status",
     "request_photo",
+    "set_pin",
+    "clear_pin",
   ]),
   payload: z.record(z.unknown()).default({}),
   expires_in_minutes: z.number().int().min(1).max(1440).optional(),

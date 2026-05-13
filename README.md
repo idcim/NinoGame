@@ -8,13 +8,26 @@
 
 ------
 
+## 后续计划 (P2 收尾 / P3)
+
+| 优先 | 事项 | 形态 |
+|---|---|---|
+| 🔥 | **配对体验优化** | Agent 加 GUI 配对对话框（托盘"重新配对"菜单）+ 一键复制配对链接（`https://server/#pair=CODE`）+ 重新配对时旧 token 自动作废 |
+| 🔥 | **规则编辑页** | 浏览器添加新游戏关键词，写 server `NinoGame.rules` 表 → WS rules_update 推送 |
+| 🟡 | **每日基础发放搬服务端** | 现在 Agent 本地发, server 也发会双发；server 才是权威 |
+| 🟡 | **usage_report 服务端聚合** | Agent 5min segments → server 写 app_sessions + 重算钱包 |
+| 🟡 | **申请-审批流（§13）** | 孩子端 unlock_request → server → 家长批准 → 自动推 temporary_unlock |
+| 🟢 | **信任值机制（§8.7）** | server 定时任务，按行为升降 |
+| 🟢 | **鼠标轨迹防刷（§16）** + 异常告警 | Agent 端实现 |
+| 🟢 | **Android Agent** | Kotlin + AccessibilityService |
+
 ## 当前状态
 
 | 阶段 | 状态 | 内容 |
 |---|---|---|
 | **P0** | ✅ 完成 | 本地单文件脚本 [`pvz_monitor.py`](pvz_monitor.py)：PvZ 全变种关键词拦截 |
 | **P1** | ✅ 完成（含打包验证） | 接口先行的本地版 Agent（[`agent/`](agent/)）：监控 + token 经济 + 责任清单 + 自保护 + PyInstaller exe |
-| **P2** | 🟡 进行中 | Backend（Node + Fastify + Postgres，[`backend/`](backend/)）已起骨架 + §18 全 21 张表，待写 REST/WS/Auth |
+| **P2** | 🟢 主要功能就绪 | Backend + Frontend + Postgres 三容器 docker compose，远控命令、临时解锁、实时事件流、PIN 远程设置 全通 |
 | **P3+** | ⏳ 待规划 | LLM 集成、Android App、跨端钱包同步 |
 
 完整设计文档（路线图、配额档位、防滥用机制、决策记录）：[CLAUDE.md](CLAUDE.md)
@@ -279,6 +292,12 @@ cd ..\frontend && npm install && npm run dev    # 前端 dev server :5173
 ```
 
 打开 http://127.0.0.1:5173/ → 注册家长 → 创建孩子 → 生成配对码 → Agent 端 `pair.py` 兑换 → 设备列表点进去 → 「放行 30 分钟」按钮一点即可。
+
+### 远程设置 PIN
+
+家长在设备详情页点「设置 / 重置 PIN」→ 输入两次 PIN → 推送命令。Agent 收到后用 PBKDF2-SHA256 加密保存到本地 `settings.json`，并弹通知"PIN 已更新"。不需要触碰孩子的电脑。
+
+`clear_pin` 命令把 PIN 清空，Agent 退出回退到普通确认框（无密码）。
 
 ### 或: 用 curl (无 UI 时)
 
