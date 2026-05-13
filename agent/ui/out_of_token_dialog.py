@@ -370,6 +370,37 @@ class OutOfTokenDialog(QWidget):
             self._cancel_shutdown()
         self.hide()
 
+    def pause_focus_reclaim(self) -> None:
+        """暂停抢焦点 (弹 RequestDialog 时调用, 避免互抢闪烁)。
+        锁屏窗体本身仍可见, 只是不再每 500ms 把自己 raise 到前台,
+        让 RequestDialog 能稳定接收输入焦点。"""
+        if self._reclaim_timer is not None:
+            self._reclaim_timer.stop()
+
+    def resume_focus_reclaim(self) -> None:
+        """恢复抢焦点 (RequestDialog 关闭后调用)。
+        timer 一启动, 锁屏会在下一个 tick 把自己拉回前台,
+        孩子无法在 RequestDialog 关掉后停留在桌面/被锁应用上。"""
+        if not self.isVisible():
+            return
+        # 先主动抢一次, 不等 500ms tick (减少裸露桌面的窗口)
+        try:
+            self.raise_()
+            self.activateWindow()
+            if sys.platform == "win32":
+                try:
+                    hwnd = int(self.winId())
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    ctypes.windll.user32.BringWindowToTop(hwnd)
+                except Exception:
+                    pass
+        except Exception:
+            _log.exception("[OOT] resume_focus_reclaim 主动抢焦点失败")
+        if self._reclaim_timer is None:
+            self._reclaim_timer = QTimer(self)
+            self._reclaim_timer.timeout.connect(self._reclaim_focus)
+        self._reclaim_timer.start(500)
+
     def _reclaim_focus(self) -> None:
         """每 500ms 检查焦点. 已在自己 → no-op (避免无谓 raise 引起闪烁);
         被 Alt-Tab 切走 → raise_/activateWindow/SetForegroundWindow 抢回."""

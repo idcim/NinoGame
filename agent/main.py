@@ -1483,11 +1483,31 @@ class Agent:
                 _log.exception("OutOfTokenDialog 隐藏失败")
 
     def _oot_on_request(self) -> None:
-        """孩子在锁屏上点"申请游戏时间" → 关锁屏 + 弹 RequestDialog."""
-        if self.out_of_token_dialog is not None:
-            self.out_of_token_dialog.hide_for_user()
-        # 不切 Child (余额还是 0); 等家长批准后 temporary_unlock 才能玩
+        """孩子在锁屏上点"申请游戏时间" → 弹 RequestDialog (锁屏保持在底).
+
+        关键: 不 hide 锁屏, 只是暂停其抢焦点 timer (避免和 RequestDialog 互抢
+        造成的闪烁)。RequestDialog 关闭时通过 on_closed 回调恢复抢焦点,
+        锁屏立刻被拉回前台 — 孩子无法点完申请就绕过锁屏。
+        """
+        oot = self.out_of_token_dialog
+        if oot is not None:
+            try:
+                oot.pause_focus_reclaim()
+            except Exception:
+                _log.exception("pause_focus_reclaim 失败")
+        # 弹 RequestDialog (在锁屏之上 Z 顺序; WindowStaysOnTopHint 保证)
         self._show_request_dialog_on_main()
+        # 注入一次性回调: RequestDialog 关闭 → 锁屏重新抢焦点
+        rd = self.request_dialog
+        if rd is not None and oot is not None:
+            def _resume_lock_after_close() -> None:
+                _log.info("[OOT] RequestDialog 关闭, 恢复锁屏焦点抢夺")
+                try:
+                    if oot.isVisible():
+                        oot.resume_focus_reclaim()
+                except Exception:
+                    _log.exception("resume_focus_reclaim 失败")
+            rd.on_closed = _resume_lock_after_close
 
     def _oot_on_parent_unlock(self) -> None:
         """孩子在锁屏上点"家长 PIN 解锁" → bridge.ask_pin → 通过则切 Parent."""

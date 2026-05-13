@@ -56,6 +56,10 @@ class RequestDialog(QWidget):
         self._logo_path = str(logo_path) if logo_path else None
         self._on_submit = on_submit
         self._get_transport_warning = get_transport_warning
+        # 关闭后的一次性回调 (外部赋值); hide/close 触发后清零防止重入。
+        # 用途: OutOfTokenDialog 锁屏态下弹 RequestDialog, 关掉时必须立刻
+        # 把锁屏拉回, 否则孩子能点申请绕过锁。
+        self.on_closed: Callable[[], None] | None = None
 
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
@@ -276,3 +280,23 @@ class RequestDialog(QWidget):
             f"font-size: 9pt; min-height: 36px; padding: 4px;"
         )
         self._status.setText(text)
+
+    # ---- 关闭通知 ----------------------------------------------------------
+    # hide / close / 销毁 都触发一次 on_closed; 防止重入用 _closed_fired flag.
+    def _fire_on_closed(self) -> None:
+        cb = self.on_closed
+        if cb is None:
+            return
+        self.on_closed = None   # 一次性, 防重入
+        try:
+            cb()
+        except Exception:
+            _log.exception("[RequestDialog] on_closed 回调失败")
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        super().hideEvent(event)
+        self._fire_on_closed()
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        super().closeEvent(event)
+        self._fire_on_closed()
