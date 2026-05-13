@@ -15,6 +15,7 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { lookupDeviceByToken } from "../routes/devices.js";
+import { publishToParent } from "./event_bus.js";
 
 interface WsMessage {
   type: string;
@@ -220,9 +221,33 @@ async function onHeartbeat(meta: AgentConnection, _msg: WsMessage): Promise<void
 async function onEvent(meta: AgentConnection, msg: WsMessage): Promise<void> {
   const payload = msg.payload as { event_type?: string; payload?: unknown };
   if (!payload?.event_type) return;
+  const occurred_at = new Date().toISOString();
   await pool.query(
     `INSERT INTO "NinoGame".events (child_id, device_id, event_type, payload)
      VALUES ($1, $2, $3, $4)`,
     [meta.child_id, meta.device_id, payload.event_type, payload.payload ?? {}],
   );
+
+  // 解析孩子的 parent_id, 推到所有该家长打开的浏览器
+  if (meta.child_id) {
+    try {
+      const r = await pool.query<{ parent_id: string }>(
+        `SELECT parent_id FROM "NinoGame".children WHERE id = $1`,
+        [meta.child_id],
+      );
+      const parent_id = r.rows[0]?.parent_id;
+      if (parent_id) {
+        publishToParent({
+          parent_id,
+          child_id: meta.child_id,
+          device_id: meta.device_id,
+          event_type: payload.event_type,
+          payload: payload.payload ?? {},
+          occurred_at,
+        });
+      }
+    } catch {
+      // 推送失败不影响事件入库
+    }
+  }
 }

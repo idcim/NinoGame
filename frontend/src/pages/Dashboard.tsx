@@ -10,6 +10,7 @@ import {
   TabletSmartphone,
 } from "lucide-react";
 import { api, ApiError, type Child, type Device } from "../lib/api";
+import EventFeed from "../components/EventFeed";
 
 export default function Dashboard() {
   const [children, setChildren] = useState<Child[]>([]);
@@ -66,6 +67,8 @@ export default function Dashboard() {
         loading={loading}
         onChanged={load}
       />
+
+      <EventFeed />
     </div>
   );
 }

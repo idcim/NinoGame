@@ -11,6 +11,7 @@ import { registerChildrenRoutes } from "./routes/children.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerAgentWebSocket, getConnectedDevices } from "./ws/agent.js";
+import { registerParentWebSocket } from "./ws/parent.js";
 
 export async function buildServer() {
   const app = Fastify({
@@ -42,6 +43,7 @@ export async function buildServer() {
   await registerDeviceRoutes(app);
   await registerCommandRoutes(app);
   await registerAgentWebSocket(app);
+  await registerParentWebSocket(app);
 
   // ── 基础 ────────────────────────────────────────────────
   app.get("/health", async () => {
@@ -71,6 +73,7 @@ export async function buildServer() {
       "POST /api/commands            (Bearer)",
       "GET  /api/commands?device_id  (Bearer)",
       "WS   /ws/agent?token=<agent_token>",
+      "WS   /ws/parent?token=<jwt>",
     ],
   }));
 
