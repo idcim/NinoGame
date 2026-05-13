@@ -26,10 +26,15 @@ class SelfProtector:
         my_alive_file: str | Path,
         peer_alive_file: str | Path,
         peer_launch_cmd: list[str] | None = None,
+        peer_quit_flag: str | Path | None = None,
     ) -> None:
+        """peer_quit_flag: 对端 (watchdog) 主动退出时写的 flag.
+        存在则 _check_peer 跳过 relaunch — 让"watchdog 退出"是真退出,
+        而不是被 Agent 自动拉起重启. flag 不存在 (watchdog crash) 时正常拉起."""
         self._mine = Path(my_alive_file)
         self._peer = Path(peer_alive_file)
         self._peer_launch = peer_launch_cmd or []
+        self._peer_quit_flag = Path(peer_quit_flag) if peer_quit_flag else None
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -66,6 +71,10 @@ class SelfProtector:
 
     def _check_peer(self) -> None:
         if not self._peer_launch:
+            return
+        # 对端主动退出 (写了 quit flag) → 尊重退出, 不 relaunch.
+        # 区分 "被关掉" vs "crash 死掉": flag 存在 = 主动, 不存在 = 异常。
+        if self._peer_quit_flag is not None and self._peer_quit_flag.exists():
             return
         if not self._peer.exists():
             self._relaunch_peer("peer alive file missing")

@@ -225,6 +225,7 @@ class Agent:
             my_alive_file=self.data_dir / "agent.alive",
             peer_alive_file=self.data_dir / "watchdog.alive",
             peer_launch_cmd=self._peer_launch_cmd(),
+            peer_quit_flag=self.data_dir / "watchdog_quit.flag",
         )
 
         # 浮层 (§15.3) —— Qt 主线程实例; QApplication 必须先建好
@@ -393,13 +394,16 @@ class Agent:
         # 清掉上次"主动退出"标记 (这次启动是正常 boot, 不要让 Watchdog
         # 误以为还在退出态而立即自杀)。Watchdog 主循环每 5s 看一次, 即便
         # 旧 flag 残留只要 Agent 已经写 alive 文件就不会被重启。
-        try:
-            stale_flag = self.data_dir / "agent_quit.flag"
-            if stale_flag.exists():
-                stale_flag.unlink()
-                _log.info("清掉残留的 agent_quit.flag")
-        except Exception:
-            _log.exception("清 agent_quit.flag 失败")
+        # 同时清 watchdog_quit.flag — 重启 Agent 等于重置自保护,
+        # 否则上次 watchdog 主动退后 Agent 永远不再拉它, 错过 crash 保护场景。
+        for fname in ("agent_quit.flag", "watchdog_quit.flag"):
+            try:
+                stale_flag = self.data_dir / fname
+                if stale_flag.exists():
+                    stale_flag.unlink()
+                    _log.info("清掉残留的 %s", fname)
+            except Exception:
+                _log.exception("清 %s 失败", fname)
 
         # 日发放: 服务端是权威源。仅未配对 (离线模式) 时 Agent 本地发,
         # 保证孩子离线也能用 token; 配对后 hello_ack 时 server 端 ensureTodayGrant

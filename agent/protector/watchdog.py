@@ -31,10 +31,30 @@ def run(
     # 家长 PIN 通过后 Agent 退出会写这个 flag, 表示 "主动退出, 不要重启";
     # Watchdog 看到后自己也退出, 让"退出"是真退出而不是被 Watchdog 拉起重启。
     # Agent crash 时不会写 flag, Watchdog 仍按 stale 检测重启 (自保护不变)。
-    quit_flag = data_dir / "agent_quit.flag"
+    agent_quit_flag = data_dir / "agent_quit.flag"
+    # 对称的: watchdog 主动退出时写这个 flag, Agent self_protector 看到后
+    # 不再拉起 watchdog. crash (无 flag) 时 Agent 仍正常 relaunch.
+    my_quit_flag = data_dir / "watchdog_quit.flag"
+
+    # 启动时清掉自己上次的残留 flag (上一轮 crash 留下的会让 Agent 误判主动退)
+    try:
+        if my_quit_flag.exists():
+            my_quit_flag.unlink()
+    except Exception:
+        _log.exception("清残留 watchdog_quit.flag 失败")
+
+    def _write_quit_flag() -> None:
+        try:
+            my_quit_flag.write_text(
+                f"{os.getpid()}\n{int(time.time())}\n", encoding="utf-8",
+            )
+            _log.info("已写 watchdog_quit.flag, Agent 不会再 relaunch 我")
+        except Exception:
+            _log.exception("写 watchdog_quit.flag 失败")
 
     def _shutdown(_signum, _frame):
-        _log.info("watchdog shutting down")
+        _log.info("watchdog shutting down (signal)")
+        _write_quit_flag()
         sys.exit(0)
 
     if sys.platform == "win32":
@@ -49,8 +69,9 @@ def run(
     _log.info("watchdog started; pid=%s; peer cmd=%s", os.getpid(), agent_launch_cmd)
     while True:
         try:
-            if quit_flag.exists():
+            if agent_quit_flag.exists():
                 _log.info("看到 agent_quit.flag (Agent 主动退出), watchdog 一并退出")
+                _write_quit_flag()  # 全套退场, Agent 重启也不会被自动拉起 (虽然现在 Agent 已退)
                 return
             _beat(mine)
             _check_agent(peer, agent_launch_cmd)
