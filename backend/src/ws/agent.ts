@@ -15,6 +15,7 @@
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { lookupDeviceByToken } from "../routes/devices.js";
+import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
 
 interface WsMessage {
@@ -170,6 +171,21 @@ async function onHello(
   meta: AgentConnection,
   _msg: WsMessage,
 ): Promise<void> {
+  // 0) 服务端先幂等发今日基础 token (Agent 上线触发, 跨午夜也会自动补发)
+  if (meta.child_id) {
+    try {
+      const r = await ensureTodayGrant(meta.child_id);
+      if (r.applied > 0) {
+        app.log.info(
+          { child_id: meta.child_id, applied: r.applied, balance: r.balance },
+          "daily grant applied",
+        );
+      }
+    } catch (err) {
+      app.log.warn({ err, child_id: meta.child_id }, "ensureTodayGrant failed");
+    }
+  }
+
   // 拉规则 + 钱包 + pending commands
   const rulesQuery = meta.child_id
     ? pool.query(

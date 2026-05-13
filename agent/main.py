@@ -338,14 +338,19 @@ class Agent:
         _log.info("=" * 60)
         self._warn_missing_deps()
 
-        # 日发放
+        # 日发放: 服务端是权威源。仅未配对 (离线模式) 时 Agent 本地发,
+        # 保证孩子离线也能用 token; 配对后 hello_ack 时 server 端 ensureTodayGrant
+        # 幂等补发, wallet_update 推回来同步本地。
         from datetime import date as _date
-        base = self._today_base_grant()
-        granted = self.wallet.ensure_daily_grant(base, _date.today())
-        if granted:
-            _log.info("今日基础发放: +%d token", granted)
+        if self._is_paired():
+            _log.info("日发放: 已配对, 等服务端 ensureTodayGrant 接管")
         else:
-            _log.info("今日基础发放已完成 (跳过)")
+            base = self._today_base_grant()
+            granted = self.wallet.ensure_daily_grant(base, _date.today())
+            if granted:
+                _log.info("今日基础发放 (本地离线): +%d token", granted)
+            else:
+                _log.info("今日基础发放已完成 (跳过)")
         _log.info("当前钱包余额: %d token", self.wallet.get_balance())
 
         _log.info("启动 activity_detector ...")
