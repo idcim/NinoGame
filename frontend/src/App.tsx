@@ -4,6 +4,7 @@ import About from "./pages/About";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DeviceDetail from "./pages/DeviceDetail";
+import Reports from "./pages/Reports";
 import Requests from "./pages/Requests";
 import Rules from "./pages/Rules";
 import Tasks from "./pages/Tasks";
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/requests" element={<Requests />} />
         <Route path="/rules" element={<Rules />} />
         <Route path="/tasks" element={<Tasks />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/device/:id" element={<DeviceDetail />} />
         <Route path="/about" element={<About />} />
       </Route>

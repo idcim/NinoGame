@@ -126,6 +126,16 @@ export const api = {
       `/api/pending-counts`,
     ),
 
+  // ── reports (P3 使用时长统计) ──────────────────────────────
+  getDailyReport: (child_id: string, days = 14) =>
+    request<{ days: DailyReportRow[] }>(
+      `/api/children/${child_id}/reports/daily?days=${days}`,
+    ),
+  getTopAppsReport: (child_id: string, days = 14, limit = 10) =>
+    request<{ apps: TopAppRow[] }>(
+      `/api/children/${child_id}/reports/top-apps?days=${days}&limit=${limit}`,
+    ),
+
   // ── commands ──────────────────────────────────────────────
   pushCommand: (data: {
     device_id: string;
@@ -462,6 +472,22 @@ export interface LedgerEntry {
   balance_after: number;
   reason: string;
   occurred_at: string;
+}
+
+// ── reports ───────────────────────────────────────────────────
+export interface DailyReportRow {
+  date: string;
+  active_seconds: number;
+  tokens_consumed: number;
+  session_count: number;
+}
+
+export interface TopAppRow {
+  app_identifier: string;
+  category: string;
+  total_active_seconds: number;
+  total_tokens: number;
+  session_count: number;
 }
 
 // ── free pass ─────────────────────────────────────────────────

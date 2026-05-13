@@ -102,6 +102,18 @@ export default function About() {
 /** 更新日志手动维护; 每次有意义的版本更新追加一项。 */
 const CHANGELOG: Array<{ tag: string; title: string; bullets: string[] }> = [
   {
+    tag: "2026-05-14 b",
+    title: "全局通知 + 报表页 + 扣分上限取消",
+    bullets: [
+      "新增: 全局 toast — 任意页面收到 task_claim / unlock_request / behavior_anomaly / block / jiggler_alert 都弹右上角提示, 点击跳转对应页",
+      "新增: 顶部导航「申请」/「任务」链接红色 badge 显示 pending 数量, 每 30s 轮询 + 事件触发即时刷新",
+      "新增: 家长后台 /reports 报表页 — 14 天柱状图 + Top 应用列表 + 总 active 时长 / 日均 / 总扣 token 汇总",
+      "改: 决策 #35 — daily_hard_cap_minutes 默认 0 = 不限 (原 120 让孩子「卡 X token 后免费」), 老 settings.json 自动迁移",
+      "修: 服务端单一权威扣分 (token_tick WS) + Agent 本地不再 deduct, 余额完全 server 驱动 — 不一致根治",
+      "修: 托盘菜单「申请游戏时间」/「申报任务完成」/「我的消息」/「余额变动」点了没反应 (pystray 工作线程 QTimer 静默失败 → 改 bridge run_on_gui)",
+    ],
+  },
+  {
     tag: "2026-05-14",
     title: "扣分模型简化 (CLAUDE.md §22 决策 #33)",
     bullets: [

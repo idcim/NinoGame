@@ -1857,7 +1857,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] 时间窗口规则（schedule.windows）
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [ ] 企业微信机器人推送
-- [ ] 使用时长统计/报表
+- [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
 - [ ] **Android NinoGame App**
 - [ ] 跨端钱包同步 + Path 1 跨端聚合
 
