@@ -128,8 +128,6 @@ class TrayController:
         get_balance: Callable[[], int],
         get_mode: Callable[[], str],
         get_daily_credit_cap: Callable[[], int],
-        on_lock: Callable[[], None],
-        on_resume: Callable[[], None],
         on_quit_request: Callable[[], None],
         on_show_panel: Callable[[], None] | None = None,
         on_show_pair: Callable[[], None] | None = None,
@@ -146,8 +144,6 @@ class TrayController:
         self._get_balance = get_balance
         self._get_mode = get_mode
         self._get_cap = get_daily_credit_cap
-        self._on_lock = on_lock
-        self._on_resume = on_resume
         self._on_quit_request = on_quit_request
         self._on_show_panel = on_show_panel
         self._on_show_pair = on_show_pair
@@ -251,14 +247,8 @@ class TrayController:
         ):
             items.append(pystray.Menu.SEPARATOR)
 
-        # 仅显示"立即锁定" (主动暂停计费)。Lock 状态下用户有键鼠输入
-        # 会自动恢复 Child 模式, 不需要"解锁使用"按钮。
-        if mode != "lock":
-            items.append(pystray.MenuItem(
-                "暂停计费 (动一下键鼠自动恢复)",
-                lambda icon, item: self._safe(self._on_lock),
-            ))
-            items.append(pystray.Menu.SEPARATOR)
+        # 注: "暂停计费" 菜单项已移除。新心智下 "用就扣 token, 不够申请家长放行",
+        # 孩子不会主动暂停; 闲置 10 分钟自动 Lock 已覆盖"不用时不被扣"场景。
 
         # 浮层切换
         if self._is_overlay_enabled is not None and self._toggle_overlay is not None:

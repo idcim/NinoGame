@@ -216,17 +216,11 @@ class Agent:
         # 由 server push start_free_pass / end_free_pass 维护, 重连 hello_ack 携带活跃段。
         self._free_pass_until: "datetime | None" = None
 
-        # 托盘
+        # 托盘 (孩子主动 lock/resume 入口已移除, 详见 panel.py / tray_icon.py)
         self.tray = TrayController(
             get_balance=self.wallet.get_balance,
             get_mode=lambda: self.session_manager.mode,
             get_daily_credit_cap=lambda: int(overrides.get("daily_credit_cap", 120)),
-            on_lock=lambda: self.session_manager.change_mode(
-                SessionMode.LOCK.value, SessionEndReason.MANUAL_LOCK.value
-            ),
-            on_resume=lambda: self.session_manager.change_mode(
-                SessionMode.CHILD.value, SessionEndReason.SWITCHED.value
-            ),
             on_quit_request=self._handle_quit_request,
             get_checklist=self.checklist.list_today,
             on_check_tick=self.checklist.tick,
@@ -442,12 +436,6 @@ class Agent:
             get_daily_credited=self.wallet.get_daily_credited,
             get_today_consumption_minutes=lambda: self.sessions_repo.today_consumption_seconds() // 60,
             get_checklist_progress=self._checklist_progress,
-            on_lock=lambda: self.session_manager.change_mode(
-                SessionMode.LOCK.value, SessionEndReason.MANUAL_LOCK.value
-            ),
-            on_resume=lambda: self.session_manager.change_mode(
-                SessionMode.CHILD.value, SessionEndReason.SWITCHED.value
-            ),
             get_active_unlocks=self._active_unlock_info,
             daily_credit_cap=self._daily_credit_cap,
         )

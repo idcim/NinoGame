@@ -2,11 +2,12 @@
 
 展示:
   - 当前余额 (大号)
-  - 当前模式
+  - 当前模式 (Lock 模式徽章隐藏, 闲置自动 / 远程锁不打扰孩子)
   - 今日消费分钟 / 赚到 token / 完成任务
-  - 操作按钮: 锁定 / 解锁 / 关闭面板
+  - 关闭按钮
 
-完整 Dashboard 留给 P2 + Web UI。这里只做"扫一眼能看到状态"的入口。
+孩子端无需主动 "锁定 / 解锁": 闲置 10 分钟自动 Lock, 动键鼠 30s 内
+自动恢复 Child。所以面板上没有手动入口。
 """
 from __future__ import annotations
 
@@ -168,8 +169,6 @@ class StatusPanel(QWidget):
         get_daily_credited: Callable[[], int],
         get_today_consumption_minutes: Callable[[], int],
         get_checklist_progress: Callable[[], tuple[int, int]],
-        on_lock: Callable[[], None],
-        on_resume: Callable[[], None],
         get_active_unlocks: Callable[[], list[tuple[str, str, int]]] | None = None,
         daily_credit_cap: int = 120,
     ) -> None:
@@ -181,8 +180,6 @@ class StatusPanel(QWidget):
         self._get_daily_credited = get_daily_credited
         self._get_today_minutes = get_today_consumption_minutes
         self._get_checklist = get_checklist_progress
-        self._on_lock = on_lock
-        self._on_resume = on_resume
         self._get_active_unlocks = get_active_unlocks
         self._cap = daily_credit_cap
 
@@ -190,7 +187,7 @@ class StatusPanel(QWidget):
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(380, 460)
+        self.resize(380, 400)
 
         if self._logo_path and Path(self._logo_path).exists():
             self.setWindowIcon(QIcon(self._logo_path))
@@ -324,30 +321,6 @@ class StatusPanel(QWidget):
         body_layout.addLayout(self._unlocks_container)
 
         body_layout.addStretch(1)
-
-        # 操作按钮
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        self._btn_lock = QPushButton(body)
-        self._btn_lock.setObjectName("ghost")
-        self._btn_lock.setCursor(Qt.PointingHandCursor)
-        self._btn_lock.setIcon(qta.icon("fa5s.lock", color=COLOR_TEXT_DIM))
-        self._btn_lock.setIconSize(QSize(14, 14))
-        self._btn_lock.setText("  锁定")
-        self._btn_lock.clicked.connect(self._do_lock)
-        btn_row.addWidget(self._btn_lock)
-
-        self._btn_resume = QPushButton(body)
-        self._btn_resume.setObjectName("primary")
-        self._btn_resume.setCursor(Qt.PointingHandCursor)
-        self._btn_resume.setIcon(qta.icon("fa5s.unlock", color="white"))
-        self._btn_resume.setIconSize(QSize(14, 14))
-        self._btn_resume.setText("  解锁使用")
-        self._btn_resume.clicked.connect(self._do_resume)
-        btn_row.addWidget(self._btn_resume)
-
-        body_layout.addLayout(btn_row)
         card_layout.addWidget(body, 1)
 
         self._apply_qss(COLOR_OK, COLOR_PRIMARY)
@@ -416,6 +389,9 @@ class StatusPanel(QWidget):
             "limited_free": COLOR_WARN,
         }.get(mode, COLOR_PRIMARY)
         self._mode_badge.setText(_mode_label_cn(mode))
+        # Lock 模式 (闲置自动 / 远程锁) 下隐藏徽章, 避免给孩子展示无意义的状态;
+        # 关键信号 (托盘灰色顶条 / tooltip / 远程锁的 warn 弹窗) 已经覆盖。
+        self._mode_badge.setVisible(mode != "lock")
         self._apply_qss(accent, mode_color)
 
         self._stat_consumed.setText(str(consumed))
@@ -459,16 +435,3 @@ class StatusPanel(QWidget):
         row.addStretch(1)
         return row
 
-    def _do_lock(self) -> None:
-        try:
-            self._on_lock()
-        except Exception:
-            _log.exception("on_lock 失败")
-        QTimer.singleShot(200, self.refresh)
-
-    def _do_resume(self) -> None:
-        try:
-            self._on_resume()
-        except Exception:
-            _log.exception("on_resume 失败")
-        QTimer.singleShot(200, self.refresh)
