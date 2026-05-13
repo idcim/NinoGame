@@ -125,34 +125,63 @@ class TokenEngine:
         self._killed_this_tick.clear()
         session_id = self._get_session_id()
         if not session_id:
-            return  # Lock / Parent 模式不计费
+            _log.info("[tick] 跳过: Lock / Parent 模式 (不计费)")
+            return
 
         snap = self._get_foreground()
         if snap is None:
+            _log.info("[tick] 跳过: 拿不到前台进程 (桌面 / 锁屏?)")
             return
 
         category = self._classify.classify(snap)
+        active_c = self._activity.is_active_consumption()
+        active_e = self._activity.is_active_earning()
         now = datetime.utcnow()
         period_start = now
         period_end = now
 
+        # 每 tick 一条 INFO 日志, 清楚说明扣不扣 / 为什么
+        # ("怎么从没见过扣 token" -> 看这一行就知道答案)
         if category.category == AppCategoryName.CONSUMPTION.value:
+            if not active_c:
+                _log.info(
+                    "[tick] 前台=%s (consumption, rate=%.1f), 但用户闲置 (无最近输入) → 不扣",
+                    snap.name, category.rate_multiplier,
+                )
+            else:
+                _log.info(
+                    "[tick] 前台=%s (consumption, rate=%.1f), 活跃 → 准备扣 token (≈%d)",
+                    snap.name, category.rate_multiplier,
+                    self._cost_for_seconds(tick_seconds, category.rate_multiplier),
+                )
             self._handle_consumption(
                 snap, category, tick_seconds, session_id, period_start, period_end
             )
         elif category.category == AppCategoryName.PRODUCTIVE.value:
+            if not active_e:
+                _log.info(
+                    "[tick] 前台=%s (productive), 但严格活跃判定为 False → 不挣分",
+                    snap.name,
+                )
+            else:
+                _log.info(
+                    "[tick] 前台=%s (productive), 严格活跃 → 准备挣分", snap.name,
+                )
             self._handle_productive(
                 snap, category, tick_seconds, session_id, period_start, period_end
             )
         else:
-            # neutral：写零 segment 用于审计（可选）
+            _log.info(
+                "[tick] 前台=%s (%s) → 既不扣也不挣 (中性应用 / 未分类)",
+                snap.name, category.category,
+            )
             self._sessions.write_segment(AppSegment(
                 session_id=session_id,
                 app_identifier=snap.name.lower(),
                 category=category.category,
                 rate_multiplier=0.0,
-                active_seconds=tick_seconds if self._activity.is_active_consumption() else 0,
-                idle_seconds=0 if self._activity.is_active_consumption() else tick_seconds,
+                active_seconds=tick_seconds if active_c else 0,
+                idle_seconds=0 if active_c else tick_seconds,
                 period_start=period_start,
                 period_end=period_end,
                 tokens_consumed=0,
@@ -255,11 +284,16 @@ class TokenEngine:
             period_end=period_end,
             tokens_consumed=cost,
         ))
+        new_balance = self._wallet.get_balance()
+        _log.info(
+            "★ 扣 token: -%d (app=%s rate=%.1f) → balance=%d",
+            cost, snap.name, category.rate_multiplier, new_balance,
+        )
         ev = Event(type=EventType.TOKEN_DEDUCT.value, payload={
             "amount": cost,
             "app": snap.name,
             "rate_multiplier": category.rate_multiplier,
-            "balance_after": self._wallet.get_balance(),
+            "balance_after": new_balance,
         })
         self._events.emit(ev)
         self._bus.publish(ev)
