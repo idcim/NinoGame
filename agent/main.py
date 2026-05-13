@@ -695,6 +695,7 @@ class Agent:
             EventType.PIN_FAIL,
             EventType.UNKNOWN_APP,
             EventType.CHECKLIST_TICK,
+            EventType.STATUS,
         ):
             self.bus.subscribe(evt.value, forward_event_to_server)
 

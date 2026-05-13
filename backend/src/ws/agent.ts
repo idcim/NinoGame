@@ -22,6 +22,7 @@ import {
   recordResponsibilityTickFromAgent,
 } from "../routes/tasks.js";
 import { createUnlockRequestFromAgent } from "../routes/unlock_requests.js";
+import { setAgentDecision, clearAgentDecision } from "../services/agent_state.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
 
@@ -100,6 +101,7 @@ export async function registerAgentWebSocket(app: FastifyInstance) {
     socket.on("close", () => {
       if (meta) {
         _connections.delete(meta.device_id);
+        clearAgentDecision(meta.device_id);
         app.log.info({ device_id: meta.device_id }, "/ws/agent disconnected");
         // 关闭在线时段记录
         if (meta.session_id) {
@@ -493,6 +495,53 @@ async function onEvent(app: FastifyInstance, meta: AgentConnection, msg: WsMessa
   const payload = msg.payload as { event_type?: string; payload?: unknown };
   if (!payload?.event_type) return;
   const occurred_at = new Date().toISOString();
+
+  // 高频 status / token_decision 不写 events 表 (否则 1440 行/孩子/天),
+  // 只更新内存缓存 + publishToParent 让家长浏览器实时面板能拿到。
+  const isHighFreqStatus =
+    payload.event_type === "status"
+    && typeof payload.payload === "object"
+    && payload.payload !== null
+    && (payload.payload as { kind?: string }).kind === "token_decision";
+
+  if (isHighFreqStatus) {
+    const d = payload.payload as {
+      kind: "token_decision";
+      foreground: string | null;
+      category: string | null;
+      rate: number;
+      mode_active: boolean;
+      balance: number;
+      deducted: number;
+      credited: number;
+      skip_reason: string | null;
+    };
+    setAgentDecision(meta.device_id, d);
+    // 仍 publishToParent: 浏览器可订阅实时刷新, 不必每 10s 轮询
+    if (meta.child_id) {
+      try {
+        const r = await pool.query<{ parent_id: string }>(
+          `SELECT parent_id FROM "NinoGame".children WHERE id = $1`,
+          [meta.child_id],
+        );
+        const parent_id = r.rows[0]?.parent_id;
+        if (parent_id) {
+          publishToParent({
+            parent_id,
+            child_id: meta.child_id,
+            device_id: meta.device_id,
+            event_type: "agent_state",  // 用专门事件名, 不污染 events 流
+            payload: d,
+            occurred_at,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
   await pool.query(
     `INSERT INTO "NinoGame".events (child_id, device_id, event_type, payload)
      VALUES ($1, $2, $3, $4)`,

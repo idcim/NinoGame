@@ -128,11 +128,21 @@ class TokenEngine:
         session_id = self._get_session_id()
         if not session_id:
             _log.info("[tick] 跳过: Lock / Parent 模式 (不计费)")
+            self._emit_decision(
+                foreground=None, category=None, rate=0.0,
+                mode_active=False, deducted=0, credited=0,
+                skip_reason="mode_off",
+            )
             return
 
         snap = self._get_foreground()
         if snap is None:
             _log.info("[tick] 跳过: 拿不到前台进程 (桌面 / 锁屏?)")
+            self._emit_decision(
+                foreground=None, category=None, rate=0.0,
+                mode_active=True, deducted=0, credited=0,
+                skip_reason="no_foreground",
+            )
             return
 
         category = self._classify.classify(snap)
@@ -143,7 +153,6 @@ class TokenEngine:
         period_end = now
 
         # 每 tick 一条 INFO 日志, 清楚说明扣不扣 / 为什么
-        # ("怎么从没见过扣 token" -> 看这一行就知道答案)
         if category.category == AppCategoryName.CONSUMPTION.value:
             if not active_c:
                 _log.info(
@@ -156,8 +165,13 @@ class TokenEngine:
                     snap.name, category.rate_multiplier,
                     self._cost_for_seconds(tick_seconds, category.rate_multiplier),
                 )
-            self._handle_consumption(
+            result = self._handle_consumption(
                 snap, category, tick_seconds, session_id, period_start, period_end
+            )
+            self._emit_decision(
+                foreground=snap.name, category=category.category,
+                rate=category.rate_multiplier, mode_active=True,
+                **result,
             )
         elif category.category == AppCategoryName.PRODUCTIVE.value:
             if not active_e:
@@ -169,8 +183,13 @@ class TokenEngine:
                 _log.info(
                     "[tick] 前台=%s (productive), 严格活跃 → 准备挣分", snap.name,
                 )
-            self._handle_productive(
+            result = self._handle_productive(
                 snap, category, tick_seconds, session_id, period_start, period_end
+            )
+            self._emit_decision(
+                foreground=snap.name, category=category.category,
+                rate=category.rate_multiplier, mode_active=True,
+                **result,
             )
         else:
             _log.info(
@@ -188,6 +207,41 @@ class TokenEngine:
                 period_end=period_end,
                 tokens_consumed=0,
             ))
+            self._emit_decision(
+                foreground=snap.name, category=category.category,
+                rate=0.0, mode_active=True, deducted=0, credited=0,
+                skip_reason="neutral_app" if category.category == "neutral" else "unclassified",
+            )
+
+    def _emit_decision(
+        self,
+        *,
+        foreground: str | None,
+        category: str | None,
+        rate: float,
+        mode_active: bool,
+        deducted: int,
+        credited: int,
+        skip_reason: str | None,
+    ) -> None:
+        """每 tick 末尾发一条 STATUS, 告诉 server 浏览器 "本 tick 扣不扣 / 原因"。
+        浏览器实时面板会订阅。"""
+        ev = Event(type=EventType.STATUS.value, payload={
+            "kind": "token_decision",
+            "foreground": foreground,
+            "category": category,
+            "rate": rate,
+            "mode_active": mode_active,
+            "balance": self._wallet.get_balance(),
+            "deducted": deducted,
+            "credited": credited,
+            "skip_reason": skip_reason,
+        })
+        try:
+            self._events.emit(ev)
+            self._bus.publish(ev)
+        except Exception:
+            _log.exception("emit decision status failed")
 
     # ── 消费 ─────────────────────────────────────────────────────
     def _handle_consumption(
@@ -198,7 +252,8 @@ class TokenEngine:
         session_id: str,
         period_start: datetime,
         period_end: datetime,
-    ) -> None:
+    ) -> dict:
+        """返回 {deducted, credited, skip_reason} 给 _tick 用于 emit STATUS。"""
         if not self._activity.is_active_consumption():
             # 后台 / 闲置：不扣
             self._sessions.write_segment(AppSegment(
@@ -212,7 +267,7 @@ class TokenEngine:
                 period_end=period_end,
                 tokens_consumed=0,
             ))
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "idle_user"}
 
         # 限免期 (§14.4): consumption 跳扣, 但 active_seconds 仍记录用于审计
         if self._is_free_pass_active():
@@ -231,7 +286,7 @@ class TokenEngine:
                 period_end=period_end,
                 tokens_consumed=0,
             ))
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "free_pass"}
 
         # 每日硬上限（分钟）检查
         used_seconds_today = self._sessions.today_consumption_seconds()
@@ -253,7 +308,7 @@ class TokenEngine:
                     "pid": snap.pid,
                 },
             )
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "daily_cap"}
 
         # token 余额检查 + 扣分
         cost = self._cost_for_seconds(tick_seconds, category.rate_multiplier)
@@ -269,7 +324,7 @@ class TokenEngine:
                 period_end=period_end,
                 tokens_consumed=0,
             ))
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "zero_cost"}
 
         ok = self._wallet.deduct(
             cost,
@@ -292,7 +347,7 @@ class TokenEngine:
                     "pid": snap.pid,
                 },
             )
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "out_of_balance"}
 
         self._sessions.write_segment(AppSegment(
             session_id=session_id,
@@ -318,6 +373,7 @@ class TokenEngine:
         })
         self._events.emit(ev)
         self._bus.publish(ev)
+        return {"deducted": cost, "credited": 0, "skip_reason": None}
 
     def _cost_for_seconds(self, seconds: int, rate: float) -> int:
         minutes = seconds / 60.0
@@ -334,7 +390,8 @@ class TokenEngine:
         session_id: str,
         period_start: datetime,
         period_end: datetime,
-    ) -> None:
+    ) -> dict:
+        """返回 {deducted, credited, skip_reason}, 同 consumption。"""
         if not self._activity.is_active_earning():
             # 严格活跃失败：可能 jiggler
             self._sessions.write_segment(AppSegment(
@@ -348,7 +405,7 @@ class TokenEngine:
                 period_end=period_end,
                 tokens_consumed=0,
             ))
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "not_strict_active"}
 
         # 每日获取上限
         got_today = self._wallet.get_daily_credited()
@@ -365,7 +422,7 @@ class TokenEngine:
                 period_end=period_end,
                 tokens_consumed=0,
             ))
-            return
+            return {"deducted": 0, "credited": 0, "skip_reason": "credit_cap"}
 
         gain = self._gain_for_seconds(tick_seconds, category.rate_multiplier)
         gain = min(gain, remaining)
@@ -395,6 +452,7 @@ class TokenEngine:
             period_end=period_end,
             tokens_consumed=-gain,  # 用负号标记 credit 方向
         ))
+        return {"deducted": 0, "credited": gain, "skip_reason": None}
 
     def _gain_for_seconds(self, seconds: int, rate: float) -> int:
         minutes = seconds / 60.0

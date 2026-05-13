@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { pool } from "../db.js";
+import { getAgentDecision } from "../services/agent_state.js";
 import { getConnectedDevices } from "../ws/agent.js";
 
 // 配对码: 8 个大写字母 + 数字, 排除易混 (0/O, I/1)
@@ -168,6 +169,28 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
       return {
         devices: r.rows.map((d) => ({ ...d, online: online.has(d.id) })),
       };
+    },
+  );
+
+  // ── Agent 实时决策状态 (内存缓存, agent_state 模块) ──────
+  app.get(
+    "/api/devices/:id/agent-state",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const id = (req.params as { id: string }).id;
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM "NinoGame".devices d
+           JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+           JOIN "NinoGame".children c ON c.id = b.child_id
+          WHERE d.id = $1 AND c.parent_id = $2`,
+        [id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("设备不属于当前家长");
+      }
+      const state = getAgentDecision(id);
+      return { state };
     },
   );
 

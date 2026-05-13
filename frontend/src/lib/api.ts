@@ -160,6 +160,10 @@ export const api = {
       sessions: Array<OnlineSession>;
     }>(`/api/devices/${device_id}/online-history?date=${encodeURIComponent(date)}`),
 
+  /** Agent 实时决策状态 (扣不扣 / 原因 / 余额 / 前台) */
+  getAgentState: (device_id: string) =>
+    request<{ state: AgentState | null }>(`/api/devices/${device_id}/agent-state`),
+
   // ── rules ──────────────────────────────────────────────────
   listRules: (child_id: string) =>
     request<{ rules: Array<Rule> }>(
@@ -427,6 +431,20 @@ export interface ResponsibilityCheck {
   task_id: string;
   task_name: string;
   completed: boolean;
+}
+
+// ── agent state ───────────────────────────────────────────────
+export interface AgentState {
+  kind: "token_decision";
+  foreground: string | null;
+  category: string | null;
+  rate: number;
+  mode_active: boolean;
+  balance: number;
+  deducted: number;
+  credited: number;
+  skip_reason: string | null;
+  updated_at: string;
 }
 
 // ── ledger ────────────────────────────────────────────────────

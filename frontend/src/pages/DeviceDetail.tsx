@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  Activity,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   Clock,
   Copy,
   Gamepad2,
+  Gem,
   Gift,
   KeyRound,
   Loader2,
@@ -22,6 +24,7 @@ import {
   api,
   ApiError,
   type ActiveFreePass,
+  type AgentState,
   type CommandRow,
   type Device,
   type OnlineSession,
@@ -112,6 +115,8 @@ export default function DeviceDetail() {
       {err && (
         <div className="card p-4 text-warn bg-warn/5 border-warn/30">{err}</div>
       )}
+
+      <AgentStateCard deviceId={id} online={!!device?.online} />
 
       <QuickActions deviceId={id} onPushed={load} />
 
@@ -540,6 +545,169 @@ interface DailyRow {
   date: string;
   total_seconds: number;
   session_count: number;
+}
+
+// ── 实时状态卡 ────────────────────────────────────────────────
+const SKIP_REASON_LABELS: Record<string, { text: string; tone: "warn" | "info" | "ok" }> = {
+  mode_off:          { text: "Lock 或 Parent 模式, 不计费",          tone: "info" },
+  no_foreground:     { text: "拿不到前台进程 (桌面/锁屏)",            tone: "info" },
+  idle_user:         { text: "用户最近 2 分钟无键鼠输入",             tone: "info" },
+  free_pass:         { text: "限免活动中, 不扣 token",                tone: "ok"   },
+  daily_cap:         { text: "已达每日硬上限",                       tone: "warn" },
+  out_of_balance:    { text: "余额不足, 已 kill 当前 app",            tone: "warn" },
+  zero_cost:         { text: "本 tick 计算下来 0 token (短停顿)",     tone: "info" },
+  neutral_app:       { text: "中性应用 (浏览器/系统等), 不扣不挣",   tone: "info" },
+  unclassified:      { text: "应用未分类, 不扣不挣",                 tone: "info" },
+  not_strict_active: { text: "严格活跃判定失败 (可能鼠标抖动)",       tone: "warn" },
+  credit_cap:        { text: "今日赚分已达上限",                     tone: "info" },
+};
+
+const CATEGORY_BADGE: Record<string, { text: string; cls: string }> = {
+  consumption: { text: "消耗类", cls: "bg-warn/15 text-warn"          },
+  productive:  { text: "学习类", cls: "bg-accent/15 text-accent-600"  },
+  neutral:     { text: "中性",   cls: "bg-ink-light/15 text-ink-dim"  },
+  unknown:     { text: "未分类", cls: "bg-ink-light/15 text-ink-dim"  },
+};
+
+function AgentStateCard({ deviceId, online }: { deviceId: string; online: boolean }) {
+  const [state, setState] = useState<AgentState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await api.getAgentState(deviceId);
+      setState(r.state);
+      setErr(null);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "加载失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // 每 10s 轮询一次; STATUS 事件 server 端不写库, 单进程 Map 缓存
+    const t = setInterval(load, 10_000);
+    return () => clearInterval(t);
+  }, [deviceId]);
+
+  const isDeducting = state?.deducted && state.deducted > 0;
+  const isCrediting = state?.credited && state.credited > 0;
+  const skipMeta = state?.skip_reason ? SKIP_REASON_LABELS[state.skip_reason] : null;
+  const catMeta = state?.category ? CATEGORY_BADGE[state.category] : null;
+
+  // tick 间隔 60s, 显示数据新旧
+  const ageSec = state?.updated_at
+    ? Math.floor((Date.now() - new Date(state.updated_at).getTime()) / 1000)
+    : Infinity;
+  const isStale = ageSec > 90;
+
+  return (
+    <section>
+      <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Activity size={18} className="text-brand" />
+        Agent 实时状态
+        <span className="text-xs text-ink-light font-normal ml-auto">
+          {state ? (
+            <>更新于 {ageSec < 5 ? "刚刚" : `${ageSec} 秒前`}{isStale && " · 可能离线"}</>
+          ) : online ? "等待第一次 tick (最多 60 秒)..." : "设备离线"}
+        </span>
+      </h2>
+      <div className="card p-5 space-y-3">
+        {err && (
+          <div className="text-sm text-warn bg-warn/10 border border-warn/30 rounded px-3 py-2">
+            {err}
+          </div>
+        )}
+
+        {!state && !loading && !err && (
+          <div className="text-sm text-ink-dim">
+            还没收到 Agent 决策 tick。Agent 启动后每 60 秒会发一次状态。
+            <br />
+            <span className="text-xs">
+              如果一直没有, 检查: 设备是否在线 / 是否处于 child 模式 / Agent 是否最新版本 (本功能 v0.6+ 才有)。
+            </span>
+          </div>
+        )}
+
+        {state && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              {/* 前台 */}
+              <div>
+                <div className="text-xs text-ink-light">当前前台</div>
+                <div className="font-mono font-semibold text-ink truncate" title={state.foreground ?? "—"}>
+                  {state.foreground ?? "—"}
+                </div>
+                {catMeta && (
+                  <span className={"badge mt-1 inline-block " + catMeta.cls}>
+                    {catMeta.text}
+                    {state.category === "consumption" && state.rate > 0 && (
+                      <> · {state.rate.toFixed(1)}x</>
+                    )}
+                  </span>
+                )}
+              </div>
+
+              {/* 余额 */}
+              <div>
+                <div className="text-xs text-ink-light">本地余额</div>
+                <div className="flex items-center gap-1 text-brand font-bold text-lg">
+                  <Gem size={14} />
+                  {state.balance}
+                </div>
+              </div>
+
+              {/* 本 tick 结果 */}
+              <div>
+                <div className="text-xs text-ink-light">本 tick</div>
+                {isDeducting ? (
+                  <div className="font-bold text-warn">−{state.deducted} token</div>
+                ) : isCrediting ? (
+                  <div className="font-bold text-accent-600">+{state.credited} token</div>
+                ) : (
+                  <div className="text-ink-dim">不扣不挣</div>
+                )}
+              </div>
+
+              {/* 模式 */}
+              <div>
+                <div className="text-xs text-ink-light">会话模式</div>
+                <div className={state.mode_active ? "text-accent-600 font-medium" : "text-ink-dim"}>
+                  {state.mode_active ? "● Child 计费中" : "○ Lock / Parent"}
+                </div>
+              </div>
+            </div>
+
+            {/* 为什么不扣 */}
+            {skipMeta && (
+              <div
+                className={
+                  "text-sm rounded px-3 py-2 border " +
+                  (skipMeta.tone === "warn"
+                    ? "bg-warn/10 border-warn/30 text-warn"
+                    : skipMeta.tone === "ok"
+                      ? "bg-accent/10 border-accent/30 text-accent-600"
+                      : "bg-brand-50 border-brand-50 text-ink")
+                }
+              >
+                <span className="font-semibold">为什么不扣:</span> {skipMeta.text}
+              </div>
+            )}
+
+            {(isDeducting || isCrediting) && (
+              <div className="text-xs text-ink-light">
+                每 60 秒 tick 一次 · 数据由 Agent 通过 WS 推送, 不落库
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
 }
 
 /** "2026-05-13T00:00:00Z" / "2026-05-13" → "2026-05-13" (本地日期前缀); 用作 group key */
