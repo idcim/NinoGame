@@ -12,6 +12,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { pool } from "../db.js";
+import { recomputeTrust } from "../services/trust.js";
 import { pushToDevice } from "../ws/agent.js";
 import { publishToParent } from "../ws/event_bus.js";
 
@@ -186,6 +187,16 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
         { request_id: id, child_id, duration_minutes, pushed_to, cmd: last_cmd_id },
         "unlock_request approved",
       );
+
+      // 信任值重算 (异步, 不阻塞响应)
+      void recomputeTrust(child_id).then((tr) => {
+        if (tr.changed) {
+          app.log.info({ child_id, ...tr }, "trust level changed");
+        }
+      }).catch((err) => {
+        app.log.warn({ err, child_id }, "recomputeTrust failed");
+      });
+
       return {
         request: updated.rows[0],
         pushed_to,
@@ -225,6 +236,13 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
         [id, comment ?? null],
       );
       app.log.info({ request_id: id }, "unlock_request rejected");
+      void recomputeTrust(rq.rows[0].child_id).then((tr) => {
+        if (tr.changed) {
+          app.log.info({ child_id: rq.rows[0].child_id, ...tr }, "trust level changed");
+        }
+      }).catch((err) => {
+        app.log.warn({ err }, "recomputeTrust failed");
+      });
       return { request: updated.rows[0] };
     },
   );

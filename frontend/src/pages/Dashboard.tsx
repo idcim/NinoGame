@@ -109,16 +109,17 @@ function ChildrenSection({
             <div className="w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center">
               <Baby size={24} />
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold">{c.display_name || c.username}</span>
                 <span className="badge badge-info">{c.maturity_mode}</span>
               </div>
-              <div className="text-xs text-ink-dim mt-0.5">
-                @{c.username} · {c.birth_year ?? "—"} 生
+              <div className="text-xs text-ink-dim mt-0.5 flex items-center gap-2">
+                <span>@{c.username} · {c.birth_year ?? "—"} 生</span>
+                <TrustStars level={c.trust_level} />
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right shrink-0">
               <div className="flex items-center justify-end gap-1.5 text-brand font-bold text-xl">
                 <Gem size={18} />
                 {c.balance}
@@ -130,6 +131,19 @@ function ChildrenSection({
       </div>
       {showAdd && <AddChildDialog onClose={() => setShowAdd(false)} onDone={onChanged} />}
     </section>
+  );
+}
+
+function TrustStars({ level }: { level: number }) {
+  const lvl = Math.max(0, Math.min(5, level | 0));
+  return (
+    <span
+      className="inline-flex items-center text-accent-600"
+      title={`信任值 Lv ${lvl}`}
+    >
+      {"★".repeat(lvl)}
+      <span className="text-ink-light">{"☆".repeat(5 - lvl)}</span>
+    </span>
   );
 }
 
