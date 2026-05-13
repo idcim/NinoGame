@@ -434,15 +434,17 @@ export interface ResponsibilityCheck {
 }
 
 // ── agent state ───────────────────────────────────────────────
+/** 决策 #33: rate / credited 不再使用 (Path 1 + rate_multiplier 下线),
+ *  保留类型字段以兼容老 Agent 推上来的旧 payload。 */
 export interface AgentState {
   kind: "token_decision";
   foreground: string | null;
   category: string | null;
-  rate: number;
+  rate?: number;
   mode_active: boolean;
   balance: number;
   deducted: number;
-  credited: number;
+  credited?: number;
   skip_reason: string | null;
   updated_at: string;
 }

@@ -548,20 +548,17 @@ interface DailyRow {
 }
 
 // ── 实时状态卡 ────────────────────────────────────────────────
+// 决策 #33: 统一在线时长扣分。skip_reason 简化, category 仅作展示标签不参与决策。
 const SKIP_REASON_LABELS: Record<string, { text: string; tone: "warn" | "info" | "ok" }> = {
-  mode_off:          { text: "Lock 或 Parent 模式, 不计费",          tone: "info" },
-  no_foreground:     { text: "拿不到前台进程 (桌面/锁屏)",            tone: "info" },
-  idle_user:         { text: "用户最近 2 分钟无键鼠输入",             tone: "info" },
-  free_pass:         { text: "限免活动中, 不扣 token",                tone: "ok"   },
-  daily_cap:         { text: "已达每日硬上限",                       tone: "warn" },
-  out_of_balance:    { text: "余额不足, 已 kill 当前 app",            tone: "warn" },
-  zero_cost:         { text: "本 tick 计算下来 0 token (短停顿)",     tone: "info" },
-  neutral_app:       { text: "中性应用 (浏览器/系统等), 不扣不挣",   tone: "info" },
-  unclassified:      { text: "应用未分类, 不扣不挣",                 tone: "info" },
-  not_strict_active: { text: "严格活跃判定失败 (可能鼠标抖动)",       tone: "warn" },
-  credit_cap:        { text: "今日赚分已达上限",                     tone: "info" },
+  mode_off:       { text: "Lock 或 Parent 模式, 不计费",      tone: "info" },
+  free_pass:      { text: "限免活动中, 不扣 token",            tone: "ok"   },
+  idle_user:      { text: "用户最近 2 分钟无键鼠输入",         tone: "info" },
+  daily_cap:      { text: "已达每日硬上限, 不再扣",            tone: "warn" },
+  out_of_balance: { text: "余额耗尽, 不再扣 (家长可远程锁定)", tone: "warn" },
+  zero_cost:      { text: "本 tick 计算下来 0 token (短停顿)", tone: "info" },
 };
 
+// category 仅做信息展示 (classifier 留存的审计标签); 不影响"为什么不扣"
 const CATEGORY_BADGE: Record<string, { text: string; cls: string }> = {
   consumption: { text: "消耗类", cls: "bg-warn/15 text-warn"          },
   productive:  { text: "学习类", cls: "bg-accent/15 text-accent-600"  },
@@ -595,7 +592,6 @@ function AgentStateCard({ deviceId, online }: { deviceId: string; online: boolea
   }, [deviceId]);
 
   const isDeducting = state?.deducted && state.deducted > 0;
-  const isCrediting = state?.credited && state.credited > 0;
   const skipMeta = state?.skip_reason ? SKIP_REASON_LABELS[state.skip_reason] : null;
   const catMeta = state?.category ? CATEGORY_BADGE[state.category] : null;
 
@@ -643,11 +639,8 @@ function AgentStateCard({ deviceId, online }: { deviceId: string; online: boolea
                   {state.foreground ?? "—"}
                 </div>
                 {catMeta && (
-                  <span className={"badge mt-1 inline-block " + catMeta.cls}>
+                  <span className={"badge mt-1 inline-block " + catMeta.cls} title="仅审计标签, 不参与扣分判定">
                     {catMeta.text}
-                    {state.category === "consumption" && state.rate > 0 && (
-                      <> · {state.rate.toFixed(1)}x</>
-                    )}
                   </span>
                 )}
               </div>
@@ -666,10 +659,8 @@ function AgentStateCard({ deviceId, online }: { deviceId: string; online: boolea
                 <div className="text-xs text-ink-light">本 tick</div>
                 {isDeducting ? (
                   <div className="font-bold text-warn">−{state.deducted} token</div>
-                ) : isCrediting ? (
-                  <div className="font-bold text-accent-600">+{state.credited} token</div>
                 ) : (
-                  <div className="text-ink-dim">不扣不挣</div>
+                  <div className="text-ink-dim">不扣</div>
                 )}
               </div>
 
@@ -698,7 +689,7 @@ function AgentStateCard({ deviceId, online }: { deviceId: string; online: boolea
               </div>
             )}
 
-            {(isDeducting || isCrediting) && (
+            {isDeducting && (
               <div className="text-xs text-ink-light">
                 每 60 秒 tick 一次 · 数据由 Agent 通过 WS 推送, 不落库
               </div>

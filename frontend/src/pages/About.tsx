@@ -102,6 +102,18 @@ export default function About() {
 /** 更新日志手动维护; 每次有意义的版本更新追加一项。 */
 const CHANGELOG: Array<{ tag: string; title: string; bullets: string[] }> = [
   {
+    tag: "2026-05-14",
+    title: "扣分模型简化 (CLAUDE.md §22 决策 #33)",
+    bullets: [
+      "改: 统一在线时长扣分 — child 模式 + 活跃 (最近 2 分钟有输入) + 非限免 → 每分钟扣 1 token (settings.json 可调)",
+      "改: 不再按 consumption / productive 区分前台, app_categories.rate_multiplier 字段保留但不参与决策",
+      "下线: Path 1 自动挣分 (Kindle / VSCode / Duolingo 等学习类按时长自动 +token)。挣分只走申报 / 任务 / 家长发奖",
+      "改: 余额耗尽 / 每日硬上限不再 kill 前台进程, 仅一天一次通知; 规则匹配 kill (PvZ 类) 不变",
+      "新增: 设备详情页「Agent 实时状态」卡显示前台/分类/余额/本 tick 结果, 6 种 skip_reason 中文解释",
+      "记忆: 重要决策必须沉淀到 CLAUDE.md §22, 防止后续会话又走老路",
+    ],
+  },
+  {
     tag: "2026-05-13",
     title: "申请-批准放行链路修复 + UI 清理",
     bullets: [
@@ -110,6 +122,8 @@ const CHANGELOG: Array<{ tag: string; title: string; bullets: string[] }> = [
       "移除孩子端「主动锁定/解锁」UI (面板按钮 + 托盘菜单项); 闲置自动 Lock + 远程 lock_device 保留",
       "调账三连修复: Agent 全 reason 通知 / 后台 ledger 历史页 / 浏览器实时余额刷新",
       "新增「关于我们」页 + 更新日志 (本页)",
+      "退出 Agent 时 Watchdog 跟着退 (写 agent_quit.flag 标记)",
+      "在线历史按天分层: 默认日聚合, 点开看碎片",
     ],
   },
   {
