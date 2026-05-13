@@ -179,9 +179,9 @@ function QuickActions({
       </h2>
       <div className="card p-5 space-y-4">
         <div>
-          <div className="text-sm font-semibold mb-2">临时放行 PvZ</div>
+          <div className="text-sm font-semibold mb-2">临时放行游戏</div>
           <div className="text-xs text-ink-dim mb-3">
-            选择放行时长 (期间 PvZ 不被拦截, 但 token 仍按 1.5 倍率扣)
+            选择放行时长 (期间该孩子所有 enabled 规则的游戏都不被拦截; token 仍按规则费率扣)
           </div>
           <div className="flex gap-2 flex-wrap">
             {unlockButtons.map((m) => (
@@ -190,7 +190,8 @@ function QuickActions({
                 onClick={() =>
                   push(
                     "temporary_unlock",
-                    { rule_id: "rule_pvz_all", duration_seconds: m * 60 },
+                    // 不传 rule_id: backend 自动展开为该孩子全部 enabled 规则
+                    { duration_seconds: m * 60 },
                     `放行 ${m} 分钟`,
                   )
                 }

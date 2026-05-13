@@ -186,7 +186,7 @@ export const api = {
 
   approveRequest: (
     id: string,
-    data: { duration_minutes: number; rule_id?: string; comment?: string },
+    data: { duration_minutes: number; comment?: string },
   ) =>
     request<{ request: UnlockRequest; pushed_to: number; command_id: string | null }>(
       `/api/unlock-requests/${id}/approve`,

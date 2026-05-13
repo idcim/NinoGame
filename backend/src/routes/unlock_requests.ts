@@ -16,9 +16,12 @@ import { recomputeTrust } from "../services/trust.js";
 import { pushToDevice } from "../ws/agent.js";
 import { publishToParent } from "../ws/event_bus.js";
 
+// rule_id 已废弃: 旧前端可能传 "rule_pvz_all" 这种硬编码值,
+// server 上规则用 UUID 永远对不上 -> 放行失效。
+// 新逻辑: 不再依赖前端传规则, server 自己展开为"该孩子全部 enabled 规则"。
 const ApproveBody = z.object({
   duration_minutes: z.number().int().min(1).max(1440),
-  rule_id: z.string().min(1).max(64).default("rule_pvz_all"),
+  rule_id: z.string().min(1).max(64).optional(),  // 兼容老前端 (忽略)
   comment: z.string().max(512).optional(),
 });
 
@@ -117,7 +120,7 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return reply.badRequest(parsed.error.issues.map((i) => i.message).join("; "));
       }
-      const { duration_minutes, rule_id, comment } = parsed.data;
+      const { duration_minutes, comment } = parsed.data;
 
       // 验证归属 + 拿 child_id
       const rq = await pool.query<{ id: string; child_id: string; status: string }>(
@@ -132,6 +135,18 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
         return reply.conflict(`请求已处理 (status=${rq.rows[0].status})`);
       }
 
+      // 查该孩子所有 enabled 规则的 UUID, 一次性放行全部 (孩子说"想玩游戏"
+      // 通常就是希望所有被拦截的游戏都解锁; 不让家长在 UI 上挑哪条)
+      const rulesQ = await pool.query<{ id: string }>(
+        `SELECT id FROM "NinoGame".rules
+          WHERE child_id = $1 AND enabled = TRUE`,
+        [child_id],
+      );
+      const rule_ids = rulesQ.rows.map((r) => r.id);
+      if (rule_ids.length === 0) {
+        app.log.warn({ child_id, request_id: id }, "approve: 该孩子没有 enabled 规则可放行");
+      }
+
       // 找该孩子在线的设备 (能挑某一台或全推; 这里全推)
       const devs = await pool.query<{ id: string }>(
         `SELECT d.id FROM "NinoGame".devices d
@@ -143,18 +158,16 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
       let pushed_to = 0;
       let last_cmd_id: string | null = null;
       for (const dev of devs.rows) {
+        const payload = {
+          rule_ids,
+          duration_seconds: duration_minutes * 60,
+        };
         const ins = await pool.query<{ id: string }>(
           `INSERT INTO "NinoGame".commands
              (device_id, command_type, payload, status, expires_at)
            VALUES ($1, 'temporary_unlock', $2::jsonb, 'pending', NOW() + INTERVAL '24 hours')
            RETURNING id`,
-          [
-            dev.id,
-            JSON.stringify({
-              rule_id,
-              duration_seconds: duration_minutes * 60,
-            }),
-          ],
+          [dev.id, JSON.stringify(payload)],
         );
         last_cmd_id = ins.rows[0].id;
         const livePushed = pushToDevice(dev.id, {
@@ -163,7 +176,7 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
           payload: {
             id: ins.rows[0].id,
             command_type: "temporary_unlock",
-            payload: { rule_id, duration_seconds: duration_minutes * 60 },
+            payload,
           },
         });
         if (livePushed) {

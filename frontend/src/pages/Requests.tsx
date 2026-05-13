@@ -167,10 +167,8 @@ function RequestRow({ req, onChanged }: { req: UnlockRequest; onChanged: () => v
               onClick={async () => {
                 setApproving(true);
                 try {
-                  await api.approveRequest(req.id, {
-                    duration_minutes: m,
-                    rule_id: "rule_pvz_all",
-                  });
+                  // 不传 rule_id: server 自动展开为该孩子全部 enabled 规则
+                  await api.approveRequest(req.id, { duration_minutes: m });
                   onChanged();
                 } finally {
                   setApproving(false);

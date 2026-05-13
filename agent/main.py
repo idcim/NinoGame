@@ -792,9 +792,14 @@ class Agent:
         _log.info("处理 command: type=%s payload=%s", ctype, payload)
 
         if ctype == "temporary_unlock":
-            rule_id = payload.get("rule_id")
-            if not rule_id:
-                _log.warning("temporary_unlock 缺 rule_id")
+            # 新: 优先 rule_ids (数组, server normalize 后的形态); 兼容老 rule_id (单数)
+            rule_ids_raw = payload.get("rule_ids")
+            if isinstance(rule_ids_raw, list) and rule_ids_raw:
+                rule_ids = [str(x) for x in rule_ids_raw if x]
+            elif payload.get("rule_id"):
+                rule_ids = [str(payload.get("rule_id"))]
+            else:
+                _log.warning("temporary_unlock 缺 rule_ids/rule_id")
                 return
             secs = int(payload.get("duration_seconds") or 0)
             mins = int(payload.get("duration_minutes") or 0)
@@ -803,17 +808,21 @@ class Agent:
                 _log.warning("temporary_unlock 缺 duration")
                 return
             expires_at = datetime.utcnow() + timedelta(seconds=duration)
-            self._unlocked_until[rule_id] = expires_at
+            for rid in rule_ids:
+                self._unlocked_until[rid] = expires_at
             _log.info(
-                "★ 临时解锁: rule_id=%s 直到 %s (持续 %d 秒)",
-                rule_id, expires_at.isoformat(timespec="seconds"), duration,
+                "★ 临时解锁 %d 条规则: %s 直到 %s (持续 %d 秒)",
+                len(rule_ids), rule_ids, expires_at.isoformat(timespec="seconds"), duration,
             )
-            # 给孩子端弹通知 + 刷新浮层
-            rule_name = self._rule_name(rule_id)
+            # 给孩子端弹一个合并通知 (多规则只弹一次)
+            if len(rule_ids) == 1:
+                display_name = self._rule_name(rule_ids[0])
+            else:
+                display_name = f"{len(rule_ids)} 条规则"
             self.notifier.info_async(
                 self.messages.get(
                     "cmd_temporary_unlock_body",
-                    rule_name=rule_name,
+                    rule_name=display_name,
                     minutes=max(1, duration // 60),
                 ),
                 title=self.messages.get("cmd_temporary_unlock_title"),
