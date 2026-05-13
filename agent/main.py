@@ -655,6 +655,10 @@ class Agent:
                 # hello_ack 是重连后 server 给的权威值 (含每日发放等), 无条件应用
                 self._apply_server_wallet(balance, reason="hello_sync")
             self._apply_active_free_pass(active_fp)
+            # settings 上云: server 推过来的家长设置 merge 到本地
+            settings = payload.get("settings")
+            if isinstance(settings, dict):
+                self._apply_server_settings(settings)
             for cmd in pending:
                 self._handle_command(cmd)
 
@@ -662,6 +666,14 @@ class Agent:
             rules = (msg.get("payload") or {}).get("rules") or []
             _log.info("收到 rules_update: %d 条", len(rules))
             self._apply_server_rules(rules)
+
+        def on_settings_update(msg):
+            """家长后台改 settings 后 server 主动推 → 立即生效."""
+            payload = msg.get("payload") or {}
+            settings = payload.get("settings")
+            if isinstance(settings, dict):
+                _log.info("收到 settings_update: %d 个字段", len(settings))
+                self._apply_server_settings(settings)
 
         def on_app_categories_update(msg):
             """server LLM 分类回来的 app_categories 写本地 cache + 标 processed."""
@@ -775,6 +787,7 @@ class Agent:
         self.transport.subscribe("rules_update", on_rules_update)
         self.transport.subscribe("tasks_update", on_tasks_update)
         self.transport.subscribe("app_categories_update", on_app_categories_update)
+        self.transport.subscribe("settings_update", on_settings_update)
         self.transport.subscribe("wallet_update", on_wallet_update)
         self.transport.subscribe("command", on_command)
 
@@ -1298,6 +1311,86 @@ class Agent:
             target=_loop, name="unknown-apps-reporter", daemon=True,
         )
         self._unknown_apps_thread.start()
+
+    def _apply_server_settings(self, server_settings: dict) -> None:
+        """server 推过来的设置 merge 到本地 self.settings + 持久化 settings.json.
+
+        本地敏感字段 (PIN / agent_token / device_id / child_id / backend_url /
+        _migrated_*) **不被覆盖** —— 这些只本地存, server 永远不动。
+
+        部分字段动态生效:
+          - low_balance_warn_threshold → self._low_balance_threshold 即时更新
+          - messages → self.messages.reload (从 settings.json 重读)
+        部分字段需要重启 Agent 才完全生效 (idle_lock_minutes, billing_tick_seconds 等),
+        日志会告知, 但写入本地不阻断.
+        """
+        if not isinstance(server_settings, dict):
+            return
+        # 不上云的本地敏感字段 (绝不被 server 覆盖)
+        LOCAL_ONLY = {
+            "pin_hash", "pin_salt", "agent_token", "device_id", "child_id",
+            "backend_url",
+        }
+        changed_keys: list[str] = []
+        for k, v in server_settings.items():
+            if k in LOCAL_ONLY:
+                continue
+            if k.startswith("_migrated_"):
+                continue
+            # quota_overrides 是嵌套对象 (历史遗留); server 端目前直接平铺,
+            # 简化: server 推平铺 key, Agent 也按平铺 key 存
+            if k == "quota_overrides" and isinstance(v, dict):
+                old = self.settings.get("quota_overrides", {}) or {}
+                merged = {**old, **v}
+                if merged != old:
+                    self.settings["quota_overrides"] = merged
+                    changed_keys.append(k)
+                continue
+            if self.settings.get(k) != v:
+                self.settings[k] = v
+                changed_keys.append(k)
+
+        if not changed_keys:
+            return
+
+        _log.info("应用 server settings: %d 个字段变更 → %s", len(changed_keys), changed_keys)
+
+        # 持久化到 settings.json (保留本地字段)
+        try:
+            settings_path = self.config_dir / "settings.json"
+            with open(settings_path, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, ensure_ascii=False, indent=2)
+        except Exception:
+            _log.exception("写 settings.json 失败")
+
+        # 动态生效的字段立即应用
+        if "low_balance_warn_threshold" in changed_keys:
+            try:
+                self._low_balance_threshold = int(self.settings.get("low_balance_warn_threshold", 10))
+                self._low_balance_warned = False  # 阈值变了, 重置 flag 让下次再到阈值时再提醒
+                _log.info("低水位阈值即时生效: %d", self._low_balance_threshold)
+            except Exception:
+                pass
+        if "messages" in changed_keys:
+            try:
+                self.messages.reload()
+                _log.info("messages 文案即时生效")
+            except Exception:
+                pass
+
+        # 通知需要重启才完全生效的字段
+        RESTART_REQUIRED = {
+            "idle_lock_minutes", "billing_tick_seconds",
+            "token_to_minute_ratio", "monitor_scan_interval_seconds",
+            "jiggler_detector_enabled", "jiggler_box_threshold_px",
+            "warning_dialog_auto_close_seconds", "overlay_enabled",
+        }
+        need_restart = [k for k in changed_keys if k in RESTART_REQUIRED]
+        if need_restart:
+            _log.warning(
+                "以下设置需重启 Agent 才完全生效: %s (已写入 settings.json)",
+                need_restart,
+            )
 
     def _check_balance_threshold(self, balance: int) -> None:
         """收到 wallet_update 时立即判余额阈值, 不等 token_engine 下个 tick.

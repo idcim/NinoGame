@@ -23,6 +23,7 @@ import {
 } from "../routes/tasks.js";
 import { createUnlockRequestFromAgent } from "../routes/unlock_requests.js";
 import { setAgentDecision, clearAgentDecision } from "../services/agent_state.js";
+import { getMergedSettings } from "../services/child_settings.js";
 import { classifyBatch, type AppToClassify } from "../services/llm_app_classifier.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
@@ -287,6 +288,9 @@ async function onHello(
   // 活跃限免 (§14.4): Agent 重启后还能恢复限免态
   const active_free_pass = meta.child_id ? await getActiveFreePass(meta.child_id) : null;
 
+  // settings 上云: Agent 启动 + 重连时拿当前最新设置 (家长可能离线时改过)
+  const settings = meta.child_id ? await getMergedSettings(meta.child_id) : null;
+
   socket.send(
     JSON.stringify({
       type: "hello_ack",
@@ -298,6 +302,7 @@ async function onHello(
         wallet_balance: wallet.rows[0]?.balance ?? 0,
         pending_commands: cmds.rows,
         active_free_pass,
+        settings,
         server_time: new Date().toISOString(),
       },
     }),

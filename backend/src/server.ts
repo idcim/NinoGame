@@ -8,6 +8,7 @@ import { pool, ping } from "./db.js";
 import { registerParentAuth } from "./auth/middleware.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerChildrenRoutes } from "./routes/children.js";
+import { registerChildSettingsRoutes } from "./routes/child_settings.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerFreePassRoutes } from "./routes/free_pass.js";
@@ -55,6 +56,7 @@ export async function buildServer() {
   await registerParentAuth(app);
   await registerAuthRoutes(app);
   await registerChildrenRoutes(app);
+  await registerChildSettingsRoutes(app);
   await registerDeviceRoutes(app);
   await registerCommandRoutes(app);
   await registerRuleRoutes(app);

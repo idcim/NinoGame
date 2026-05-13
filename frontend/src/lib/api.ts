@@ -126,6 +126,30 @@ export const api = {
       `/api/pending-counts`,
     ),
 
+  // ── 孩子 settings 上云 (Agent 端用) ──────────────────────
+  getChildSettings: (child_id: string) =>
+    request<{
+      merged: ChildSettingsForm;
+      raw: Partial<ChildSettingsForm>;
+      defaults: ChildSettingsForm;
+    }>(`/api/children/${child_id}/settings`),
+
+  saveChildSettings: (child_id: string, partial: Partial<ChildSettingsForm>) =>
+    request<{
+      merged: ChildSettingsForm;
+      raw: Partial<ChildSettingsForm>;
+      pushed: number;
+    }>(`/api/children/${child_id}/settings`, {
+      method: "PUT",
+      body: JSON.stringify(partial),
+    }),
+
+  resetChildSettings: (child_id: string) =>
+    request<{ merged: ChildSettingsForm; pushed: number }>(
+      `/api/children/${child_id}/settings/reset`,
+      { method: "POST" },
+    ),
+
   // ── reports (P3 使用时长统计) ──────────────────────────────
   getDailyReport: (child_id: string, days = 14) =>
     request<{ days: DailyReportRow[] }>(
@@ -500,6 +524,25 @@ export interface LedgerEntry {
   balance_after: number;
   reason: string;
   occurred_at: string;
+}
+
+// ── 孩子 settings (Agent 端配置上云) ──────────────────────────
+export interface ChildSettingsForm {
+  idle_lock_minutes: number;
+  billing_tick_seconds: number;
+  token_to_minute_ratio: number;
+  daily_hard_cap_minutes: number;
+  weekday_base_tokens: number;
+  weekend_base_tokens: number;
+  daily_credit_cap: number;
+  high_consumption_rate: number;
+  low_balance_warn_threshold: number;
+  overlay_enabled: boolean;
+  warning_dialog_auto_close_seconds: number;
+  monitor_scan_interval_seconds: number;
+  jiggler_detector_enabled: boolean;
+  jiggler_box_threshold_px: number;
+  messages: Record<string, string>;
 }
 
 // ── llm ───────────────────────────────────────────────────────

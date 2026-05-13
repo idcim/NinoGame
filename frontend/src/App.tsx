@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { isAuthed } from "./lib/auth";
 import About from "./pages/About";
+import ChildSettings from "./pages/ChildSettings";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import DeviceDetail from "./pages/DeviceDetail";
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/llm-config" element={<LlmConfig />} />
+        <Route path="/child-settings" element={<ChildSettings />} />
         <Route path="/device/:id" element={<DeviceDetail />} />
         <Route path="/about" element={<About />} />
       </Route>
