@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- 自适应图标背景色: NinoGame brand-500. 与 colors.xml 同步. -->
-    <color name="ic_launcher_background">#4A7CFF</color>
-</resources>
