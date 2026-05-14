@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { isAuthed } from "./lib/auth";
+import { ChildProvider } from "./lib/childContext";
 import About from "./pages/About";
 import ChildSettings from "./pages/ChildSettings";
 import Login from "./pages/Login";
@@ -23,7 +24,9 @@ export default function App() {
       <Route
         element={
           <RequireAuth>
-            <Layout />
+            <ChildProvider>
+              <Layout />
+            </ChildProvider>
           </RequireAuth>
         }
       >

@@ -1867,7 +1867,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 
 ### P4 — 进阶（目标 3-6 月内）
 
-- [ ] 多孩子 UI
+- [x] ~~多孩子 UI~~ (v0.4.6 完成): 新 `frontend/src/lib/childContext.tsx` (ChildProvider + useChild hook) — Layout 内一次拉 listChildren, activeChildId 持久化到 localStorage 跨页保持; 选择失效 (孩子被删) 自动 fallback 到第一个. Layout 顶部加 ChildSwitcher (单孩子时显示昵称 badge, 多孩子时下拉切换), 移动端汉堡菜单内也有一份. 4 个页面 (Reports / Rules / Tasks / ChildSettings) 删掉各自的 listChildren + activeChild state + 页内选择器, 改用 `useChild()`; Dashboard 保留作为多孩子总览, 新增/删除孩子时 `refresh()` 全局 context. 解决了 v0.4.6 之前每个页面独立选孩子、切页面又要重选的烦人体验.
 - [x] ~~Agent 自升级~~ (v0.3.0 完成): server 端 `agent_releases` 表 + `/api/admin/releases` CRUD + `@fastify/static` 鉴权下载 + `onHello` 写 devices.agent_version 比对入队 `update_self` command; Agent 端 `_handle_command(update_self)` 缓存 → 主循环 30s SafeMoment 检查 (lock 态稳定 30s + 无对话框) → `kick_update` (下载 sha256 校验 + 解压) → spawn Updater.exe → 写 quit.flag → sys.exit(0); Updater.exe 独立 onefile 接管 nssm stop → 备份 → 替换 → start → 60s 心跳验证, 失败自动回滚到 backup-old. 详见 [agile-giggling-dahl 计划](C:\Users\Administrator\.claude\plans\agile-giggling-dahl.md).
 - [ ] 卸载密码保护流程
 - [ ] 应用特定信号检测（防刷 ③）

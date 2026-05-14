@@ -3,9 +3,9 @@ import { Check, Loader2, Plus, RotateCcw, Settings, Sliders, Trash2 } from "luci
 import {
   api,
   ApiError,
-  type Child,
   type ChildSettingsForm,
 } from "../lib/api";
+import { useChild } from "../lib/childContext";
 
 /** 分组定义: 决定字段在 UI 里出现在哪个分区 */
 const NUMBER_FIELDS: Array<{
@@ -43,8 +43,7 @@ const MESSAGE_KEYS: Array<{ key: string; label: string; placeholder: string }> =
 ];
 
 export default function ChildSettings() {
-  const [children, setChildren] = useState<Child[]>([]);
-  const [activeChild, setActiveChild] = useState<string>("");
+  const { activeChildId, children: childrenList } = useChild();
   const [form, setForm] = useState<ChildSettingsForm | null>(null);
   const [raw, setRaw] = useState<Partial<ChildSettingsForm>>({});
   const [loading, setLoading] = useState(true);
@@ -53,26 +52,16 @@ export default function ChildSettings() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const c = await api.listChildren();
-        setChildren(c.children);
-        if (c.children.length > 0) setActiveChild(c.children[0].id);
-        else setLoading(false);
-      } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "加载孩子失败");
-        setLoading(false);
-      }
-    })();
-  }, []);
+    if (childrenList.length === 0) setLoading(false);
+  }, [childrenList.length]);
 
   async function load() {
-    if (!activeChild) return;
+    if (!activeChildId) return;
     setLoading(true);
     setErr(null);
     setMsg(null);
     try {
-      const r = await api.getChildSettings(activeChild);
+      const r = await api.getChildSettings(activeChildId);
       setForm(r.merged);
       setRaw(r.raw);
     } catch (e) {
@@ -83,7 +72,7 @@ export default function ChildSettings() {
   }
   useEffect(() => {
     load();
-  }, [activeChild]);
+  }, [activeChildId]);
 
   function patch<K extends keyof ChildSettingsForm>(k: K, v: ChildSettingsForm[K]) {
     setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
@@ -118,7 +107,7 @@ export default function ChildSettings() {
   }
 
   async function save() {
-    if (!form || !activeChild) return;
+    if (!form || !activeChildId) return;
     setSaving(true);
     setErr(null);
     setMsg(null);
@@ -130,7 +119,7 @@ export default function ChildSettings() {
           .map((s) => s.trim())
           .filter((s) => s.length > 0),
       };
-      const r = await api.saveChildSettings(activeChild, cleaned);
+      const r = await api.saveChildSettings(activeChildId, cleaned);
       setForm(r.merged);
       setRaw(r.raw);
       setMsg(`✓ 已保存${r.pushed > 0 ? ` (推送到 ${r.pushed} 台在线 Agent)` : " (Agent 离线, 上线时拉)"}`);
@@ -145,7 +134,7 @@ export default function ChildSettings() {
     if (!confirm("把所有设置恢复默认? Agent 立即同步.")) return;
     setSaving(true);
     try {
-      const r = await api.resetChildSettings(activeChild);
+      const r = await api.resetChildSettings(activeChildId);
       setForm(r.merged);
       setRaw({});
       setMsg(`✓ 已重置 (推送到 ${r.pushed} 台 Agent)`);
@@ -168,20 +157,14 @@ export default function ChildSettings() {
         </p>
       </div>
 
-      {/* 孩子选择 */}
+      {childrenList.length === 0 && !loading && (
+        <div className="card p-8 text-center text-ink-dim">
+          还没有孩子。先去 <a className="text-brand" href="/">概览</a> 创建。
+        </div>
+      )}
+
       <div className="flex gap-3 flex-wrap items-center">
-        <select
-          className="input max-w-xs"
-          value={activeChild}
-          onChange={(e) => setActiveChild(e.target.value)}
-        >
-          {children.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.display_name || c.username}
-            </option>
-          ))}
-        </select>
-        <button onClick={load} className="btn-ghost" disabled={loading}>
+        <button onClick={load} className="btn-ghost" disabled={loading || !activeChildId}>
           {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
           重新加载
         </button>

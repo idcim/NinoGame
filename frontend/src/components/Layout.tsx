@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Baby,
   BarChart3,
+  ChevronDown,
   ClipboardList,
   Info,
   LogOut,
@@ -14,6 +16,7 @@ import {
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { clearAuth, getParent } from "../lib/auth";
+import { useChild } from "../lib/childContext";
 import { useEventStream } from "../lib/eventStream";
 import { useToast } from "./Toast";
 
@@ -162,8 +165,9 @@ export default function Layout() {
             {navItems.map((it) => renderNavLink(it, "desktop"))}
           </nav>
 
-          {/* 右侧: 用户名 + 退出 + 移动端汉堡 */}
+          {/* 右侧: 孩子切换器 + 用户名 + 退出 + 移动端汉堡 */}
           <div className="flex items-center gap-2 sm:gap-3 text-sm text-ink-dim">
+            <ChildSwitcher variant="desktop" />
             <span className="hidden sm:inline">{parent?.username || "未登录"}</span>
             <button
               type="button"
@@ -192,6 +196,9 @@ export default function Layout() {
         {/* 移动端下拉菜单 */}
         {menuOpen && (
           <div className="md:hidden border-t border-border/60 bg-white px-4 py-3 space-y-1 shadow-lg">
+            <div className="px-4 pb-2 mb-1 border-b border-border/60">
+              <ChildSwitcher variant="mobile" />
+            </div>
             {navItems.map((it) => renderNavLink(it, "mobile"))}
             <div className="border-t border-border/60 mt-2 pt-2 flex items-center justify-between px-4">
               <span className="text-sm text-ink-dim">{parent?.username || "未登录"}</span>
@@ -218,6 +225,76 @@ export default function Layout() {
       <footer className="text-center text-xs text-ink-light py-4">
         让系统逐步退场 — NinoGame
       </footer>
+    </div>
+  );
+}
+
+/** 全局孩子切换器 (v0.4.6+):
+ *  - 0 孩子: 隐藏 (Dashboard 会提示去创建)
+ *  - 1 孩子: 显示名字 + 不可点 (Baby 图标 + 昵称); 桌面端简洁, 移动端撑满
+ *  - 2+ 孩子: <select> 下拉, 切换写 localStorage (childContext 处理)
+ */
+function ChildSwitcher({ variant }: { variant: "desktop" | "mobile" }) {
+  const { children, activeChildId, setActiveChildId, loading } = useChild();
+  if (loading || children.length === 0) return null;
+
+  if (variant === "desktop") {
+    if (children.length === 1) {
+      const c = children[0];
+      return (
+        <span
+          className="hidden md:inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-brand-50 text-brand-600 max-w-[120px] truncate"
+          title={`@${c.username}`}
+        >
+          <Baby size={12} />
+          <span className="truncate">{c.display_name || c.username}</span>
+        </span>
+      );
+    }
+    return (
+      <div className="hidden md:inline-flex items-center relative">
+        <select
+          value={activeChildId}
+          onChange={(e) => setActiveChildId(e.target.value)}
+          className="appearance-none text-xs pl-6 pr-7 py-1 rounded border border-border bg-brand-50/50 text-ink hover:border-brand cursor-pointer max-w-[160px]"
+          title="切换当前操作的孩子 (跨页保持)"
+        >
+          {children.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.display_name || c.username}
+            </option>
+          ))}
+        </select>
+        <Baby size={12} className="absolute left-2 text-brand-600 pointer-events-none" />
+        <ChevronDown size={12} className="absolute right-1.5 text-ink-light pointer-events-none" />
+      </div>
+    );
+  }
+
+  // mobile 变体: 撑满宽度
+  if (children.length === 1) {
+    const c = children[0];
+    return (
+      <div className="flex items-center gap-2 text-sm text-ink">
+        <Baby size={14} className="text-brand" />
+        <span>当前: {c.display_name || c.username}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <Baby size={14} className="text-brand shrink-0" />
+      <select
+        value={activeChildId}
+        onChange={(e) => setActiveChildId(e.target.value)}
+        className="flex-1 text-sm py-2 px-2 rounded border border-border bg-bg-card text-ink"
+      >
+        {children.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.display_name || c.username}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

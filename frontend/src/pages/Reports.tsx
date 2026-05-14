@@ -19,12 +19,12 @@ import {
   api,
   ApiError,
   type CategoryBreakdownRow,
-  type Child,
   type DailyReportRow,
   type Granularity,
   type TopAppRow,
 } from "../lib/api";
 import { getToken } from "../lib/auth";
+import { useChild } from "../lib/childContext";
 import { categoryLabel, formatDuration } from "../lib/labels";
 
 // 各 granularity 的"数量"档位预设 (UI 按钮组).
@@ -50,8 +50,7 @@ const PERIOD_UNIT: Record<Granularity, string> = {
 };
 
 export default function Reports() {
-  const [children, setChildren] = useState<Child[]>([]);
-  const [activeChild, setActiveChild] = useState<string>("");
+  const { activeChildId, children: childrenList } = useChild();
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [periods, setPeriods] = useState<number>(14);
   const [daily, setDaily] = useState<DailyReportRow[]>([]);
@@ -73,22 +72,13 @@ export default function Reports() {
     setPeriods(presets[Math.floor(presets.length / 2)]);
   }
 
+  // childContext 在 Layout 层做加载, 这里没孩子时只显示提示
   useEffect(() => {
-    (async () => {
-      try {
-        const c = await api.listChildren();
-        setChildren(c.children);
-        if (c.children.length > 0) setActiveChild(c.children[0].id);
-        else setLoading(false);
-      } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "加载孩子失败");
-        setLoading(false);
-      }
-    })();
-  }, []);
+    if (childrenList.length === 0) setLoading(false);
+  }, [childrenList.length]);
 
   async function loadReports() {
-    if (!activeChild) return;
+    if (!activeChildId) return;
     setLoading(true);
     setErr(null);
     try {
@@ -103,9 +93,9 @@ export default function Reports() {
                   : granularity === "week" ? periods * 7
                   : Math.min(90, periods * 30);
       const [d, a, b] = await Promise.all([
-        api.getDailyReport(activeChild, expanded, granularity),
-        api.getTopAppsReport(activeChild, Math.min(90, days), 10),
-        api.getCategoryBreakdown(activeChild, periods, granularity),
+        api.getDailyReport(activeChildId, expanded, granularity),
+        api.getTopAppsReport(activeChildId, Math.min(90, days), 10),
+        api.getCategoryBreakdown(activeChildId, periods, granularity),
       ]);
       // 切前后两段 — server 已按 period_start 升序返
       const total = d.days.length;
@@ -132,7 +122,7 @@ export default function Reports() {
 
   useEffect(() => {
     loadReports();
-  }, [activeChild, periods, granularity]);
+  }, [activeChildId, periods, granularity]);
 
   // 汇总统计
   const summary = useMemo(() => {
@@ -168,17 +158,6 @@ export default function Reports() {
 
       {/* 孩子 + 桶宽 + 数量 选择 */}
       <div className="flex gap-3 flex-wrap items-center">
-        <select
-          className="input max-w-xs"
-          value={activeChild}
-          onChange={(e) => setActiveChild(e.target.value)}
-        >
-          {children.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.display_name || c.username}
-            </option>
-          ))}
-        </select>
         <div className="flex items-center gap-1 rounded-md border border-border bg-bg-card p-0.5">
           {(["day", "week", "month"] as Granularity[]).map((g) => (
             <button
@@ -218,13 +197,13 @@ export default function Reports() {
         <div className="card p-4 text-warn bg-warn/5 border-warn/30">{err}</div>
       )}
 
-      {children.length === 0 && !loading && (
+      {childrenList.length === 0 && !loading && (
         <div className="card p-8 text-center text-ink-dim">
           还没有孩子, 去概览页创建。
         </div>
       )}
 
-      {activeChild && (
+      {activeChildId && (
         <>
           {/* 汇总 + 周期对比 */}
           <section className="space-y-3">
@@ -312,7 +291,7 @@ export default function Reports() {
 
           {/* 数据导出 — 用当前视图换算成 days 喂 export API (export 仍只吃 days) */}
           <ExportSection
-            child_id={activeChild}
+            child_id={activeChildId}
             days={
               granularity === "day" ? periods
               : granularity === "week" ? periods * 7

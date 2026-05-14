@@ -46,6 +46,14 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### 多孩子全局切换器 (v0.4.6+, P4 完成)
+- **问题**: v0.4.5 之前每个页面 (Rules/Tasks/Reports/ChildSettings) 独立拉 listChildren + 选 activeChild, 切页面又要重选, 多孩子家庭体验崩盘
+- **方案**: 新 `lib/childContext.tsx` 提供 `ChildProvider` (一次拉 + localStorage 持久化) + `useChild()` hook, App.tsx 在 RequireAuth 之内、Layout 之上包一层 Provider
+- **顶部 ChildSwitcher**: 单孩子时桌面端显示"宝宝 + 昵称"badge (不可点); 多孩子时显示下拉; 移动端汉堡菜单内也有一份; 切换写 `ninogame.active_child_id` 到 localStorage
+- **失效保护**: 持久化的 id 不在当前列表里 (孩子被删) 自动 fallback 第一个; Dashboard 增/删孩子时调 `refresh()` 同步全局
+- **改造范围**: Reports / Rules / Tasks / ChildSettings 删掉各自 listChildren state + 页内选择器; Dashboard 保留 (本来就是多孩子总览), 但加 `refresh()` 联动
+- **见**: `frontend/src/lib/childContext.tsx`, `frontend/src/components/Layout.tsx` `ChildSwitcher`
+
 ### 类别使用占比 (v0.4.5+, P4 "屏幕使用时长" 完成)
 - **位置**: /reports 顶部汇总区, 在"周期对比"卡之后
 - **三类**: 消遣类 (warn 黄) / 学习类 (accent 绿) / 中性 (brand 蓝); 每行一条水平 bar + 时长 + 百分比

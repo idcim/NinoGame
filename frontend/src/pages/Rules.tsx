@@ -15,12 +15,12 @@ import {
 import {
   api,
   ApiError,
-  type Child,
   type Matcher,
   type Rule,
   type RuleDraft,
   type RuleSpec,
 } from "../lib/api";
+import { useChild } from "../lib/childContext";
 import { actionLabel } from "../lib/labels";
 
 // 时间窗类型 (CLAUDE.md §9.1 schedule.windows): days 用 JS 习惯
@@ -55,41 +55,24 @@ function describeDays(days: number[]): string {
 }
 
 export default function Rules() {
-  const [children, setChildren] = useState<Child[]>([]);
-  const [activeChild, setActiveChild] = useState<string>("");
+  const { activeChildId, children: childrenList } = useChild();
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // 初始: 拉孩子列表 + 默认选第一个
   useEffect(() => {
-    (async () => {
-      try {
-        const c = await api.listChildren();
-        setChildren(c.children);
-        if (c.children.length > 0) {
-          setActiveChild(c.children[0].id);
-        } else {
-          setLoading(false);
-        }
-      } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "加载孩子失败");
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  // 每次 activeChild 变 → 拉规则
-  useEffect(() => {
-    if (!activeChild) return;
+    if (!activeChildId) {
+      if (childrenList.length === 0) setLoading(false);
+      return;
+    }
     loadRules();
-  }, [activeChild]);
+  }, [activeChildId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadRules() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await api.listRules(activeChild);
+      const r = await api.listRules(activeChildId);
       setRules(r.rules);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "加载规则失败");
@@ -107,11 +90,11 @@ export default function Rules() {
   const [llmHint, setLlmHint] = useState<string | null>(null);
 
   async function generateFromText() {
-    if (!llmText.trim() || !activeChild) return;
+    if (!llmText.trim() || !activeChildId) return;
     setLlmBusy(true);
     setLlmHint(null);
     try {
-      const { draft } = await api.draftRuleFromText(activeChild, llmText.trim());
+      const { draft } = await api.draftRuleFromText(activeChildId, llmText.trim());
       setEditing(draft);
       setLlmText("");
       if (draft.reasoning) setLlmHint(`LLM: ${draft.reasoning}`);
@@ -141,29 +124,9 @@ export default function Rules() {
         </button>
       </div>
 
-      {/* 孩子选择 */}
-      {children.length > 1 && (
-        <div className="flex gap-2 flex-wrap">
-          {children.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setActiveChild(c.id)}
-              className={
-                "px-4 py-1.5 rounded-full text-sm transition-colors " +
-                (c.id === activeChild
-                  ? "bg-brand text-white"
-                  : "bg-bg-card border border-border text-ink-dim hover:text-ink")
-              }
-            >
-              {c.display_name || c.username}
-            </button>
-          ))}
-        </div>
-      )}
-
       {err && <div className="card p-4 text-warn bg-warn/5 border-warn/30">{err}</div>}
 
-      {children.length === 0 && !loading ? (
+      {childrenList.length === 0 && !loading ? (
         <div className="card p-8 text-center text-ink-dim">
           还没有孩子。先去 <a className="text-brand" href="/">概览</a> 创建。
         </div>
@@ -186,14 +149,14 @@ export default function Rules() {
                     generateFromText();
                   }
                 }}
-                disabled={llmBusy || !activeChild}
+                disabled={llmBusy || !activeChildId}
                 placeholder="例: 禁止玩原神 / 晚上 9 点后不让玩王者荣耀 / 工作日不能玩 Minecraft"
                 maxLength={500}
               />
               <button
                 type="button"
                 onClick={generateFromText}
-                disabled={llmBusy || !llmText.trim() || !activeChild}
+                disabled={llmBusy || !llmText.trim() || !activeChildId}
                 className="btn-primary shrink-0"
               >
                 {llmBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
@@ -216,7 +179,7 @@ export default function Rules() {
             <button
               onClick={() => setEditing("new")}
               className="btn-primary"
-              disabled={!activeChild}
+              disabled={!activeChildId}
             >
               <Plus size={14} />
               新增规则
@@ -245,7 +208,7 @@ export default function Rules() {
         <RuleEditor
           rule={editing === "new" || isDraft(editing) ? null : editing}
           draft={isDraft(editing) ? editing : null}
-          childId={activeChild}
+          childId={activeChildId}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);

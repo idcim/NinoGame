@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { api, ApiError, type Child, type Device, type LedgerEntry } from "../lib/api";
 import EventFeed from "../components/EventFeed";
+import { useChild } from "../lib/childContext";
 import { useEventStream } from "../lib/eventStream";
 import {
   deviceTypeLabel,
@@ -31,6 +32,7 @@ import {
 } from "../lib/labels";
 
 export default function Dashboard() {
+  const { refresh: refreshChildContext } = useChild();
   const [children, setChildren] = useState<Child[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,6 +49,8 @@ export default function Dashboard() {
       const [c, d] = await Promise.all([api.listChildren(), api.listDevices()]);
       setChildren(c.children);
       setDevices(d.devices);
+      // 同步全局 ChildContext (新增/删除孩子后, 顶部切换器立刻能看到)
+      void refreshChildContext();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "加载失败");
     } finally {

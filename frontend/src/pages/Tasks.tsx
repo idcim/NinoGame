@@ -16,7 +16,6 @@ import {
 import {
   api,
   ApiError,
-  type Child,
   type ResponsibilityCheck,
   type Task,
   type TaskCategory,
@@ -24,6 +23,7 @@ import {
   type TaskSchedule,
   type TaskVerification,
 } from "../lib/api";
+import { useChild } from "../lib/childContext";
 import {
   taskCategoryLabel,
   taskCompletionStatusLabel,
@@ -36,28 +36,7 @@ type Tab = "templates" | "queue" | "history";
 
 export default function Tasks() {
   const [tab, setTab] = useState<Tab>("queue");
-  const [children, setChildren] = useState<Child[]>([]);
-  const [activeChild, setActiveChild] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const c = await api.listChildren();
-        setChildren(c.children);
-        if (c.children.length > 0) setActiveChild(c.children[0].id);
-        else setLoading(false);
-      } catch (e) {
-        setErr(e instanceof ApiError ? e.message : "加载孩子失败");
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (activeChild) setLoading(false);
-  }, [activeChild]);
+  const { activeChildId, children: childrenList } = useChild();
 
   return (
     <div className="space-y-6">
@@ -88,38 +67,18 @@ export default function Tasks() {
             </button>
           ))}
         </div>
-        {children.length > 1 && (
-          <div className="flex gap-2 flex-wrap">
-            {children.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setActiveChild(c.id)}
-                className={
-                  "px-3 py-1 rounded-full text-xs transition-colors " +
-                  (c.id === activeChild
-                    ? "bg-brand-50 text-brand-600 border border-brand"
-                    : "bg-bg-card border border-border text-ink-dim hover:text-ink")
-                }
-              >
-                {c.display_name || c.username}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {err && <div className="card p-4 text-warn bg-warn/5 border-warn/30">{err}</div>}
-
-      {children.length === 0 && !loading ? (
+      {childrenList.length === 0 ? (
         <div className="card p-8 text-center text-ink-dim">
           还没有孩子。先去 <a className="text-brand" href="/">概览</a> 创建。
         </div>
       ) : tab === "queue" ? (
         <CompletionQueue />
       ) : tab === "templates" ? (
-        <TemplateSection childId={activeChild} />
+        <TemplateSection childId={activeChildId} />
       ) : (
-        <ResponsibilityHistory childId={activeChild} />
+        <ResponsibilityHistory childId={activeChildId} />
       )}
     </div>
   );
