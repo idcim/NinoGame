@@ -16,7 +16,7 @@ let firstRunTimer: NodeJS.Timeout | null = null;
 
 async function runOnce(log: FastifyBaseLogger): Promise<void> {
   try {
-    const r = await scanAllChildrenBaseline();
+    const r = await scanAllChildrenBaseline(log);
     if (r.anomalies_triggered > 0) {
       log.warn(
         { children: r.children_scanned, anomalies: r.anomalies_triggered },

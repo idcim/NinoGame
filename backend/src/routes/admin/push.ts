@@ -6,6 +6,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { getSetting, putSetting } from "../../services/admin_settings.js";
+import { notify } from "../../services/notifier/index.js";
 
 const Body = z.object({
   wechat_work: z.object({
@@ -42,6 +43,21 @@ export async function registerAdminPushRoutes(app: FastifyInstance) {
   app.get("/api/admin/push", { preHandler: app.adminAuth }, async () => {
     const v = await getSetting<AdminPushConfig>("push");
     return { push: v ? mask(v) : mask(Body.parse({})) };
+  });
+
+  // 测试发送 (走当前已保存的配置). 不去重 — 测试就该立即出.
+  app.post("/api/admin/push/test", { preHandler: app.adminAuth }, async (req, reply) => {
+    const parsed = z.object({
+      channel: z.enum(["wechat_work", "smtp"]),
+    }).safeParse(req.body);
+    if (!parsed.success) return reply.badRequest("缺 channel");
+    const r = await notify(app.log, {
+      severity: "info",
+      subject: "NinoGame 推送测试",
+      body: `这是从 NinoGame admin 后台发出的测试消息.\n如果你看到它, 说明 ${parsed.data.channel} 通道配置正确.`,
+      only: parsed.data.channel,
+    });
+    return r;
   });
 
   app.post("/api/admin/push", { preHandler: app.adminAuth }, async (req, reply) => {

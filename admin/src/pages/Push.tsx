@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bell, Loader2 } from "lucide-react";
+import { Bell, Loader2, Zap } from "lucide-react";
 import { api, ApiError, type AdminPushConfig } from "../lib/api";
 
 export default function Push() {
@@ -21,6 +21,26 @@ export default function Push() {
     setErr(null); setMsg(null);
     try { const r = await api.savePush(cfg); setCfg(r.push); setMsg("✓ 已保存"); }
     catch (e) { setErr(e instanceof ApiError ? e.message : "保存失败"); }
+  }
+
+  const [testing, setTesting] = useState<string>("");
+  const [testResult, setTestResult] = useState<{ channel: string; ok: boolean; msg: string } | null>(null);
+  async function testChannel(channel: "wechat_work" | "smtp") {
+    setTesting(channel); setTestResult(null);
+    try {
+      const r = await api.testPush(channel);
+      const sent = r.sent.find((s) => s.channel === channel);
+      const skipped = r.skipped.find((s) => s.channel === channel);
+      if (sent) {
+        setTestResult({ channel, ok: sent.ok, msg: sent.ok ? "已发送, 请去对应客户端确认" : (sent.error || "未知错误") });
+      } else if (skipped) {
+        setTestResult({ channel, ok: false, msg: `跳过: ${skipped.reason}` });
+      } else {
+        setTestResult({ channel, ok: false, msg: "无结果 — push 配置全空?" });
+      }
+    } catch (e) {
+      setTestResult({ channel, ok: false, msg: e instanceof ApiError ? e.message : "请求失败" });
+    } finally { setTesting(""); }
   }
 
   return (
@@ -58,6 +78,20 @@ export default function Push() {
                   onChange={(e) => setCfg({ ...cfg, wechat_work: { ...cfg.wechat_work, webhook_url: e.target.value } })}
                   placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." />
               </div>
+              <div className="flex justify-end">
+                <button onClick={() => testChannel("wechat_work")} disabled={testing === "wechat_work" || !cfg.wechat_work.webhook_url} className="btn-ghost text-xs">
+                  {testing === "wechat_work" ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                  测试发送
+                </button>
+              </div>
+              {testResult?.channel === "wechat_work" && (
+                <div className={"text-xs rounded px-2 py-1 " + (testResult.ok ? "text-accent-600 bg-accent/10" : "text-warn bg-warn/10")}>
+                  {testResult.ok ? "✓ " : "× "}{testResult.msg}
+                </div>
+              )}
+              <p className="text-xs text-ink-light">
+                先填 webhook URL + 勾启用 + 保存, 再点测试. 保存后启用状态生效, 测试只是看连通性.
+              </p>
             </div>
           </section>
 
@@ -108,6 +142,20 @@ export default function Push() {
                   onChange={(e) => setCfg({ ...cfg, smtp: { ...cfg.smtp, from: e.target.value } })}
                   placeholder="NinoGame <noreply@example.com>" />
               </div>
+              <div className="flex justify-end">
+                <button onClick={() => testChannel("smtp")} disabled={testing === "smtp" || !cfg.smtp.host || !cfg.smtp.from} className="btn-ghost text-xs">
+                  {testing === "smtp" ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                  测试发送
+                </button>
+              </div>
+              {testResult?.channel === "smtp" && (
+                <div className={"text-xs rounded px-2 py-1 " + (testResult.ok ? "text-accent-600 bg-accent/10" : "text-warn bg-warn/10")}>
+                  {testResult.ok ? "✓ " : "× "}{testResult.msg}
+                </div>
+              )}
+              <p className="text-xs text-ink-light">
+                收件人默认是 SMTP user 自己 (admin 邮箱); 先保存后再测.
+              </p>
             </div>
           </section>
 

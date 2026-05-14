@@ -19,7 +19,8 @@
 - 全局应用分类 (`app_categories` child_id IS NULL 那批) — admin 修正 LLM 分类 / 加新应用
 - 新建 child 默认值 — maturity / quota / 默认拦截规则 seed
 - 系统限额 + 当前存储驱动状态
-- 推送通道配置 (企微 webhook / SMTP) — v0.4.0 只落库, 实际发送 P5
+- 推送通道 (企微 webhook + SMTP, v0.4.1 已闭环) — admin 配后关键事件自动推:
+  Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常; 各 channel 有"测试发送"按钮
 - 家长账号列表 + 重置密码 + 删除 (CASCADE 谨慎)
 
 **部署 (1Panel 生产):**

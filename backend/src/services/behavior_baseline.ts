@@ -19,8 +19,10 @@
  *
  * 不阻止: 不 kill 进程, 不扣分。家长自己看着办。
  */
+import type { FastifyBaseLogger } from "fastify";
 import { pool } from "../db.js";
 import { publishToParent } from "../ws/event_bus.js";
+import { notify } from "./notifier/index.js";
 
 const BASELINE_DAYS = 14;
 const MIN_SAMPLE_DAYS = 5;        // 14 天里至少 5 天有这种活动
@@ -128,7 +130,10 @@ async function getParentId(child_id: string): Promise<string | null> {
 }
 
 /** 对单个 child 跑一次基线检查; 返回触发的异常数。 */
-export async function checkChildBaseline(child_id: string): Promise<number> {
+export async function checkChildBaseline(
+  child_id: string,
+  logger?: FastifyBaseLogger,
+): Promise<number> {
   const aggs = await fetchAggregates(child_id);
 
   const hits: AnomalyHit[] = [];
@@ -179,13 +184,26 @@ export async function checkChildBaseline(child_id: string): Promise<number> {
         occurred_at: new Date().toISOString(),
       });
     }
+    // 推送通道告警 (企微 / SMTP). dedupe 让同 child+category 5min 内只发一次
+    // (events 表本身有 24h cooldown, 这里 5min 只防"扫描刚好抓到、紧接着重启又抓"
+    // 这种极小概率的连发).
+    if (logger) {
+      void notify(logger, {
+        severity: "warn",
+        subject: `行为基线异常: ${hit.category}`,
+        body: `孩子今日 "${hit.category}" 类活动 ${Math.round(hit.today_seconds / 60)} 分钟,\n基线均值 ${Math.round(hit.baseline_avg_seconds / 60)} 分钟 (${hit.sample_days} 天样本),\n超出 ${hit.ratio.toFixed(1)}× — 请关注是否在刷分.`,
+        dedupe_key: `behavior_anomaly:${child_id}:${hit.category}`,
+      }).catch(() => undefined);
+    }
     triggered++;
   }
   return triggered;
 }
 
 /** 遍历所有 children 跑基线检查; 用于定时调度。返回总触发次数 + 检查孩子数。 */
-export async function scanAllChildrenBaseline(): Promise<{
+export async function scanAllChildrenBaseline(
+  logger?: FastifyBaseLogger,
+): Promise<{
   children_scanned: number;
   anomalies_triggered: number;
 }> {
@@ -195,7 +213,7 @@ export async function scanAllChildrenBaseline(): Promise<{
   let triggered = 0;
   for (const c of r.rows) {
     try {
-      triggered += await checkChildBaseline(c.id);
+      triggered += await checkChildBaseline(c.id, logger);
     } catch {
       // 单 child 失败不影响其他
     }

@@ -29,6 +29,7 @@ import {
   maybeQueueUpdateForDevice,
   persistAgentVersion,
 } from "../services/agent_release.js";
+import { notify } from "../services/notifier/index.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
 
@@ -622,6 +623,9 @@ async function onEvent(app: FastifyInstance, meta: AgentConnection, msg: WsMessa
     [meta.child_id, meta.device_id, payload.event_type, payload.payload ?? {}],
   );
 
+  // 推送通道告警 (企微 / SMTP) — 选关键事件触发
+  void maybeNotifyOnEvent(app, meta, payload).catch(() => undefined);
+
   // 责任清单勾选 → upsert responsibility_checks (Agent 不直接调 REST,
   // 走 bus 转发的事件统一通道; 这里在 server 端拆出来落表)
   if (payload.event_type === "checklist_tick" && meta.child_id) {
@@ -657,6 +661,67 @@ async function onEvent(app: FastifyInstance, meta: AgentConnection, msg: WsMessa
     } catch {
       // 推送失败不影响事件入库
     }
+  }
+}
+
+/** 关键事件 → 推 notifier (企微 / SMTP). 不影响主流程.
+ *
+ * 触发的事件类型:
+ *   - agent_update_completed: status=failed* 时报警
+ *   - pin_fail: 同 device 在 15 分钟内累计 3+ 次报警 (孩子可能在试 PIN)
+ *   - 设备上线 (hello 时 last_seen_at 跳了 >10min) — 由 onHello 单独推
+ *
+ * 软失败, 失败不抛.
+ */
+async function maybeNotifyOnEvent(
+  app: FastifyInstance,
+  meta: AgentConnection,
+  payload: { event_type?: string; payload?: unknown },
+): Promise<void> {
+  const t = payload.event_type;
+
+  // 1) Agent 升级失败 / 回滚
+  if (t === "agent_update_completed") {
+    const p = (payload.payload || {}) as {
+      status?: string;
+      from_version?: string;
+      to_version?: string;
+      error?: string;
+    };
+    if (p.status && p.status !== "success") {
+      await notify(app.log, {
+        severity: "alert",
+        subject: `Agent 升级失败 (设备 ${meta.device_id.slice(0, 8)})`,
+        body: `${p.from_version ?? "?"} → ${p.to_version ?? "?"} 升级 ${p.status}.\n${p.error ? `错误: ${p.error}` : ""}\n升级日志在 %ProgramData%\\NinoGame\\data\\updater_logs\\updater.log`,
+        dedupe_key: `update_failed:${meta.device_id}:${p.to_version}`,
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
+  // 2) PIN 三次错误 (Agent 端已经触发本地锁定, server 再推 admin)
+  // events 表查最近 15 分钟内同 device 的 pin_fail 数量, ≥ 3 报警
+  if (t === "pin_fail") {
+    try {
+      const r = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "NinoGame".events
+          WHERE device_id = $1 AND event_type = 'pin_fail'
+            AND occurred_at > NOW() - INTERVAL '15 minutes'`,
+        [meta.device_id],
+      );
+      const c = Number(r.rows[0].count);
+      if (c >= 3) {
+        await notify(app.log, {
+          severity: "alert",
+          subject: `PIN 多次输错 (设备 ${meta.device_id.slice(0, 8)})`,
+          body: `15 分钟内 PIN 错误 ${c} 次, Agent 已自动锁定. 请去后台或联系孩子核实.`,
+          dedupe_key: `pin_fail:${meta.device_id}`,
+        }).catch(() => undefined);
+      }
+    } catch {
+      /* 查询失败也不影响 */
+    }
+    return;
   }
 }
 

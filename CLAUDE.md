@@ -1858,7 +1858,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~LLM 验证助手（照片初筛）~~ — 已下线 (改私下协商 + 家长后台 +token, 见 §22 #32)
 - [x] 时间窗口规则（schedule.windows）
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
-- [ ] 企业微信机器人推送
+- [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
 - [ ] **Android NinoGame App**
 - [ ] 跨端钱包同步 + Path 1 跨端聚合

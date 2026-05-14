@@ -1,6 +1,6 @@
 {
   "name": "ninogame-backend",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "NinoGame Backend (P2) — Fastify + Postgres + WebSocket",
   "private": true,
   "type": "module",
@@ -26,11 +26,13 @@
     "@fastify/sensible": "^5.5.0",
     "@fastify/static": "^7.0.4",
     "@fastify/websocket": "^10.0.1",
+    "@types/nodemailer": "^8.0.0",
     "ali-oss": "^6.23.0",
     "bcrypt": "^5.1.1",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "node-pg-migrate": "^7.5.2",
+    "nodemailer": "^6.10.1",
     "pg": "^8.12.0",
     "pino-pretty": "^11.2.2",
     "zod": "^3.23.8"

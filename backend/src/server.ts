@@ -29,6 +29,10 @@ import {
   startBehaviorBaselineScheduler,
   stopBehaviorBaselineScheduler,
 } from "./services/behavior_baseline_scheduler.js";
+import {
+  startDeviceOfflineAlerter,
+  stopDeviceOfflineAlerter,
+} from "./services/device_offline_alerter.js";
 import { seedDefaultRulesForChild } from "./services/default_rules.js";
 import {
   startWalletSyncScheduler,
@@ -147,7 +151,7 @@ export async function buildServer() {
 
   app.get("/", async () => ({
     service: "NinoGame Backend",
-    version: "0.4.0",
+    version: "0.4.1",
     docs: "see CLAUDE.md sections 18-19",
     endpoints: [
       "POST /auth/parent/register",
@@ -249,15 +253,18 @@ export async function buildServer() {
   await bootstrapAdminIfNeeded(app.log);
 
   // ── 后台任务 ────────────────────────────────────────────
-  // 行为基线异常告警 (§16.1 ④): 每小时扫一次, 异常推家长浏览器
+  // 行为基线异常告警 (§16.1 ④): 每小时扫一次, 异常推家长浏览器 + 企微/邮件
   startBehaviorBaselineScheduler(app.log);
   // 每 60s 主动给所有在线 Agent push 当前 server balance, 兜底 wallet_update
   // 漏 push 的场景 (用户报 "server 在扣但 Agent 显示不动")
   startWalletSyncScheduler(app.log);
+  // 设备掉线告警 (v0.4.1+, CLAUDE.md §11.3): 每 2min 扫, last_seen_at >10min 推家长
+  startDeviceOfflineAlerter(app.log);
 
   app.addHook("onClose", async () => {
     stopBehaviorBaselineScheduler();
     stopWalletSyncScheduler();
+    stopDeviceOfflineAlerter();
     await pool.end();
   });
 

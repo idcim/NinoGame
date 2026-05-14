@@ -247,6 +247,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  testPush: (channel: "wechat_work" | "smtp") =>
+    request<{
+      sent: Array<{ channel: string; ok: boolean; error?: string }>;
+      skipped: Array<{ channel: string; reason: string }>;
+    }>("/api/admin/push/test", {
+      method: "POST",
+      body: JSON.stringify({ channel }),
+    }),
 
   // Tenants
   listTenants: () => request<{ tenants: TenantRow[] }>("/api/admin/tenants"),
