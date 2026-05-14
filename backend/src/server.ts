@@ -8,17 +8,19 @@ import fastifyStatic from "@fastify/static";
 import path from "node:path";
 import fs from "node:fs";
 import { config } from "./config.js";
-import { verifyArtifactToken } from "./services/agent_release.js";
+import { signArtifactToken, verifyArtifactToken } from "./services/agent_release.js";
+import { initStorage } from "./services/storage/factory.js";
 import { pool, ping } from "./db.js";
-import { registerParentAuth } from "./auth/middleware.js";
+import { registerAdminAuth, registerParentAuth } from "./auth/middleware.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerAdminAuthRoutes } from "./routes/auth_admin.js";
+import { bootstrapAdminIfNeeded } from "./services/admin_bootstrap.js";
 import { registerChildrenRoutes } from "./routes/children.js";
 import { registerChildSettingsRoutes } from "./routes/child_settings.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerFreePassRoutes } from "./routes/free_pass.js";
-import { registerAdminReleaseRoutes } from "./routes/admin_releases.js";
-import { registerLlmRoutes } from "./routes/llm.js";
+import { registerAdminRoutes } from "./routes/admin/index.js";
 import { registerReportRoutes } from "./routes/reports.js";
 import { registerRuleRoutes } from "./routes/rules.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
@@ -65,9 +67,19 @@ export async function buildServer() {
   });
   await app.register(websocket);
 
-  // 静态文件 (Agent 升级包): /artifacts/<filename>?token=<jwt>
+  // Storage 驱动 (v0.4.0+): factory 按 STORAGE_DRIVER 选 local/s3/aliyun_oss.
+  // local 驱动签 token 用; S3 / OSS 自带 presigned URL, 不走 server token.
+  initStorage(app.log, (ctx, ttlSeconds) =>
+    app.jwt.sign(
+      { device_id: ctx.device_id || "", version: ctx.version || "", kind: "artifact" },
+      { expiresIn: `${ttlSeconds}s` },
+    ),
+  );
+
+  // 静态文件 (Agent 升级包, local 驱动): /artifacts/<filename>?token=<jwt>
   // - 路径外挂卷 (Docker volume), 即便镜像重建包也不丢
   // - token 是 server 签发的 30 分钟 jwt, 内含 device_id + version
+  // - S3/OSS 驱动下 admin_releases 会改返 presigned URL, /artifacts/* 路由不会被命中
   try {
     fs.mkdirSync(config.artifactsDir, { recursive: true });
   } catch (err) {
@@ -97,7 +109,9 @@ export async function buildServer() {
 
   // ── 业务路由 ────────────────────────────────────────────
   await registerParentAuth(app);
+  await registerAdminAuth(app);
   await registerAuthRoutes(app);
+  await registerAdminAuthRoutes(app);
   await registerChildrenRoutes(app);
   await registerChildSettingsRoutes(app);
   await registerDeviceRoutes(app);
@@ -107,8 +121,7 @@ export async function buildServer() {
   await registerUnlockRequestRoutes(app);
   await registerFreePassRoutes(app);
   await registerReportRoutes(app);
-  await registerLlmRoutes(app);
-  await registerAdminReleaseRoutes(app);
+  await registerAdminRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);
 
@@ -140,6 +153,8 @@ export async function buildServer() {
       "POST /auth/parent/register",
       "POST /auth/parent/login",
       "GET  /auth/parent/me  (Bearer)",
+      "POST /auth/admin/login           (v0.4.0+ 管理后台)",
+      "GET  /auth/admin/me   (Bearer)",
       "POST /api/children    (Bearer)",
       "GET  /api/children    (Bearer)",
       "POST /api/devices/pair        (Bearer)",
@@ -172,15 +187,16 @@ export async function buildServer() {
       "GET  /api/free-pass?child_id  (Bearer)",
       "GET  /api/children/:id/reports/daily?days     (Bearer)",
       "GET  /api/children/:id/reports/top-apps?days&limit (Bearer)",
-      "GET  /api/llm/config          (Bearer)",
-      "POST /api/llm/config          (Bearer)",
-      "POST /api/llm/test            (Bearer)",
-      "DEL  /api/llm/config          (Bearer)",
-      "GET  /api/admin/releases                (Bearer)  Agent 包列表",
-      "POST /api/admin/releases                (Bearer)  multipart 上传 zip",
-      "POST /api/admin/releases/:id/promote    (Bearer)  设为目标版本",
-      "DEL  /api/admin/releases/:id            (Bearer)  删除",
-      "GET  /artifacts/<filename>?token=<jwt>            Agent 下载升级包",
+      "── /api/admin/* (admin Bearer; 独立管理后台 v0.4.0+) ──",
+      "GET/POST/DEL /api/admin/llm                        LLM 配置 (全 server 共享)",
+      "POST         /api/admin/llm/test                   LLM 连通性测试",
+      "GET/POST/DEL /api/admin/releases[/:id[/promote]]   Agent 升级包管理",
+      "GET/POST/DEL /api/admin/app-categories[/:id]       全局应用分类",
+      "GET/POST     /api/admin/defaults                   新建 child 默认值 + 默认规则",
+      "GET/POST     /api/admin/system                     系统限额 + 存储驱动状态",
+      "GET/POST     /api/admin/push                       推送通道配置",
+      "GET/POST/DEL /api/admin/tenants[/:id[/reset-password]] 家长账号管理",
+      "GET  /artifacts/<filename>?token=<jwt>             Agent 下载升级包 (仅 local 驱动)",
       "WS   /ws/agent?token=<agent_token>",
       "WS   /ws/parent?token=<jwt>",
     ],
@@ -227,6 +243,10 @@ export async function buildServer() {
   } catch (err) {
     app.log.warn({ err }, "seed orphan children failed");
   }
+
+  // ── Admin bootstrap (v0.4.0+) ──────────────────────────
+  // admin_accounts 空时从环境变量写入首个 admin; 已有就跳过 + 强提醒清环境变量
+  await bootstrapAdminIfNeeded(app.log);
 
   // ── 后台任务 ────────────────────────────────────────────
   // 行为基线异常告警 (§16.1 ④): 每小时扫一次, 异常推家长浏览器

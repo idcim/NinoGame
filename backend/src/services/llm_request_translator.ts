@@ -40,13 +40,11 @@ export interface TranslatedRequest {
 
 /** 尝试翻译申请文本; 失败返回 null. */
 export async function translateUnlockRequest(
-  parent_id: string,
   request_text: string,
 ): Promise<TranslatedRequest | null> {
   if (!request_text || request_text.trim().length === 0) return null;
   try {
     const out = await chat(
-      parent_id,
       [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: request_text.trim().slice(0, 500) },

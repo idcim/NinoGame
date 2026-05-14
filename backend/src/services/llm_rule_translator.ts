@@ -64,13 +64,11 @@ export interface RuleDraft {
 
 /** 尝试翻译一句话; 失败返回 null (LLM 未配置 / 调用错误 / 返回非法 JSON). */
 export async function draftRuleFromText(
-  parent_id: string,
   text: string,
 ): Promise<RuleDraft | null> {
   if (!text || text.trim().length === 0) return null;
   try {
     const out = await chat(
-      parent_id,
       [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: text.trim().slice(0, 500) },

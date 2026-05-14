@@ -672,16 +672,8 @@ async function onUnknownApps(
   const p = (msg.payload || {}) as { apps?: AppToClassify[] };
   const apps = Array.isArray(p.apps) ? p.apps : [];
   if (apps.length === 0 || !meta.child_id) return;
-  // 拿 parent_id (LLM 配置走家长粒度)
-  const pq = await pool.query<{ parent_id: string }>(
-    `SELECT parent_id FROM "NinoGame".children WHERE id = $1`,
-    [meta.child_id],
-  );
-  const parent_id = pq.rows[0]?.parent_id;
-  if (!parent_id) return;
-
-  // 调 LLM batch 分类 (内部并发 5)
-  const results = await classifyBatch(parent_id, apps, 5);
+  // v0.4.0+: LLM 配置 admin 一份共享, 不再 per-parent
+  const results = await classifyBatch(apps, 5);
   const successful = results.filter((r) => r.result !== null);
   if (successful.length === 0) {
     app.log.info(

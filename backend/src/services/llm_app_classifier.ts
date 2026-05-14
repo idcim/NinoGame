@@ -63,13 +63,11 @@ export interface LlmCategory {
 
 /** 单个分类; null 表示失败/未配置. */
 export async function classifyApp(
-  parent_id: string,
   app: AppToClassify,
 ): Promise<LlmCategory | null> {
   const userPrompt = buildUserPrompt(app);
   try {
     const out = await chat(
-      parent_id,
       [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -89,7 +87,6 @@ export async function classifyApp(
 
 /** 批量分类: 并行限流 5 个, 不让任意慢请求拖累。返回每个 app 的 (LlmCategory | null). */
 export async function classifyBatch(
-  parent_id: string,
   apps: AppToClassify[],
   concurrency: number = 5,
 ): Promise<Array<{ app_identifier: string; result: LlmCategory | null }>> {
@@ -99,7 +96,7 @@ export async function classifyBatch(
     const results = await Promise.all(
       batch.map(async (a) => ({
         app_identifier: a.app_identifier,
-        result: await classifyApp(parent_id, a),
+        result: await classifyApp(a),
       })),
     );
     out.push(...results);

@@ -47,7 +47,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     );
     const parent = row.rows[0];
 
-    const token = app.jwt.sign({ sub: parent.id, username: parent.username });
+    const token = app.jwt.sign({ sub: parent.id, username: parent.username, kind: "parent" });
     return {
       token,
       parent: { id: parent.id, username: parent.username, created_at: parent.created_at },
@@ -74,7 +74,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!ok) {
       return reply.unauthorized("用户名或密码错误");
     }
-    const token = app.jwt.sign({ sub: parent.id, username: parent.username });
+    const token = app.jwt.sign({ sub: parent.id, username: parent.username, kind: "parent" });
     return {
       token,
       parent: { id: parent.id, username: parent.username, created_at: parent.created_at },

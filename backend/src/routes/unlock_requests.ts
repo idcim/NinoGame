@@ -86,7 +86,7 @@ export async function createUnlockRequestFromAgent(
       // 二次 publishToParent 让浏览器实时刷新摘要 (§12.2 / §13.1)
       void (async () => {
         try {
-          const t = await translateUnlockRequest(parent_id, request_text);
+          const t = await translateUnlockRequest(request_text);
           if (!t) return;
           await pool.query(
             `UPDATE "NinoGame".unlock_requests

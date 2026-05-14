@@ -17,12 +17,16 @@
     "migrate:status": "node-pg-migrate -j sql -m sql -d DATABASE_URL status"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1046.0",
+    "@aws-sdk/lib-storage": "^3.1046.0",
+    "@aws-sdk/s3-request-presigner": "^3.1046.0",
     "@fastify/cors": "^9.0.1",
     "@fastify/jwt": "^8.0.1",
     "@fastify/multipart": "^8.3.1",
     "@fastify/sensible": "^5.5.0",
     "@fastify/static": "^7.0.4",
     "@fastify/websocket": "^10.0.1",
+    "ali-oss": "^6.23.0",
     "bcrypt": "^5.1.1",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
@@ -32,6 +36,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/ali-oss": "^6.23.3",
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^20.14.10",
     "@types/pg": "^8.11.6",

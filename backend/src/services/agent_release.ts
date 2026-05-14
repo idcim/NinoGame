@@ -10,6 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
 import { config } from "../config.js";
 import { pushToDevice } from "../ws/agent.js";
+import { getStorage } from "./storage/factory.js";
 import crypto from "node:crypto";
 
 export interface AgentReleaseRow {
@@ -48,8 +49,8 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-/** 给 Agent 签发一个 30 分钟有效期的下载 token. 走 jwt (server 已有 jwt plugin).
- *  Agent 拿着这个 token 走 GET /artifacts/<filename>?token=<jwt> 下载. */
+/** 给 Agent 签发一个 30 分钟有效期的下载 token (local 驱动用).
+ *  S3/OSS 驱动走 presigned URL, 不调用此函数. 留接口给 admin /system 测试用. */
 export function signArtifactToken(
   app: FastifyInstance,
   device_id: string,
@@ -134,8 +135,17 @@ export async function maybeQueueUpdateForDevice(
     return { pushed: false, reason: "already queued" };
   }
 
-  const token = signArtifactToken(app, device_id, target.version);
-  const url = `${config.publicBaseUrl}/artifacts/${target.filename}?token=${token}`;
+  // 让存储驱动签 URL: local → 相对路径 /artifacts/?token=jwt; s3/oss → presigned URL.
+  // 拼绝对 URL 让 local 驱动也能让 Agent 直连 (Agent 不可能跟 server 共享 host header).
+  const storage = getStorage();
+  const signed = await storage.signedUrl(
+    target.filename,
+    30 * 60, // 30 min
+    { device_id, version: target.version },
+  );
+  const url = signed.startsWith("http")
+    ? signed
+    : `${config.publicBaseUrl}${signed}`;
   const payload = {
     version: target.version,
     url,

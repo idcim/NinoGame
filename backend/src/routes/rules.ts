@@ -212,7 +212,7 @@ export async function registerRuleRoutes(app: FastifyInstance) {
       if (!(await ensureOwnership(req.parent!.sub, child_id))) {
         return reply.forbidden("孩子不属于当前家长");
       }
-      const draft = await draftRuleFromText(req.parent!.sub, text);
+      const draft = await draftRuleFromText(text);
       if (!draft) {
         return reply
           .code(422)
