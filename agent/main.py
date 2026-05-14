@@ -70,9 +70,14 @@ from ui.history_window import (  # noqa: E402
 )
 from ui.out_of_token_dialog import OutOfTokenDialog  # noqa: E402
 from ui.task_claim_dialog import TaskClaimDialog  # noqa: E402
+from ui.about_dialog import AboutDialog  # noqa: E402
 from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
+
+# agent/__init__.py 在 PyInstaller --onefile 模式下不一定能 import 到包名,
+# 此处直接持有与 __init__.py 同步的字符串; 升版时改两处。
+AGENT_VERSION = "0.2.0"
 
 _log = logging.getLogger(__name__)
 
@@ -238,9 +243,10 @@ class Agent:
         self.pair_dialog: PairDialog | None = None   # 按需 lazy 创建
         self.request_dialog: RequestDialog | None = None  # 同上
         self.task_claim_dialog: TaskClaimDialog | None = None  # 同上
+        self.about_dialog: AboutDialog | None = None  # 同上
         self.messages_window: HistoryWindow | None = None  # 我的消息
-        self.ledger_window: HistoryWindow | None = None    # 余额变动
-        self.out_of_token_dialog: OutOfTokenDialog | None = None  # 余额耗尽锁屏
+        self.ledger_window: HistoryWindow | None = None    # Token 变动
+        self.out_of_token_dialog: OutOfTokenDialog | None = None  # Token 耗尽锁屏
         self._low_balance_warned: bool = False  # ≤10 提醒去重 flag, 回升到 >10 重置
         self._low_balance_threshold: int = int(self.settings.get("low_balance_warn_threshold", 10))
         # 临时解锁: rule_id -> 失效时刻 (utc datetime)
@@ -269,6 +275,7 @@ class Agent:
             on_show_task_claim=self._request_show_task_claim_dialog,
             on_show_messages=self._request_show_messages_window,
             on_show_ledger=self._request_show_ledger_window,
+            on_show_about=self._request_show_about_dialog,
             on_switch_to_child=self._switch_back_to_child,
         )
 
@@ -498,6 +505,8 @@ class Agent:
             get_remaining_cap_minutes=self._remaining_cap_minutes,
             is_active=self.activity.is_active_consumption,
             get_active_unlock=self._first_active_unlock_for_overlay,
+            get_free_pass_seconds=self._free_pass_remaining_seconds,
+            get_consumption_rate_per_minute=lambda: float(self.settings.get("token_to_minute_ratio", 1.0)),
             daily_credit_cap=self._daily_credit_cap,
             on_double_click=self._request_show_panel,
         )
@@ -517,6 +526,12 @@ class Agent:
             get_free_pass_seconds=self._free_pass_remaining_seconds,
             get_consumption_rate_per_minute=lambda: float(self.settings.get("token_to_minute_ratio", 1.0)),
             on_request_unlock=self._request_show_request_dialog,
+            on_task_claim=self._request_show_task_claim_dialog,
+            on_show_messages=self._request_show_messages_window,
+            on_show_ledger=self._request_show_ledger_window,
+            on_switch_to_child=self._switch_back_to_child,
+            on_show_pair=self._request_show_pair,
+            on_show_about=self._request_show_about_dialog,
             daily_credit_cap=self._daily_credit_cap,
         )
 
@@ -640,7 +655,7 @@ class Agent:
             self.transport.send({
                 "type": "hello",
                 "payload": {
-                    "agent_version": "0.1.0",
+                    "agent_version": AGENT_VERSION,
                     "device_info": {"platform": "windows"},
                 },
             })
@@ -775,8 +790,8 @@ class Agent:
                 n = int(delta)
                 amount_str = f"+{n}" if n > 0 else str(n)
                 tail = f" ({comment})" if comment else ""
-                title = "NinoGame · 余额变动"
-                body = f"余额变动 {amount_str} token{tail}"
+                title = "NinoGame · Token 变动"
+                body = f"Token 变动 {amount_str}{tail}"
                 if reason == "task_reward":
                     title = "NinoGame · 任务奖励"
                     body = f"家长批准了你的任务{tail}, {amount_str} token 已到账。" if n > 0 \
@@ -786,8 +801,8 @@ class Agent:
                     body = f"家长给你发了 {amount_str} token{tail}。" if n > 0 \
                         else f"家长扣了 {abs(n)} token{tail}。"
                 elif reason == "adjustment":
-                    title = "NinoGame · 余额调整"
-                    body = f"家长调整了余额: {amount_str} token{tail}。"
+                    title = "NinoGame · Token 调整"
+                    body = f"家长调整了 Token: {amount_str}{tail}。"
                 elif reason == "daily_grant":
                     title = "NinoGame · 每日发放"
                     body = f"今日基础发放 {amount_str} token 已到账。"
@@ -1731,7 +1746,7 @@ class Agent:
             _log.exception("MessagesWindow 显示失败")
 
     def _request_show_ledger_window(self) -> None:
-        """托盘 → "查看余额变动..." 跨线程触发 (走 bridge 信号)。"""
+        """托盘 / 面板 → "查看 Token 变动..." 跨线程触发 (走 bridge 信号)。"""
         get_bridge().run_on_gui(self._show_ledger_window_on_main)
 
     def _show_ledger_window_on_main(self) -> None:
@@ -1740,15 +1755,29 @@ class Agent:
             if self.ledger_window is None:
                 logo = str(dialog_image_path()) if dialog_image_path().exists() else None
                 self.ledger_window = HistoryWindow(
-                    title="NinoGame · 余额变动记录",
+                    title="NinoGame · Token 变动记录",
                     fetch_rows=lambda: self.wallet.list_recent_ledger(50),
                     render_row=render_ledger_row,
-                    empty_text="还没有可显示的变动 (每分钟扣分不展示, 只看家长操作 + 任务奖励等)。",
+                    empty_text="还没有可显示的变动 (每分钟扣 Token 不展示, 只看家长操作 + 任务奖励等)。",
                     logo_path=logo,
                 )
             self.ledger_window.show_for_user()
         except Exception:
             _log.exception("LedgerWindow 显示失败")
+
+    def _request_show_about_dialog(self) -> None:
+        """托盘 / 面板 → "关于 NinoGame..." 跨线程触发 (走 bridge 信号)。"""
+        get_bridge().run_on_gui(self._show_about_dialog_on_main)
+
+    def _show_about_dialog_on_main(self) -> None:
+        try:
+            from ui.assets import dialog_image_path
+            if self.about_dialog is None:
+                logo = str(dialog_image_path()) if dialog_image_path().exists() else None
+                self.about_dialog = AboutDialog(logo_path=logo, version=AGENT_VERSION)
+            self.about_dialog.show_dialog()
+        except Exception:
+            _log.exception("AboutDialog 显示失败")
 
     def _request_show_task_claim_dialog(self) -> None:
         """孩子在托盘点「申报任务完成」→ bridge 派发到 Qt 主线程 (同 _request_show_request_dialog)。"""
@@ -1809,7 +1838,7 @@ class Agent:
                 },
             })
             _log.info("已发送 task_claim: task_id=%s", task_id)
-            return True, "已发送给家长。批准后浏览器会发奖励, 余额会自动更新。"
+            return True, "已发送给家长。批准后浏览器会发奖励, Token 会自动更新。"
         except Exception as e:
             _log.exception("发送 task_claim 失败")
             return False, f"网络错误: {e}"

@@ -90,7 +90,7 @@ export async function buildServer() {
 
   app.get("/", async () => ({
     service: "NinoGame Backend",
-    version: "0.1.0",
+    version: "0.2.0",
     docs: "see CLAUDE.md sections 18-19",
     endpoints: [
       "POST /auth/parent/register",

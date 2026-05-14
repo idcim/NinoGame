@@ -1,6 +1,6 @@
 """系统托盘 (§15.2)。
 
-显示当前模式 + token 余额，提供最小操作菜单。
+显示当前模式 + Token 数量，提供最小操作菜单。
 "退出"项走 PIN 校验流程（如果家长设过 PIN）；未设 PIN 时给确认对话框。
 未装 pystray/Pillow 时跳过（不影响 monitor + killer 主链路）。
 """
@@ -30,7 +30,7 @@ except ImportError:
 
 
 # ────────────────────────────────────────────────────────────────
-# 托盘图标绘制：在 logo 之上叠余额数字
+# 托盘图标绘制：在 logo 之上叠 Token 数字
 # ────────────────────────────────────────────────────────────────
 def _balance_color(balance: int, daily_credit_cap: int) -> tuple[int, int, int]:
     if balance <= 0:
@@ -80,7 +80,7 @@ def _render_icon(
     }.get(mode, (90, 180, 100, 255))
     draw.rectangle([(0, 0), (size, 5)], fill=mode_color)
 
-    # 右下角余额徽章
+    # 右下角 Token 徽章
     text = str(balance) if balance < 1000 else f"{balance // 100}H"
     try:
         font = ImageFont.truetype("arial.ttf", 18)
@@ -135,6 +135,7 @@ class TrayController:
         on_show_task_claim: Callable[[], None] | None = None,
         on_show_messages: Callable[[], None] | None = None,
         on_show_ledger: Callable[[], None] | None = None,
+        on_show_about: Callable[[], None] | None = None,
         on_switch_to_child: Callable[[], None] | None = None,
         get_checklist: Callable[[], list[tuple[object, bool]]] | None = None,
         on_check_tick: Callable[[str, bool], None] | None = None,
@@ -154,6 +155,7 @@ class TrayController:
         self._on_show_task_claim = on_show_task_claim
         self._on_show_messages = on_show_messages
         self._on_show_ledger = on_show_ledger
+        self._on_show_about = on_show_about
         self._on_switch_to_child = on_switch_to_child
         self._get_checklist = get_checklist
         self._on_check_tick = on_check_tick
@@ -261,7 +263,7 @@ class TrayController:
             ))
         if self._on_show_ledger is not None:
             items.append(pystray.MenuItem(
-                "查看余额变动...",
+                "查看 Token 变动...",
                 lambda icon, item: self._safe(self._on_show_ledger),
             ))
         if self._on_show_messages is not None or self._on_show_ledger is not None:
@@ -297,6 +299,15 @@ class TrayController:
                 "重新配对家长后台...",
                 lambda icon, item: self._safe(self._on_show_pair),
             ))
+
+        # 关于 NinoGame (任何模式都可见)
+        if self._on_show_about is not None:
+            items.append(pystray.MenuItem(
+                "关于 NinoGame...",
+                lambda icon, item: self._safe(self._on_show_about),
+            ))
+
+        if self._on_show_pair is not None or self._on_show_about is not None:
             items.append(pystray.Menu.SEPARATOR)
 
         items.append(pystray.MenuItem(

@@ -1,13 +1,15 @@
 """StatusPanel: 托盘双击弹出的状态总览面板 (CLAUDE.md §15.4 + §15.5)。
 
 展示:
-  - 当前余额 (大号数字, 颜色按比例)
-  - 当前模式徽章 (使用中 / 已锁定 / 限免中 / 家长)
+  - 当前 Token 数 (大号数字, 颜色按比例)
+  - 当前模式徽章 (使用中 / 未在使用 / 限免中 / 家长模式)
   - 限免横幅 (free_pass > 0 时醒目展示倒计时)
   - Forecast: "按当前速度还能用 X 分钟" (§15.5)
   - 今日花费 / 挣到 / 游戏分钟 / 责任清单
   - 活跃放行 (临时 unlock 剩余分钟)
-  - 「申请游戏时间」按钮 (复用 RequestDialog)
+  - 操作区: 申请游戏时间 / 申报任务完成 / 我的消息 / Token 变动 /
+            重新配对 / 切回孩子 (家长模式)
+  - Header: ℹ 关于
 
 UX:
   - 面板可见时每 1s 自动刷新 (QTimer), 数字"活起来", 限免/forecast 倒数
@@ -178,6 +180,31 @@ QPushButton#close:hover {{
     background-color: {close_hover};
     border-top-right-radius: 14px;
 }}
+QPushButton#header_icon {{
+    background-color: transparent;
+    border: 0;
+}}
+QPushButton#header_icon:hover {{
+    background-color: rgba(255, 255, 255, 40);
+}}
+QPushButton#ghost {{
+    background-color: transparent;
+    color: {text};
+    border: 1px solid {border};
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: "Microsoft YaHei UI";
+    font-size: 9pt;
+    text-align: left;
+}}
+QPushButton#ghost:hover {{
+    border-color: {primary};
+    color: {primary};
+}}
+QPushButton#ghost:disabled {{
+    color: {text_dim};
+    border-color: {border};
+}}
 """
 
 
@@ -201,6 +228,12 @@ class StatusPanel(QWidget):
         get_free_pass_seconds: Callable[[], int] | None = None,
         get_consumption_rate_per_minute: Callable[[], float] | None = None,
         on_request_unlock: Callable[[], None] | None = None,
+        on_task_claim: Callable[[], None] | None = None,
+        on_show_messages: Callable[[], None] | None = None,
+        on_show_ledger: Callable[[], None] | None = None,
+        on_switch_to_child: Callable[[], None] | None = None,
+        on_show_pair: Callable[[], None] | None = None,
+        on_show_about: Callable[[], None] | None = None,
         daily_credit_cap: int = 120,
     ) -> None:
         super().__init__()
@@ -215,13 +248,20 @@ class StatusPanel(QWidget):
         self._get_free_pass_seconds = get_free_pass_seconds
         self._get_rate = get_consumption_rate_per_minute
         self._on_request_unlock = on_request_unlock
+        self._on_task_claim = on_task_claim
+        self._on_show_messages = on_show_messages
+        self._on_show_ledger = on_show_ledger
+        self._on_switch_to_child = on_switch_to_child
+        self._on_show_pair = on_show_pair
+        self._on_show_about = on_show_about
         self._cap = daily_credit_cap
 
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(400, 540)
+        # 加按钮区后 panel 高度需要更大
+        self.resize(420, 640)
 
         if self._logo_path and Path(self._logo_path).exists():
             self.setWindowIcon(QIcon(self._logo_path))
@@ -273,6 +313,18 @@ class StatusPanel(QWidget):
         title.setObjectName("header_title")
         h.addWidget(title)
         h.addStretch(1)
+
+        # ℹ 关于 (header 上)
+        if self._on_show_about is not None:
+            about_btn = QPushButton(header)
+            about_btn.setObjectName("header_icon")
+            about_btn.setIcon(qta.icon("fa5s.info-circle", color="white"))
+            about_btn.setIconSize(QSize(16, 16))
+            about_btn.setFixedSize(36, 44)
+            about_btn.setCursor(Qt.PointingHandCursor)
+            about_btn.setToolTip("关于 NinoGame")
+            about_btn.clicked.connect(lambda: self._safe_call(self._on_show_about))
+            h.addWidget(about_btn)
 
         close_btn = QPushButton("×", header)
         close_btn.setObjectName("close")
@@ -394,7 +446,7 @@ class StatusPanel(QWidget):
 
         body_layout.addStretch(1)
 
-        # 申请游戏时间按钮 (没注入 callback 就不显示)
+        # ── 主按钮: 申请游戏时间 ─────────────────────────────
         if self._on_request_unlock is not None:
             self._request_btn = QPushButton("申请游戏时间…", body)
             self._request_btn.setObjectName("primary")
@@ -404,9 +456,75 @@ class StatusPanel(QWidget):
         else:
             self._request_btn = None
 
+        # ── 二级动作 (从托盘菜单搬来) ────────────────────────
+        # 2×n grid: 申报任务 / 我的消息 / Token 变动 / 切回孩子 / 重新配对
+        # 没注入对应 callback 的项整个不出现
+        actions = QGridLayout()
+        actions.setHorizontalSpacing(8)
+        actions.setVerticalSpacing(8)
+        self._action_buttons: list[tuple[QPushButton, str]] = []  # (btn, key) 供 refresh 控制可见性
+
+        def _add(icon: str, label: str, key: str, slot, row: int, col: int) -> QPushButton:
+            btn = QPushButton(label, body)
+            btn.setObjectName("ghost")
+            btn.setIcon(qta.icon(icon, color=COLOR_PRIMARY))
+            btn.setIconSize(QSize(14, 14))
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(slot)
+            actions.addWidget(btn, row, col)
+            self._action_buttons.append((btn, key))
+            return btn
+
+        row, col = 0, 0
+
+        def _next() -> tuple[int, int]:
+            nonlocal row, col
+            r, c = row, col
+            col += 1
+            if col >= 2:
+                col = 0
+                row += 1
+            return r, c
+
+        if self._on_task_claim is not None:
+            r, c = _next()
+            _add("fa5s.check-circle", "申报任务完成", "task_claim",
+                 lambda: self._safe_call(self._on_task_claim), r, c)
+        if self._on_show_messages is not None:
+            r, c = _next()
+            _add("fa5s.envelope-open-text", "我的消息", "messages",
+                 lambda: self._safe_call(self._on_show_messages), r, c)
+        if self._on_show_ledger is not None:
+            r, c = _next()
+            _add("fa5s.coins", "Token 变动", "ledger",
+                 lambda: self._safe_call(self._on_show_ledger), r, c)
+        if self._on_switch_to_child is not None:
+            r, c = _next()
+            _add("fa5s.user", "切回孩子模式", "switch_child",
+                 lambda: self._safe_call(self._on_switch_to_child), r, c)
+        if self._on_show_pair is not None:
+            r, c = _next()
+            _add("fa5s.link", "重新配对家长后台", "pair",
+                 lambda: self._safe_call(self._on_show_pair), r, c)
+        # 没按钮就不加 grid; 有按钮时确保最后一行有元素 (奇数个按钮时占位空)
+        if self._action_buttons:
+            # 占位让奇数按钮也能 50% 宽 (不被拉伸)
+            if col == 1:
+                spacer = QLabel("", body)
+                actions.addWidget(spacer, row, col)
+            body_layout.addLayout(actions)
+
         card_layout.addWidget(body, 1)
 
         self._apply_qss(COLOR_OK, COLOR_PRIMARY)
+
+    def _safe_call(self, fn) -> None:
+        if fn is None:
+            return
+        try:
+            fn()
+        except Exception:
+            _log.exception("panel action callback 失败")
 
     def _apply_qss(self, accent_for_balance: str, mode_color: str) -> None:
         qss = _QSS.format(
@@ -516,7 +634,7 @@ class StatusPanel(QWidget):
         self._stat_minutes.setText(str(minutes))
         self._stat_tasks.setText(f"{done}/{total}")
 
-        # 申请按钮: 限免 / 已锁定 / 余额 0 时给不同提示
+        # 申请按钮: 限免 / 已锁定 / token 0 时给不同提示
         if self._request_btn is not None:
             if free_pass_secs > 0:
                 self._request_btn.setEnabled(False)
@@ -527,6 +645,18 @@ class StatusPanel(QWidget):
             else:
                 self._request_btn.setEnabled(True)
                 self._request_btn.setText("申请游戏时间…")
+
+        # 二级按钮模式感知:
+        # - task_claim 仅 child 模式有意义
+        # - switch_child 仅 parent 模式有意义
+        # - messages / ledger / pair 任何模式都可用
+        for btn, key in self._action_buttons:
+            if key == "task_claim":
+                btn.setVisible(mode == "child")
+            elif key == "switch_child":
+                btn.setVisible(mode == "parent")
+            else:
+                btn.setVisible(True)
 
         # 清空 + 重建活跃放行列表
         self._clear_layout(self._unlocks_container)
@@ -544,11 +674,11 @@ class StatusPanel(QWidget):
 
         - 限免中 → "限免期间不扣 token"
         - lock / parent → "暂未在使用"
-        - child + 余额 > 0 + rate > 0 → "还能用 X 分钟" / "还能用 Y 小时"
-        - 余额 ≤ 0 → "余额已用完, 去申请或赚分"
+        - child + token > 0 + rate > 0 → "还能用 X 分钟" / "还能用 Y 小时"
+        - token ≤ 0 → "Token 已用完, 去申请或挣分"
         """
         if free_pass_secs > 0:
-            self._fc_label.setText("限免期间不扣 token, 等 ")
+            self._fc_label.setText("限免期间不扣 Token, 等 ")
             self._fc_value.setText(_fmt_mmss(free_pass_secs) + " 后恢复")
             return
         if mode != "child":
@@ -556,8 +686,8 @@ class StatusPanel(QWidget):
             self._fc_value.setText("暂未在使用")
             return
         if balance <= 0:
-            self._fc_label.setText("余额")
-            self._fc_value.setText("已用完, 去申请或赚分")
+            self._fc_label.setText("Token")
+            self._fc_value.setText("已用完, 去申请或挣分")
             return
         if rate <= 0:
             self._fc_label.setText("当前")

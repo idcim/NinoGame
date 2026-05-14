@@ -1,4 +1,4 @@
-"""通用历史列表窗口 (托盘"我的消息..." / "查看余额变动..." 共用)。
+"""通用历史列表窗口 (托盘"我的消息..." / "查看 Token 变动..." 共用)。
 
 由调用方传 fetch_rows + render_row 决定数据来源与展示样式。
 """
@@ -253,11 +253,11 @@ REASON_LABELS = {
     "daily_grant": "每日发放",
     "parent_grant": "家长发奖",
     "task_reward": "任务奖励",
-    "adjustment": "余额调整",
+    "adjustment": "Token 调整",
     "refund": "退款",
     "unlock_prepay": "申请预扣",
     "streak_bonus": "连续奖励",
-    "server_sync": "余额同步",
+    "server_sync": "Token 同步",
     "app_consumption": "玩耍扣费",
     "path1_auto": "自动挣分",
 }
