@@ -64,6 +64,7 @@ class AgentService : Service() {
     private var usageReporter: UsageReporter? = null
     private var unknownAppsReporter: UnknownAppsReporter? = null
     private var commandHandler: CommandHandler? = null
+    private var tokenTicker: TokenTicker? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -75,6 +76,7 @@ class AgentService : Service() {
         usageReporter = UsageReporter(scope, wsClient!!, Settings.from(this))
         unknownAppsReporter = UnknownAppsReporter(scope, wsClient!!, applicationContext)
         commandHandler = CommandHandler(scope, applicationContext)
+        tokenTicker = TokenTicker(scope, wsClient!!, applicationContext)
 
         // v0.5.3+ 启动时从 DataStore 把 CategoryCache 恢复回内存
         scope.launch { CategoryCache.load(this@AgentService) }
@@ -142,22 +144,24 @@ class AgentService : Service() {
             return
         }
 
-        // 3) Open → 发 hello + 启 heartbeat 30s + 启 UsageReporter 5min + UnknownAppsReporter 60s
+        // 3) Open → 发 hello + 启 heartbeat 30s + UsageReporter 5min + UnknownAppsReporter 60s + TokenTicker 60s
         Log.i(TAG, "WS open, sending hello")
         sendHello(agentToken)
         heartbeatJob = scope.launch { heartbeatLoop() }
         usageReporter?.start()
         unknownAppsReporter?.start()
+        tokenTicker?.start()
 
         // 4) 阻塞等到 state 离开 Open (Disconnected 或 Failed)
         ws.state.first {
             it is WsClient.ConnectionState.Disconnected ||
             it is WsClient.ConnectionState.Failed
         }
-        Log.i(TAG, "WS closed; cancel heartbeat + reporters, return for retry")
+        Log.i(TAG, "WS closed; cancel heartbeat + reporters + ticker, return for retry")
         heartbeatJob?.cancel()
         usageReporter?.stop()
         unknownAppsReporter?.stop()
+        tokenTicker?.stop()
     }
 
     private suspend fun heartbeatLoop() {
@@ -290,6 +294,7 @@ class AgentService : Service() {
         Log.i(TAG, "AgentService onDestroy")
         usageReporter?.stop()
         unknownAppsReporter?.stop()
+        tokenTicker?.stop()
         commandHandler?.reset()
         ForegroundAppMonitor.reset()
         RulesCache.reset()

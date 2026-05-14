@@ -46,6 +46,18 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 3b2 (v0.5.6+, token_tick 每分钟上报)
+- **TokenTicker** 协程 (跟 Windows agent core/token_engine.py 同语义): AgentService scope 内每 60s 一轮; 5 个短路条件全满足才发 `token_tick`:
+  1. `AgentState.mode == Child` (lock 不扣)
+  2. `!isFreePassActive` (限免期间消费不扣, §7.5)
+  3. WS Open (离线不扣, §7.6)
+  4. `ForegroundAppMonitor.foregroundApp != null` (有前台 app)
+  5. `PowerManager.isInteractive` (屏幕亮, 跟 Windows GetLastInputInfo 等价信号)
+- 协议跟 Windows agent 一致: `{type:token_tick, payload:{amount:1.0, ref_id:pkg, app:pkg, tick_seconds:60}}`. server `onTokenTick` 单一权威扣分 (决策 #34, 写 ledger + UPDATE wallets + 推 wallet_update). **Android 端不本地 deduct**
+- amount v0.5.6 hard-code 1.0 (跟 Windows agent token_to_minute_ratio 默认一致), Stage 3c 监听 settings_update 动态调
+- **server 端零改动**: 复用 v0.2 onTokenTick. Android 跟 Windows 完全等价
+- **见**: `service/TokenTicker.kt`
+
 ### Android Agent Stage 3b1 (v0.5.5+, command 接收 + mode 状态机)
 - **CommandHandler** singleton — 跟 Windows agent main.py._handle_command 同语义, 处理 server 推命令:
   - `temporary_unlock {rule_ids|rule_id, duration_seconds|duration_minutes}` → 加 RulesCache.unlockedIds + 各 rule 各起 expiry 协程

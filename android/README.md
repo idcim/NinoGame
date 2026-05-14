@@ -2,7 +2,7 @@
 
 跨端 (Windows + Android) 家长控制 Agent 的 **Android 端骨架**。当前进度: **Stage 1 — 仅配对联机**。
 
-> **当前状态 (v0.5.5)**: 配对联机 ✅ + WS 长连接 ✅ + 监前台 + 5min usage_report + LLM 分类 + 开机自启 ✅ + 规则匹配 + 拦截 + block 事件上报 ✅ + **command 接收 (临时解锁 / 限免 / 锁屏) + mode 状态机** ✅. token 经济 / 申请审批 UI / 任务 UI 在 **Stage 3b2** 实施.
+> **当前状态 (v0.5.6)**: 配对 + WS 长连接 + 监前台 + 5min usage_report + LLM 分类 + 开机自启 + 规则拦截 + block 事件 + command 接收 + mode 状态机 ✅ + **token_tick 每分钟上报 (server 单一权威扣分)** ✅. 申请审批 UI / 任务 UI 在 **Stage 3b3** 实施.
 
 ## 兼容范围
 
@@ -140,7 +140,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 2c | BootReceiver 开机自启 | ✅ v0.5.3 |
 | 3a | 规则匹配 + 拦截 (PvZ 等 → 弹通知 + 回桌面) + block 事件上报 | ✅ v0.5.4 |
 | 3b1 | Command 接收 (temporary_unlock / lock_device / start_free_pass) + mode 状态 | ✅ v0.5.5 |
-| 3b2 | Token 经济本地缓存 + token_tick 上报 + 申请游戏时间 UI + 任务申报 UI | 待 |
+| 3b2 | TokenTicker 每分钟 token_tick 上报 (server 单一权威扣分) | ✅ v0.5.6 |
+| 3b3 | 申请游戏时间 UI + 任务申报 UI + screen-off 自动 Lock | 待 |
 | 3 | Token 经济本地版 (server 权威, 本地缓存 + wallet_update 推送对齐) | 待 |
 | 3 | 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议) | 待 |
 | 3 | 责任清单 / 任务申报 UI | 待 |

@@ -1406,10 +1406,16 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 - Command 通知独立 channel `agent_command` (IMPORTANCE_DEFAULT), 跟 block channel 分开.
 - `AgentState` 扩展: `mode` (Child/Parent/Lock) + `freePassUntilMs` StateFlow. Dashboard 加 `ModeAndFreePassCard` (仅非 Child 或限免活跃时显示, 否则不占屏).
 
-**Stage 3b2 (下一站)**:
-- Token 经济本地缓存 + `token_tick` 上报 (child 模式每分钟 tick → server 单一权威扣分, 决策 #34)
+**Stage 3b2 (v0.5.6, 已落)**:
+- `TokenTicker` 协程 (跟 Windows agent `core/token_engine.py` 同语义): AgentService scope 内每 60s 一轮; 5 个短路条件全满足才发 token_tick: mode=Child + 非 free_pass + WS Open + foregroundApp 非 null + `PowerManager.isInteractive` (屏幕亮; 跟 Windows GetLastInputInfo "用户在用" 信号等价).
+- token_tick 协议跟 Windows agent 一致: `{type:token_tick, payload:{amount:1.0, ref_id:pkg, app:pkg, tick_seconds:60}}`. server 单一权威扣分 (决策 #34): `onTokenTick` (backend/src/ws/agent.ts) 写 ledger + UPDATE wallets + 推 wallet_update 回 Agent. **Android 端不本地 deduct**, 等 wallet_update 同步.
+- amount v0.5.6 hard-code 1.0 (跟 Windows agent `settings.token_to_minute_ratio` 默认一致). Stage 3c 监听 server 推 `settings_update` 时可动态调.
+- 屏幕灭时不扣 — `PowerManager.isInteractive=false` 自动跳过. 跟 Windows agent 决策 #36 ("在跑就扣") 一致, 但 Android 加屏幕亮判定让平板桌上放着不扣.
+
+**Stage 3b3 (下一站)**:
 - 申请游戏时间 UI (Compose 自然语言对话框 → `unlock_request` WS 消息 → 家长后台批准 → 收 temporary_unlock command)
 - 责任清单 / 任务申报 UI
+- screen state 监听切 mode (SCREEN_OFF 持续 N 分钟 → 自动 Lock, 跟 Windows agent idle 10min 自动 Lock 等价)
 
 **Stage 3**:
 - 规则匹配 + 拦截 (Windows 端 kill → Android 端弹对话框 + 回 launcher + 上报 block 事件)
@@ -1946,7 +1952,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c+3a+3b1 已落 (v0.5.0~v0.5.5, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report + unknown_apps LLM 分类 + 开机自启 + 规则匹配 + 拦截 + block 事件上报 + **command 接收 (temporary_unlock / lock_device / free_pass) + mode 状态机**. token 经济 / 申请审批 UI / 任务 UI 在 Stage 3b2 推进.
+- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c+3a+3b1+3b2 已落 (v0.5.0~v0.5.6, 见 §17.6 + `android/`): 配对 + WS 长连接 + 监前台 + 5min usage_report + LLM 分类 + 开机自启 + 规则拦截 + block 事件 + command 接收 + mode 状态机 + **token_tick 每分钟上报 (server 单一权威扣分)**. 申请审批 UI / 任务 UI 在 Stage 3b3 推进.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。
