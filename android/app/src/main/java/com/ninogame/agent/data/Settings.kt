@@ -33,6 +33,11 @@ private val K_CHILD_ID            = stringPreferencesKey("child_id")
 private val K_CACHED_BALANCE      = intPreferencesKey("cached_balance")
 private val K_APP_CATEGORIES_JSON  = stringPreferencesKey("app_categories_json")
 private val K_ROM_GUIDE_DISMISSED  = booleanPreferencesKey("rom_guide_dismissed")
+// v0.5.14+ PIN — 跟 Windows agent 同字段名 / 同算法 (PBKDF2-SHA256 + 16B salt)
+private val K_PIN_HASH             = stringPreferencesKey("pin_hash")
+private val K_PIN_SALT             = stringPreferencesKey("pin_salt")
+private val K_PIN_FAIL_COUNT       = intPreferencesKey("pin_fail_count")
+private val K_PIN_LOCKED_UNTIL_MS  = stringPreferencesKey("pin_locked_until_ms")
 
 class Settings(private val ctx: Context) {
 
@@ -51,6 +56,16 @@ class Settings(private val ctx: Context) {
 
     /** v0.5.11+: 用户已经看过 ROM 后台引导卡且点"我知道了"忽略, 不再展示. */
     val romGuideDismissed: Flow<Boolean> = ctx.dataStore.data.map { it[K_ROM_GUIDE_DISMISSED] ?: false }
+
+    /** v0.5.14+ 是否已设 PIN — 只看 hash 字段非空. UI: 有 PIN 时"重新配对"加锁. */
+    val pinIsSet: Flow<Boolean> = ctx.dataStore.data.map {
+        !it[K_PIN_HASH].isNullOrBlank() && !it[K_PIN_SALT].isNullOrBlank()
+    }
+
+    val pinHash: Flow<String?> = ctx.dataStore.data.map { it[K_PIN_HASH] }
+    val pinSalt: Flow<String?> = ctx.dataStore.data.map { it[K_PIN_SALT] }
+    val pinFailCount: Flow<Int> = ctx.dataStore.data.map { it[K_PIN_FAIL_COUNT] ?: 0 }
+    val pinLockedUntilMs: Flow<Long?> = ctx.dataStore.data.map { it[K_PIN_LOCKED_UNTIL_MS]?.toLongOrNull() }
 
     /** 简洁的 "已配对没" 状态 — Dashboard / 起始路由用. */
     val isPaired: Flow<Boolean> = ctx.dataStore.data.map { p ->
@@ -86,6 +101,46 @@ class Settings(private val ctx: Context) {
 
     suspend fun dismissRomGuide() {
         ctx.dataStore.edit { p -> p[K_ROM_GUIDE_DISMISSED] = true }
+    }
+
+    suspend fun savePin(hashHex: String, saltHex: String) {
+        ctx.dataStore.edit { p ->
+            p[K_PIN_HASH] = hashHex
+            p[K_PIN_SALT] = saltHex
+            p[K_PIN_FAIL_COUNT] = 0
+            p.remove(K_PIN_LOCKED_UNTIL_MS)
+        }
+    }
+
+    suspend fun clearPin() {
+        ctx.dataStore.edit { p ->
+            p.remove(K_PIN_HASH)
+            p.remove(K_PIN_SALT)
+            p.remove(K_PIN_FAIL_COUNT)
+            p.remove(K_PIN_LOCKED_UNTIL_MS)
+        }
+    }
+
+    suspend fun bumpPinFail(maxBeforeLock: Int, lockDurationMs: Long): Pair<Int, Long?> {
+        var newCount = 0
+        var newLockedUntil: Long? = null
+        ctx.dataStore.edit { p ->
+            newCount = (p[K_PIN_FAIL_COUNT] ?: 0) + 1
+            p[K_PIN_FAIL_COUNT] = newCount
+            if (newCount >= maxBeforeLock) {
+                newLockedUntil = System.currentTimeMillis() + lockDurationMs
+                p[K_PIN_LOCKED_UNTIL_MS] = newLockedUntil.toString()
+                p[K_PIN_FAIL_COUNT] = 0  // 锁定后重置计数, 下次解锁后从 0 开始
+            }
+        }
+        return newCount to newLockedUntil
+    }
+
+    suspend fun resetPinFails() {
+        ctx.dataStore.edit { p ->
+            p[K_PIN_FAIL_COUNT] = 0
+            p.remove(K_PIN_LOCKED_UNTIL_MS)
+        }
     }
 
     /** 同步读 isPaired — BootReceiver 在 onReceive ~10s 预算内, runBlocking 读 OK. */

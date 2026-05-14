@@ -98,6 +98,9 @@ fun DashboardScreen(
     // v0.5.7+ 申请游戏时间对话框 + Snackbar 反馈
     var showRequest by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    // v0.5.14+ 重新配对前 PIN 验证 (PIN 已设时)
+    val pinIsSet by settings.pinIsSet.collectAsState(initial = false)
+    var showPinDialog by remember { mutableStateOf(false) }
 
     // 优先实时余额, 没收到就用 DataStore 缓存
     val displayBalance = liveBalance ?: cachedBalance
@@ -338,9 +341,14 @@ fun DashboardScreen(
             // 操作行
             OutlinedButton(
                 onClick = {
-                    scope.launch {
-                        settings.clearPairing()
-                        onResetPair()
+                    // v0.5.14+: PIN 设了的话先弹验证, 防孩子点"重新配对"绕过监控
+                    if (pinIsSet) {
+                        showPinDialog = true
+                    } else {
+                        scope.launch {
+                            settings.clearPairing()
+                            onResetPair()
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -364,6 +372,19 @@ fun DashboardScreen(
                 val msg = if (ok) ctx.getString(R.string.request_sent_ok)
                 else (errMsg ?: "发送失败")
                 scope.launch { snackbarHostState.showSnackbar(msg) }
+            },
+        )
+    }
+
+    if (showPinDialog) {
+        PinDialog(
+            onDismiss = { showPinDialog = false },
+            onSuccess = {
+                showPinDialog = false
+                scope.launch {
+                    settings.clearPairing()
+                    onResetPair()
+                }
             },
         )
     }

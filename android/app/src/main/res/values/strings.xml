@@ -69,6 +69,18 @@
     <string name="cmd_free_pass_start_body">家长开了限免活动 %1$d 分钟, 这段时间消费不扣 token。</string>
     <string name="cmd_free_pass_end_title">限免活动结束</string>
     <string name="cmd_free_pass_end_body">限免活动已结束, token 扣费恢复正常。</string>
+    <string name="cmd_pin_set_title">家长 PIN 已设置</string>
+    <string name="cmd_pin_set_body">现在重新配对前要验证 PIN。3 次错锁定 30 分钟。</string>
+    <string name="cmd_pin_clear_title">家长 PIN 已清空</string>
+    <string name="cmd_pin_clear_body">不再需要 PIN, 重新配对直接可用。</string>
+
+    <!-- v0.5.14+ PinDialog -->
+    <string name="pin_dialog_title">请输入家长 PIN</string>
+    <string name="pin_dialog_hint">家长在后台设的 4-6 位数字 PIN</string>
+    <string name="pin_dialog_label">PIN</string>
+    <string name="pin_dialog_verify">验证</string>
+    <string name="pin_fail_remaining">PIN 错误, 还剩 %1$d 次机会</string>
+    <string name="pin_locked">已锁定, %1$d 分钟后再试</string>
 
     <!-- v0.5.5+ Dashboard mode + free_pass -->
     <string name="dash_mode_label_v2">当前模式</string>

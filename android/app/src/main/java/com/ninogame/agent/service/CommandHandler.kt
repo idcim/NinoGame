@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.ninogame.agent.R
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -49,8 +50,10 @@ class CommandHandler(
             "lock_device" -> handleLockDevice()
             "start_free_pass" -> handleStartFreePass(obj)
             "end_free_pass" -> handleEndFreePass()
-            "set_pin", "clear_pin", "request_status", "update_self" -> {
-                Log.d(TAG, "command $type not implemented in Stage 3b1, ignored")
+            "set_pin" -> handleSetPin(obj)
+            "clear_pin" -> handleClearPin()
+            "request_status", "update_self" -> {
+                Log.d(TAG, "command $type not implemented (Android-side TBD), ignored")
             }
             else -> Log.w(TAG, "unknown command type: $type")
         }
@@ -185,6 +188,39 @@ class CommandHandler(
         }
     }
 
+    // ── PIN ───────────────────────────────────────────────────────
+
+    private fun handleSetPin(payload: JsonObject?) {
+        val pin = payload?.get("pin")?.jsonPrimitive?.contentOrNull
+        if (pin.isNullOrBlank() || pin.length < 4) {
+            Log.w(TAG, "set_pin: PIN 无效 (空或 <4 位)")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val ok = PinManager.setPin(context, pin)
+            if (ok) {
+                notifyAgent(
+                    channel = CMD_CHANNEL,
+                    title = context.getString(R.string.cmd_pin_set_title),
+                    body = context.getString(R.string.cmd_pin_set_body),
+                    id = NID_PIN,
+                )
+            }
+        }
+    }
+
+    private fun handleClearPin() {
+        scope.launch(Dispatchers.IO) {
+            PinManager.clearPin(context)
+            notifyAgent(
+                channel = CMD_CHANNEL,
+                title = context.getString(R.string.cmd_pin_clear_title),
+                body = context.getString(R.string.cmd_pin_clear_body),
+                id = NID_PIN,
+            )
+        }
+    }
+
     // ── lifecycle ─────────────────────────────────────────────────
 
     fun reset() {
@@ -230,5 +266,6 @@ class CommandHandler(
         private const val NID_UNLOCK = 3001
         private const val NID_LOCK = 3002
         private const val NID_FREE_PASS = 3003
+        private const val NID_PIN = 3004
     }
 }
