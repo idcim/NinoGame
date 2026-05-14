@@ -47,6 +47,9 @@ android {
     }
     buildFeatures {
         compose = true
+        // AGP 8.0+ 默认关 BuildConfig 生成; 我们 net/Api.kt 用 BuildConfig.DEBUG
+        // 切换 HttpLoggingInterceptor 详细度, 必须开
+        buildConfig = true
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
