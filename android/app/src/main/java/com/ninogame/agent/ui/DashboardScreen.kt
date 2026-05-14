@@ -31,13 +31,11 @@ import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Accessibility
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -60,7 +58,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ninogame.agent.R
-import com.ninogame.agent.net.WsClient
 import com.ninogame.agent.ninoSettings
 import com.ninogame.agent.service.AccessibilityPermission
 import com.ninogame.agent.service.AgentState
@@ -74,20 +71,14 @@ import kotlinx.coroutines.launch
 @Composable
 fun DashboardScreen(
     windowSize: WindowSizeClass,
-    onResetPair: () -> Unit,
     onOpenTasks: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val settings = ninoSettings
     val scope = rememberCoroutineScope()
-    val backendUrl by settings.backendUrl.collectAsState(initial = null)
-    @Suppress("UNUSED_VARIABLE")
-    val agentToken by settings.agentToken.collectAsState(initial = null)
-    val deviceId by settings.deviceId.collectAsState(initial = null)
-    val childId by settings.childId.collectAsState(initial = null)
     val cachedBalance by settings.cachedBalance.collectAsState(initial = null)
 
     // v0.5.1+ 实时状态 (Service 写, UI 读)
-    val connState by AgentState.connection.collectAsState()
     val liveBalance by AgentState.walletBalance.collectAsState()
     val rulesCount by AgentState.rulesCount.collectAsState()
     val foregroundApp by ForegroundAppMonitor.foregroundApp.collectAsState()
@@ -98,9 +89,6 @@ fun DashboardScreen(
     // v0.5.7+ 申请游戏时间对话框 + Snackbar 反馈
     var showRequest by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
-    // v0.5.14+ 重新配对前 PIN 验证 (PIN 已设时)
-    val pinIsSet by settings.pinIsSet.collectAsState(initial = false)
-    var showPinDialog by remember { mutableStateOf(false) }
 
     // 优先实时余额, 没收到就用 DataStore 缓存
     val displayBalance = liveBalance ?: cachedBalance
@@ -138,10 +126,10 @@ fun DashboardScreen(
                 .padding(PaddingValues(horizontal = 16.dp, vertical = 24.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 头部: logo + 标题, 跟 NinoGame 品牌一致
+            // 头部: logo + 标题 + 右上角 ⚙ 设置入口 (连接状态/重新配对/关于 都在 Settings)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(vertical = 4.dp),
+                modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth(),
             ) {
                 Image(
                     painter = painterResource(id = com.ninogame.agent.R.mipmap.ic_launcher),
@@ -150,12 +138,19 @@ fun DashboardScreen(
                         .size(48.dp)
                         .clip(RoundedCornerShape(12.dp)),
                 )
-                Spacer(Modifier.height(0.dp))
                 Text(
                     "  " + stringResource(R.string.dash_title),
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f),
                 )
+                IconButton(onClick = onOpenSettings) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = stringResource(R.string.dash_settings_button),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             // v0.5.2+ 无障碍权限状态 — 没启用时高优先级提醒
@@ -180,39 +175,6 @@ fun DashboardScreen(
             // v0.5.5+ 模式徽章 + 限免倒计时
             if (mode != AgentState.Mode.Child || freePassUntilMs != null) {
                 ModeAndFreePassCard(mode = mode, freePassUntilMs = freePassUntilMs)
-            }
-
-            // 实时连接状态 + 后端 + IDs
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                ),
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ConnectionBadge(connState)
-                    if (!backendUrl.isNullOrBlank()) {
-                        Text(
-                            "Backend: ${backendUrl!!}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                    if (!childId.isNullOrBlank()) {
-                        Text(
-                            "Child: ${childId!!.take(8)}…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                    if (!deviceId.isNullOrBlank()) {
-                        Text(
-                            "Device: ${deviceId!!.take(8)}…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
-                }
             }
 
             // 余额卡 — 数字加大居中, 跟孩子心智里"剩多少 token"对齐
@@ -337,25 +299,6 @@ fun DashboardScreen(
             ) {
                 Text(stringResource(R.string.dash_tasks_button))
             }
-
-            // 操作行
-            OutlinedButton(
-                onClick = {
-                    // v0.5.14+: PIN 设了的话先弹验证, 防孩子点"重新配对"绕过监控
-                    if (pinIsSet) {
-                        showPinDialog = true
-                    } else {
-                        scope.launch {
-                            settings.clearPairing()
-                            onResetPair()
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Filled.Refresh, contentDescription = null)
-                Text("  " + stringResource(R.string.dash_reset_pair))
-            }
         }
 
         // SnackbarHost 浮在底部, 占用 Box 而不是 Column 区
@@ -372,19 +315,6 @@ fun DashboardScreen(
                 val msg = if (ok) ctx.getString(R.string.request_sent_ok)
                 else (errMsg ?: "发送失败")
                 scope.launch { snackbarHostState.showSnackbar(msg) }
-            },
-        )
-    }
-
-    if (showPinDialog) {
-        PinDialog(
-            onDismiss = { showPinDialog = false },
-            onSuccess = {
-                showPinDialog = false
-                scope.launch {
-                    settings.clearPairing()
-                    onResetPair()
-                }
             },
         )
     }
@@ -411,19 +341,19 @@ private fun RomGuidanceCard(
     })
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
                 stringResource(R.string.rom_guide_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF78350F),
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
             Text(
                 stringResource(R.string.rom_guide_body, vendorName),
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF78350F),
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
             OutlinedButton(onClick = onOpenAutostart, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.rom_guide_open_autostart))
@@ -436,7 +366,7 @@ private fun RomGuidanceCard(
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     stringResource(R.string.rom_guide_dismiss),
-                    color = Color(0xFF78350F),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
         }
@@ -450,9 +380,9 @@ private fun ModeAndFreePassCard(
     freePassUntilMs: Long?,
 ) {
     val (modeLabel, modeColor) = when (mode) {
-        AgentState.Mode.Lock -> stringResource(R.string.mode_lock) to Color(0xFFB91C1C)
-        AgentState.Mode.Parent -> stringResource(R.string.mode_parent) to Color(0xFF334155)
-        AgentState.Mode.Child -> stringResource(R.string.mode_child) to Color(0xFF16A34A)
+        AgentState.Mode.Lock -> stringResource(R.string.mode_lock) to MaterialTheme.colorScheme.error
+        AgentState.Mode.Parent -> stringResource(R.string.mode_parent) to MaterialTheme.colorScheme.onSurfaceVariant
+        AgentState.Mode.Child -> stringResource(R.string.mode_child) to MaterialTheme.colorScheme.secondary
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -478,7 +408,7 @@ private fun ModeAndFreePassCard(
                     stringResource(R.string.dash_free_pass_active),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFF59E0B),
+                    color = MaterialTheme.colorScheme.error,
                 )
                 Text(
                     stringResource(R.string.dash_free_pass_remaining, remainingMin),
@@ -496,13 +426,13 @@ private fun AccessibilityCard(enabled: Boolean, onOpenSettings: () -> Unit) {
     val (icon, color, msg) = if (enabled) {
         Triple(
             Icons.Filled.Accessibility,
-            Color(0xFF16A34A),
+            MaterialTheme.colorScheme.secondary,
             stringResource(R.string.a11y_status_enabled),
         )
     } else {
         Triple(
             Icons.Filled.Warning,
-            Color(0xFFF59E0B),
+            MaterialTheme.colorScheme.error,
             stringResource(R.string.a11y_status_disabled),
         )
     }
@@ -510,7 +440,7 @@ private fun AccessibilityCard(enabled: Boolean, onOpenSettings: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
             containerColor = if (enabled) MaterialTheme.colorScheme.surface
-            else Color(0xFFFEF3C7),
+            else MaterialTheme.colorScheme.errorContainer,
         ),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -521,14 +451,14 @@ private fun AccessibilityCard(enabled: Boolean, onOpenSettings: () -> Unit) {
                     text = "  $msg",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (enabled) MaterialTheme.colorScheme.onSurface else Color(0xFF78350F),
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
             if (!enabled) {
                 Text(
                     stringResource(R.string.a11y_explain),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF78350F),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
                 )
                 OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.a11y_open_settings))
@@ -538,40 +468,6 @@ private fun AccessibilityCard(enabled: Boolean, onOpenSettings: () -> Unit) {
     }
 }
 
-/** 连接状态徽章 — Open 绿点 / Connecting 黄环 / Disconnected 灰 / Failed 红. */
-@Composable
-private fun ConnectionBadge(state: WsClient.ConnectionState) {
-    val (icon, color, label) = when (state) {
-        is WsClient.ConnectionState.Open -> Triple(
-            Icons.Filled.CloudDone,
-            Color(0xFF16A34A),
-            stringResource(R.string.conn_open),
-        )
-        is WsClient.ConnectionState.Connecting -> Triple(
-            Icons.Filled.CloudQueue,
-            Color(0xFFF59E0B),
-            stringResource(R.string.conn_connecting),
-        )
-        is WsClient.ConnectionState.Disconnected -> Triple(
-            Icons.Filled.CloudOff,
-            MaterialTheme.colorScheme.onPrimaryContainer,
-            stringResource(R.string.conn_disconnected),
-        )
-        is WsClient.ConnectionState.Failed -> Triple(
-            Icons.Filled.CloudOff,
-            Color(0xFFB91C1C),
-            stringResource(R.string.conn_failed),
-        )
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, tint = color)
-        Spacer(Modifier.height(0.dp))
-        Text(
-            text = "  $label",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = color,
-        )
-    }
-}
+// v0.5.15: ConnectionBadge 移到 SettingsScreen.ConnectionRow — Dashboard 不再显示
+// 连接状态卡片以简化孩子端 UI (孩子不需要看 backend URL / ID 等运维信息).
 

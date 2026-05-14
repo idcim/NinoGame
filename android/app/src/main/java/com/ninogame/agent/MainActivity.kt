@@ -20,6 +20,7 @@ import com.ninogame.agent.service.AgentService
 import com.ninogame.agent.ui.DashboardScreen
 import com.ninogame.agent.ui.NinoTheme
 import com.ninogame.agent.ui.PairScreen
+import com.ninogame.agent.ui.SettingsScreen
 import com.ninogame.agent.ui.TasksScreen
 
 class MainActivity : ComponentActivity() {
@@ -35,14 +36,9 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     val nav = rememberNavController()
-                    // 起始页根据"是否已配对"决定. 用 settings flow 的初值;
-                    // 切换路由在各自 Screen 完成动作后调 nav.navigate.
                     val paired by ninoSettings.isPaired.collectAsState(initial = false)
                     val start = if (paired) Route.Dashboard else Route.Pair
 
-                    // paired ↔ AgentService 联动: 已配对就启 Service, 反之停.
-                    // 用 LaunchedEffect(paired) 让配对状态变化时切. ServiceCompat
-                    // 自身防重复 start, 不会被多次启动.
                     val ctx = LocalContext.current
                     LaunchedEffect(paired) {
                         if (paired) AgentService.start(ctx)
@@ -63,18 +59,25 @@ class MainActivity : ComponentActivity() {
                         composable(Route.Dashboard) {
                             DashboardScreen(
                                 windowSize = windowSize,
-                                onResetPair = {
-                                    nav.navigate(Route.Pair) {
-                                        popUpTo(Route.Dashboard) { inclusive = true }
-                                    }
-                                },
                                 onOpenTasks = { nav.navigate(Route.Tasks) },
+                                onOpenSettings = { nav.navigate(Route.Settings) },
                             )
                         }
                         composable(Route.Tasks) {
                             TasksScreen(
                                 windowSize = windowSize,
                                 onBack = { nav.popBackStack() },
+                            )
+                        }
+                        composable(Route.Settings) {
+                            SettingsScreen(
+                                windowSize = windowSize,
+                                onBack = { nav.popBackStack() },
+                                onResetPair = {
+                                    nav.navigate(Route.Pair) {
+                                        popUpTo(Route.Dashboard) { inclusive = true }
+                                    }
+                                },
                             )
                         }
                     }
@@ -88,4 +91,5 @@ private object Route {
     const val Pair = "pair"
     const val Dashboard = "dashboard"
     const val Tasks = "tasks"
+    const val Settings = "settings"
 }

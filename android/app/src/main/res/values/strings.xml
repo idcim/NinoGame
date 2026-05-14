@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NinoGame Agent</string>
+    <string name="app_name">NinoGame</string>
 
     <!-- 配对页 -->
     <string name="pair_title">配对家长后台</string>
@@ -48,7 +48,7 @@
     <string name="a11y_status_enabled">无障碍已启用</string>
     <string name="a11y_status_disabled">无障碍未启用 — 监控不会工作</string>
     <string name="a11y_open_settings">去启用</string>
-    <string name="a11y_explain">在系统设置 → 无障碍 → 已安装的服务 中找到 NinoGame Agent, 开启开关.</string>
+    <string name="a11y_explain">在系统设置 → 无障碍 → 已安装的服务 中找到 NinoGame, 开启开关.</string>
     <string name="dash_foreground_now">当前前台</string>
     <string name="dash_segments_pending">缓冲 segments</string>
 
@@ -103,7 +103,7 @@
 
     <!-- v0.5.11+ 国内 ROM 后台引导 -->
     <string name="rom_guide_title">需要允许后台运行</string>
-    <string name="rom_guide_body">检测到 %1$s 系统. 这类系统默认会偷偷杀掉后台 Agent, 导致监控失效. 请点下面两个按钮分别配:\n• 自启动管理: 把 NinoGame Agent 加白名单\n• 电池优化: 忽略 NinoGame (允许后台耗电)</string>
+    <string name="rom_guide_body">检测到 %1$s 系统. 这类系统默认会偷偷杀掉后台 NinoGame, 导致监控失效. 请点下面两个按钮分别配:\n• 自启动管理: 把 NinoGame 加白名单\n• 电池优化: 忽略 NinoGame (允许后台耗电)</string>
     <string name="rom_guide_open_autostart">打开自启动管理</string>
     <string name="rom_guide_request_battery">允许后台耗电</string>
     <string name="rom_guide_dismiss">我已配好, 别再提醒</string>
@@ -113,6 +113,19 @@
     <string name="vendor_vivo">vivo (OriginOS/FunTouchOS)</string>
     <string name="vendor_oneplus">OnePlus</string>
     <string name="vendor_meizu">魅族</string>
+
+    <!-- v0.5.15+ 设置页 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_version_label">应用版本</string>
+    <string name="dash_settings_button">设置</string>
+    <!-- v0.5.15+ 关于我们 -->
+    <string name="dash_about_button">关于</string>
+    <string name="about_project_name">NinoGame</string>
+    <string name="about_tagline">家长控制 + 自我管理培养</string>
+    <string name="about_blurb">一个能「逐步退场」的脚手架: 帮孩子在结构里学会自我管理, 而不是把孩子永远关在系统里。\n\nToken = 屏幕时间, 可以挣、可以申请、可以协商。\n规则透明, 调账可见, 退出权交还给成长。</string>
+    <string name="about_project_url">https://github.com/idcim/NinoGame</string>
+    <string name="about_visit_github">访问 GitHub</string>
+    <string name="about_close">关闭</string>
 
     <!-- v0.5.8+ 任务页 -->
     <string name="dash_tasks_button">任务清单 / 申报</string>

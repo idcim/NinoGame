@@ -223,7 +223,7 @@ private fun ResponsibilityRow(
         Icon(
             imageVector = if (checked) Icons.Filled.CheckBox else Icons.Filled.CheckBoxOutlineBlank,
             contentDescription = null,
-            tint = if (checked) Color(0xFF16A34A) else MaterialTheme.colorScheme.outline,
+            tint = if (checked) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline,
             modifier = Modifier.padding(end = 12.dp),
         )
         Text(
