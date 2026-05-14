@@ -46,6 +46,18 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 3b1 (v0.5.5+, command 接收 + mode 状态机)
+- **CommandHandler** singleton — 跟 Windows agent main.py._handle_command 同语义, 处理 server 推命令:
+  - `temporary_unlock {rule_ids|rule_id, duration_seconds|duration_minutes}` → 加 RulesCache.unlockedIds + 各 rule 各起 expiry 协程
+  - `lock_device {}` → `AgentState.setMode(Lock)` + 通知 (Android 没法强制锁屏, 仅记标志)
+  - `start_free_pass {duration_minutes}` → AgentState.freePassUntilMs + 定时 expire
+  - `end_free_pass` → 清标志
+  - 通知走独立 channel `agent_command` (跟 block channel + service channel 三套分开)
+- **pending_commands 回放**: AgentService.onHelloAck 把 server 推的 pending 数组喂 CommandHandler.handlePending. server 已过滤 1 小时前的, 不会"半夜批准早上才生效"
+- **RuleEngine 不查 free_pass** — CLAUDE.md §7.5: 限免期间消费类应用照拦, 只是 token 不扣. 跟 Windows agent 一致.
+- AgentState 扩展: `mode` (Child/Parent/Lock) + `freePassUntilMs` StateFlow; Dashboard 加 `ModeAndFreePassCard` (仅非 Child 或限免活跃时显示)
+- **见**: `service/CommandHandler.kt`, AgentService.handleMessage 新 case "command"
+
 ### Android Agent Stage 3a (v0.5.4+, 规则匹配 + 拦截 + block 事件)
 - **RulesCache** singleton + `RuleEngine`: 从 hello_ack.rules / rules_update 反序列化, 移植 Windows agent core/rule_engine.py — matcher_logic AND/OR + 5 个 op (equals/iequals/contains/icontains/regex) + exclude_processes + schedule.windows 时间窗 (跨午夜拆段 OR)
 - **跨端 simplification**: 所有 matcher.field (process_name / exe_path / window_title) 在 Android 都对 packageName 匹配. 关键词 "pvz" / "plantsvszombies" / "douyin" 等 ASCII 规则两端通用; 中文窗口标题规则 Android 不命中是已知限制 (Stage 4 加 platform 字段)

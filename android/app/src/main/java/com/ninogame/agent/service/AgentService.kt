@@ -63,6 +63,7 @@ class AgentService : Service() {
     private var heartbeatJob: Job? = null
     private var usageReporter: UsageReporter? = null
     private var unknownAppsReporter: UnknownAppsReporter? = null
+    private var commandHandler: CommandHandler? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -73,6 +74,7 @@ class AgentService : Service() {
         currentWs = wsClient  // 暴露给 AccessibilityService 等组件
         usageReporter = UsageReporter(scope, wsClient!!, Settings.from(this))
         unknownAppsReporter = UnknownAppsReporter(scope, wsClient!!, applicationContext)
+        commandHandler = CommandHandler(scope, applicationContext)
 
         // v0.5.3+ 启动时从 DataStore 把 CategoryCache 恢复回内存
         scope.launch { CategoryCache.load(this@AgentService) }
@@ -191,10 +193,24 @@ class AgentService : Service() {
             "wallet_update" -> onWalletUpdate(msg.payload)
             "rules_update" -> onRulesUpdate(msg.payload)
             "app_categories_update" -> onAppCategoriesUpdate(msg.payload)
+            "command" -> onCommand(msg.payload)
             "error" -> Log.w(TAG, "server error: ${msg.payload}")
-            // Stage 3 会加: command / settings_update / tasks_update / ...
-            else -> Log.d(TAG, "msg ignored (Stage 2c): ${msg.type}")
+            // Stage 3c+ 会加: settings_update / tasks_update / ...
+            else -> Log.d(TAG, "msg ignored (Stage 3b1): ${msg.type}")
         }
+    }
+
+    /** 实时 server push command. 单条 (跟 pending_commands batch 区分).
+     *  server 端 (backend/src/ws/agent.ts) pushToDevice 时 envelope 是
+     *  {type:"command", payload:{ command_type, ... 各 cmd 自己的字段 }} 或者
+     *  老格式 {type:"command", payload:{id, command_type, payload:{...}}}. 兼容两种. */
+    private fun onCommand(payload: JsonElement?) {
+        val obj = payload as? JsonObject ?: return
+        val cmdType = obj["command_type"]?.jsonPrimitive?.contentOrNull
+        val cmdId = obj["id"]?.jsonPrimitive?.contentOrNull
+        // 内嵌 payload (v0.4+ server 形态) vs 平铺 (legacy)
+        val innerPayload = obj["payload"] ?: obj
+        commandHandler?.handle(cmdType, innerPayload, cmdId)
     }
 
     private fun onAppCategoriesUpdate(payload: JsonElement?) {
@@ -227,7 +243,11 @@ class AgentService : Service() {
         val obj = payload as? JsonObject ?: return
         val balance = runCatching { obj["wallet_balance"]?.jsonPrimitive?.intOrNull }.getOrNull()
         val rulesArr = runCatching { obj["rules"]?.jsonArray }.getOrNull()
-        Log.i(TAG, "hello_ack: balance=$balance rules=${rulesArr?.size}")
+        val pendingCmds = runCatching { obj["pending_commands"]?.jsonArray }.getOrNull()
+        Log.i(
+            TAG,
+            "hello_ack: balance=$balance rules=${rulesArr?.size} pending_cmds=${pendingCmds?.size}",
+        )
         AgentState.onHelloAck()
         if (balance != null) {
             AgentState.onWalletBalance(balance)
@@ -237,6 +257,10 @@ class AgentService : Service() {
             RulesCache.setFromJsonArray(rulesArr)
             AgentState.onRulesCount(rulesArr.size)
         }
+        // v0.5.5+ 重连后回放 server 积压的命令 (温柔的: server 已经过滤掉 1 小时
+        // 前的, 见 backend/src/ws/agent.ts onHello, 不会出现"半夜批准了 30min
+        // 解锁早上才生效"这种破事)
+        commandHandler?.handlePending(pendingCmds)
     }
 
     private fun onWalletUpdate(payload: JsonElement?) {
@@ -266,6 +290,7 @@ class AgentService : Service() {
         Log.i(TAG, "AgentService onDestroy")
         usageReporter?.stop()
         unknownAppsReporter?.stop()
+        commandHandler?.reset()
         ForegroundAppMonitor.reset()
         RulesCache.reset()
         AgentState.reset()

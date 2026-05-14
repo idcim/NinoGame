@@ -1397,10 +1397,18 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 - `BlockNotifier`: 独立 channel "block" (IMPORTANCE_HIGH 红色) 跟 Service 常驻通知分开. 同 pkg 5 秒内去重 (内存 LRU).
 - `AgentService.sendEvent` companion 静态方法 — `currentWs` volatile 引用让 AccessibilityService 上报 block 事件: `{type:event, payload:{event_type:block, payload:{rule_id, rule_name, process_name, matched_value, action}}}`, 跟 Windows agent 协议一致. server `onEvent` publishToParent 让家长后台 EventFeed 立刻看到.
 
-**Stage 3b (下一站)**:
-- Command 接收 (`temporary_unlock` / `lock_device` / `start_free_pass` / `set_pin`) + 应用临时解锁状态 (RulesCache.unlockedIds)
-- Token 经济本地缓存 + token_tick 上报 (child 模式每分钟 tick)
-- 申请游戏时间 UI (`unlock_request` WS 消息)
+**Stage 3b1 (v0.5.5, 已落)**:
+- `CommandHandler` 跨 Service singleton (跟 Windows agent `main.py._handle_command` 同语义): `temporary_unlock` / `lock_device` / `start_free_pass` / `end_free_pass`. `set_pin` / `clear_pin` / `request_status` / `update_self` 在 3c+ 加.
+- **temporary_unlock**: 兼容 `rule_ids` 数组 + 老 `rule_id` 单数; `duration_seconds` 优先 `duration_minutes` 兜底. 加到 `RulesCache.unlockedIds` (RuleEngine match 时跳过), 每个 rule 各起一个 expiry 协程 `delay → 从 set 移除`. 多 unlock 合并入 set, 同 rule 重新 unlock 取消旧 expiry job.
+- **lock_device**: `AgentState.setMode(Lock)` + 通知. Android 没法强制锁屏 (没那种权限), Stage 3c PIN 验证 + Dashboard 强制覆盖时再做真"锁".
+- **start_free_pass**: `AgentState.setFreePassUntil(now + mins * 60_000)` + 定时器 mins 后自动 expire. **RuleEngine 不查 free_pass — CLAUDE.md §7.5: 限免期间消费类应用照拦, 只是 token 不扣**.
+- **pending_commands 回放**: hello_ack.pending_commands 数组也走 CommandHandler.handlePending. server 已经过滤掉 1 小时前的 (backend/src/ws/agent.ts onHello), 不会出现"半夜批准早上才生效"问题.
+- Command 通知独立 channel `agent_command` (IMPORTANCE_DEFAULT), 跟 block channel 分开.
+- `AgentState` 扩展: `mode` (Child/Parent/Lock) + `freePassUntilMs` StateFlow. Dashboard 加 `ModeAndFreePassCard` (仅非 Child 或限免活跃时显示, 否则不占屏).
+
+**Stage 3b2 (下一站)**:
+- Token 经济本地缓存 + `token_tick` 上报 (child 模式每分钟 tick → server 单一权威扣分, 决策 #34)
+- 申请游戏时间 UI (Compose 自然语言对话框 → `unlock_request` WS 消息 → 家长后台批准 → 收 temporary_unlock command)
 - 责任清单 / 任务申报 UI
 
 **Stage 3**:
@@ -1938,7 +1946,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c+3a 已落 (v0.5.0~v0.5.4, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report + unknown_apps LLM 分类 + 开机自启 + **规则匹配 + 拦截 + block 事件上报**. token 经济 / 申请审批 / 任务 UI 在 Stage 3b 推进.
+- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c+3a+3b1 已落 (v0.5.0~v0.5.5, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report + unknown_apps LLM 分类 + 开机自启 + 规则匹配 + 拦截 + block 事件上报 + **command 接收 (temporary_unlock / lock_device / free_pass) + mode 状态机**. token 经济 / 申请审批 UI / 任务 UI 在 Stage 3b2 推进.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。

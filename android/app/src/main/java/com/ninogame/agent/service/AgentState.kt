@@ -33,13 +33,31 @@ object AgentState {
     private val _lastHelloAckMs = MutableStateFlow<Long?>(null)
     val lastHelloAckMs: StateFlow<Long?> = _lastHelloAckMs.asStateFlow()
 
+    /** v0.5.5+ 会话模式 (CLAUDE.md §4.2). Stage 3b1 暂只在 lock_device 命令到达
+     *  时切到 lock; Stage 3 完整状态机 (child/parent/lock 状态机 + PIN 验证) 之后加. */
+    enum class Mode { Child, Parent, Lock }
+    private val _mode = MutableStateFlow(Mode.Child)
+    val mode: StateFlow<Mode> = _mode.asStateFlow()
+
+    /** v0.5.5+ 限免活动到期时间 (epoch ms); null = 未启用. */
+    private val _freePassUntilMs = MutableStateFlow<Long?>(null)
+    val freePassUntilMs: StateFlow<Long?> = _freePassUntilMs.asStateFlow()
+
     fun onWalletBalance(value: Int) { _walletBalance.value = value }
     fun onRulesCount(value: Int) { _rulesCount.value = value }
     fun onHelloAck() { _lastHelloAckMs.value = System.currentTimeMillis() }
+    fun setMode(m: Mode) { _mode.value = m }
+    fun setFreePassUntil(ms: Long?) { _freePassUntilMs.value = ms }
+    fun isFreePassActive(): Boolean {
+        val t = _freePassUntilMs.value ?: return false
+        return t > System.currentTimeMillis()
+    }
     fun reset() {
         connection.value = WsClient.ConnectionState.Disconnected
         _walletBalance.value = null
         _rulesCount.value = null
         _lastHelloAckMs.value = null
+        _mode.value = Mode.Child
+        _freePassUntilMs.value = null
     }
 }

@@ -78,6 +78,8 @@ fun DashboardScreen(
     val rulesCount by AgentState.rulesCount.collectAsState()
     val foregroundApp by ForegroundAppMonitor.foregroundApp.collectAsState()
     val pendingSegments by ForegroundAppMonitor.pendingSegmentCount.collectAsState()
+    val mode by AgentState.mode.collectAsState()
+    val freePassUntilMs by AgentState.freePassUntilMs.collectAsState()
 
     // 优先实时余额, 没收到就用 DataStore 缓存
     val displayBalance = liveBalance ?: cachedBalance
@@ -121,6 +123,11 @@ fun DashboardScreen(
                 enabled = a11yEnabled,
                 onOpenSettings = { AccessibilityPermission.openSettings(ctx) },
             )
+
+            // v0.5.5+ 模式徽章 + 限免倒计时
+            if (mode != AgentState.Mode.Child || freePassUntilMs != null) {
+                ModeAndFreePassCard(mode = mode, freePassUntilMs = freePassUntilMs)
+            }
 
             // 实时连接状态 + 后端 + IDs
             Card(
@@ -259,6 +266,53 @@ fun DashboardScreen(
             ) {
                 Icon(Icons.Filled.Refresh, contentDescription = null)
                 Text("  " + stringResource(R.string.dash_reset_pair))
+            }
+        }
+    }
+}
+
+/** 模式 + 限免活动卡 — 仅在非 Child 或限免活跃时显示, Child + 无限免时不占屏幕. */
+@Composable
+private fun ModeAndFreePassCard(
+    mode: AgentState.Mode,
+    freePassUntilMs: Long?,
+) {
+    val (modeLabel, modeColor) = when (mode) {
+        AgentState.Mode.Lock -> stringResource(R.string.mode_lock) to Color(0xFFB91C1C)
+        AgentState.Mode.Parent -> stringResource(R.string.mode_parent) to Color(0xFF334155)
+        AgentState.Mode.Child -> stringResource(R.string.mode_child) to Color(0xFF16A34A)
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                stringResource(R.string.dash_mode_label_v2),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                modeLabel,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = modeColor,
+            )
+            if (freePassUntilMs != null) {
+                val remainingMin = ((freePassUntilMs - System.currentTimeMillis()) / 60_000L)
+                    .toInt().coerceAtLeast(0)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.dash_free_pass_active),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFF59E0B),
+                )
+                Text(
+                    stringResource(R.string.dash_free_pass_remaining, remainingMin),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

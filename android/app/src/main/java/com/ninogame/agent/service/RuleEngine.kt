@@ -17,7 +17,9 @@ object RuleEngine {
         val matchedValue: String,
     )
 
-    /** 对单个 pkg 跑全部规则 — 返回所有命中的规则 (可能多条). */
+    /** 对单个 pkg 跑全部规则 — 返回所有命中的规则 (可能多条).
+     *  注: free_pass 期间规则**仍然生效** (CLAUDE.md §7.5: 限免活动期间消费类
+     *  应用照拦, 只是 token 不扣). 跟 Windows agent 一致, RuleEngine 不看 free_pass. */
     fun match(packageName: String): List<Hit> {
         if (packageName.isBlank()) return emptyList()
         val rules = RulesCache.snapshot()
