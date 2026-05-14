@@ -5,13 +5,33 @@
  *   - token_ledger (扣分/挣分按 reason 聚合)
  *
  * 端点:
- *   GET  /api/children/:id/reports/daily?days=14
- *        每天 active_seconds + tokens_consumed + session_count
+ *   GET  /api/children/:id/reports/daily?days=14&granularity=day|week|month
+ *        v0.4.4+: granularity 控制桶宽
+ *          day   每天    最多 90 天  (向后兼容默认)
+ *          week  每周    最多 26 周  ISO 周, 周一开始
+ *          month 每月    最多 24 月
+ *        返回字段统一: {period_start, period_end, active_seconds,
+ *                       tokens_consumed, session_count}
  *   GET  /api/children/:id/reports/top-apps?days=14&limit=10
  *        Top N 应用按 active_seconds 排序
  */
 import type { FastifyInstance } from "fastify";
 import { pool } from "../db.js";
+
+type Granularity = "day" | "week" | "month";
+
+interface GranularityConfig {
+  trunc: string;       // PG date_trunc 单位
+  step: string;        // PG interval 步长
+  max_periods: number; // 上限
+  label_format: string;
+}
+
+const GRANULARITY_CONFIG: Record<Granularity, GranularityConfig> = {
+  day:   { trunc: "day",   step: "1 day",   max_periods: 90, label_format: "YYYY-MM-DD" },
+  week:  { trunc: "week",  step: "1 week",  max_periods: 26, label_format: "YYYY-WW" },
+  month: { trunc: "month", step: "1 month", max_periods: 24, label_format: "YYYY-MM" },
+};
 
 async function ensureOwnership(parent_id: string, child_id: string): Promise<boolean> {
   const r = await pool.query<{ count: string }>(
@@ -23,77 +43,119 @@ async function ensureOwnership(parent_id: string, child_id: string): Promise<boo
 }
 
 export async function registerReportRoutes(app: FastifyInstance) {
-  // ── 每日聚合 ─────────────────────────────────────────────
+  // ── 时序聚合 (day / week / month) ────────────────────────
   app.get(
     "/api/children/:id/reports/daily",
     { preHandler: app.parentAuth },
     async (req, reply) => {
       const child_id = (req.params as { id: string }).id;
       const q = (req.query ?? {}) as Record<string, string>;
-      const days = Math.max(1, Math.min(90, Number(q.days) || 14));
+      const granRaw = (q.granularity || "day").toLowerCase();
+      if (!["day", "week", "month"].includes(granRaw)) {
+        return reply.badRequest("granularity 必须是 day / week / month");
+      }
+      const granularity = granRaw as Granularity;
+      const cfg = GRANULARITY_CONFIG[granularity];
+      // periods (新参数) 优先, days 旧名向后兼容
+      const reqPeriods = Number(q.periods) || Number(q.days) || 14;
+      const periods = Math.max(1, Math.min(cfg.max_periods, reqPeriods));
       if (!(await ensureOwnership(req.parent!.sub, child_id))) {
         return reply.forbidden("孩子不属于当前家长");
       }
-      // active_seconds: 每天聚合 (app_sessions 已经是 5min 上报后的历史)
       // 注意 ::date::text — node-pg 把裸 PG date 反序列化为 JS Date 对象, 用 Date 当 Map key
       // 会让 sessions/ledger 同日合并失败 + 后续 .localeCompare 报 TypeError, 强制 text。
+      //
+      // 时间窗口算法: 取 "本期开始 - (periods-1) 个步长", 让 cohort 完整覆盖 N 期
+      // 例 weekly N=4: from = date_trunc('week', NOW()) - INTERVAL '3 weeks'
       const sessions = await pool.query<{
-        date: string;
+        period_start: string;
         active_seconds: string;
         session_count: string;
       }>(
-        `SELECT (started_at::date)::text AS date,
+        `SELECT date_trunc($3, started_at)::date::text AS period_start,
                 COALESCE(SUM(active_seconds), 0)::text AS active_seconds,
                 COUNT(*)::text AS session_count
            FROM "NinoGame".app_sessions
           WHERE child_id = $1
-            AND started_at >= CURRENT_DATE - ($2::int - 1 || ' days')::interval
-          GROUP BY started_at::date
-          ORDER BY started_at::date`,
-        [child_id, days],
+            AND started_at >= date_trunc($3, NOW()) - ($2::int - 1 || ' ' || $4)::interval
+          GROUP BY date_trunc($3, started_at)
+          ORDER BY date_trunc($3, started_at)`,
+        [child_id, periods, cfg.trunc, cfg.step],
       );
-      // tokens_consumed: 每天 app_consumption 累计 (server 单一权威 ledger)
-      const ledger = await pool.query<{ date: string; tokens_consumed: string }>(
-        `SELECT (l.occurred_at::date)::text AS date,
+      const ledger = await pool.query<{ period_start: string; tokens_consumed: string }>(
+        `SELECT date_trunc($3, l.occurred_at)::date::text AS period_start,
                 COALESCE(SUM(-l.delta), 0)::text AS tokens_consumed
            FROM "NinoGame".token_ledger l
            JOIN "NinoGame".wallets w ON w.id = l.wallet_id
           WHERE w.child_id = $1
             AND l.reason = 'app_consumption'
-            AND l.occurred_at >= CURRENT_DATE - ($2::int - 1 || ' days')::interval
-          GROUP BY l.occurred_at::date`,
-        [child_id, days],
+            AND l.occurred_at >= date_trunc($3, NOW()) - ($2::int - 1 || ' ' || $4)::interval
+          GROUP BY date_trunc($3, l.occurred_at)`,
+        [child_id, periods, cfg.trunc, cfg.step],
       );
 
-      // 合并 sessions + ledger 到同一日期 map, 补齐没数据的日子
-      const map = new Map<
-        string,
-        { date: string; active_seconds: number; tokens_consumed: number; session_count: number }
-      >();
+      // 合并到 (period_start) Map, 补 0
+      interface Row {
+        period_start: string;
+        period_end: string;
+        active_seconds: number;
+        tokens_consumed: number;
+        session_count: number;
+      }
+      const map = new Map<string, Row>();
+      const periodEnd = (start: string): string => {
+        const d = new Date(start + "T00:00:00Z");
+        if (granularity === "day") {
+          // 单日, end == start
+          return start;
+        }
+        if (granularity === "week") {
+          d.setUTCDate(d.getUTCDate() + 6);
+        } else {
+          // month: 月末
+          d.setUTCMonth(d.getUTCMonth() + 1);
+          d.setUTCDate(0);
+        }
+        return d.toISOString().slice(0, 10);
+      };
       for (const r of sessions.rows) {
-        map.set(r.date, {
-          date: r.date,
+        map.set(r.period_start, {
+          period_start: r.period_start,
+          period_end: periodEnd(r.period_start),
           active_seconds: Number(r.active_seconds),
           tokens_consumed: 0,
           session_count: Number(r.session_count),
         });
       }
       for (const r of ledger.rows) {
-        const existing = map.get(r.date);
-        if (existing) {
-          existing.tokens_consumed = Number(r.tokens_consumed);
-        } else {
-          map.set(r.date, {
-            date: r.date,
-            active_seconds: 0,
-            tokens_consumed: Number(r.tokens_consumed),
-            session_count: 0,
-          });
-        }
+        const ex = map.get(r.period_start);
+        if (ex) ex.tokens_consumed = Number(r.tokens_consumed);
+        else map.set(r.period_start, {
+          period_start: r.period_start,
+          period_end: periodEnd(r.period_start),
+          active_seconds: 0,
+          tokens_consumed: Number(r.tokens_consumed),
+          session_count: 0,
+        });
       }
-      // 按日期升序
-      const out = Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-      return { days: out };
+      const out = Array.from(map.values()).sort((a, b) =>
+        a.period_start.localeCompare(b.period_start),
+      );
+
+      // 兼容旧前端: 同时返回 days 字段 + period_start 别名 date,
+      // 新前端用 periods 拿规范字段
+      return {
+        granularity,
+        periods,
+        days: out.map((r) => ({
+          date: r.period_start,         // legacy alias
+          period_start: r.period_start,
+          period_end: r.period_end,
+          active_seconds: r.active_seconds,
+          tokens_consumed: r.tokens_consumed,
+          session_count: r.session_count,
+        })),
+      };
     },
   );
 

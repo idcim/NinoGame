@@ -46,6 +46,15 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### 日/周/月报表 + 周期对比 (v0.4.4+, P4 完成)
+- **桶宽 toggle**: /reports 顶部三档「日 · 周 · 月」按钮, 切换后数量预设自动跳到中档 (日 30 / 周 8 / 月 6); 数量按钮自适应 (日 14/30/90, 周 4/8/12, 月 3/6/12)
+- **后端聚合**: `/api/children/:id/reports/daily?granularity=day|week|month&periods=N` 走 PG `date_trunc`, 一行 SQL 桶聚 + ledger 同桶宽对齐; periods 上限 day 90 / week 26 / month 24
+- **周期对比卡**: 本 N {单位} vs 上一个等长期, active 时长 + 扣 token 显示 % 变化 + 箭头 (降绿升黄 — 孩子用得少对家长就是"好"); 上期数据是同请求一次拉 2N 段切前后两半算出, 不多发请求
+- **柱状图**: tooltip 按桶宽展示 "起止日期范围" (周/月时); X 轴 label 按桶宽变 (日 MM-DD / 周 MM/DD 起 / 月 YYYY-MM)
+- **导出联动**: 底部数据导出按钮智能把 periods+granularity 换算成 days 喂老 export API (周→×7, 月→×30, 上限 365)
+- **CLAUDE.md §15.5 Forecast / §15.6 周回顾**: 家长侧的原料 — 让家长一眼看出 "是不是越用越多 / 这周是不是比上周好"
+- **见**: `backend/src/routes/reports.ts`, `frontend/src/pages/Reports.tsx` `PeriodCompareCard`
+
 ### 数据导出 (v0.4.3+, P4 完成)
 - **位置**: 家长后台 /reports 页底部"数据导出"区
 - **5 类 × 2 格式**: 每日聚合 / Token 账本 / 应用使用时段 / 事件日志 / 任务申报, 每类有 [CSV] [JSON] 两个下载按钮

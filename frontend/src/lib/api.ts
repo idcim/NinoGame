@@ -167,10 +167,18 @@ export const api = {
       { method: "POST" },
     ),
 
-  // ── reports (P3 使用时长统计) ──────────────────────────────
-  getDailyReport: (child_id: string, days = 14) =>
-    request<{ days: DailyReportRow[] }>(
-      `/api/children/${child_id}/reports/daily?days=${days}`,
+  // ── reports (P3 使用时长统计; v0.4.4 加日/周/月切换) ────────
+  getDailyReport: (
+    child_id: string,
+    periods = 14,
+    granularity: Granularity = "day",
+  ) =>
+    request<{
+      granularity: Granularity;
+      periods: number;
+      days: DailyReportRow[];
+    }>(
+      `/api/children/${child_id}/reports/daily?periods=${periods}&granularity=${granularity}`,
     ),
   getTopAppsReport: (child_id: string, days = 14, limit = 10) =>
     request<{ apps: TopAppRow[] }>(
@@ -576,8 +584,14 @@ export interface ChildSettingsForm {
 // LLM 配置类型 / Agent 升级包类型 已经搬到 admin/src/lib/api.ts
 
 // ── reports ───────────────────────────────────────────────────
+export type Granularity = "day" | "week" | "month";
+
+/** 一行聚合数据 (按 granularity 决定桶宽).
+ *  date 是 legacy alias = period_start, 新代码请用 period_start. */
 export interface DailyReportRow {
   date: string;
+  period_start: string;
+  period_end: string;
   active_seconds: number;
   tokens_consumed: number;
   session_count: number;

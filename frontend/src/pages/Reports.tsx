@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
   BarChart3,
   Calendar,
   ClipboardList,
@@ -12,18 +15,61 @@ import {
   Monitor,
   RefreshCw,
 } from "lucide-react";
-import { api, ApiError, type Child, type DailyReportRow, type TopAppRow } from "../lib/api";
+import {
+  api,
+  ApiError,
+  type Child,
+  type DailyReportRow,
+  type Granularity,
+  type TopAppRow,
+} from "../lib/api";
 import { getToken } from "../lib/auth";
 import { categoryLabel, formatDuration } from "../lib/labels";
+
+// 各 granularity 的"数量"档位预设 (UI 按钮组).
+// day:   2 周 / 1 月 / 3 月  → /reports/daily 的常规视野
+// week:  4 周 / 8 周 / 12 周 → 一个月到一个季度
+// month: 3 月 / 6 月 / 12 月 → 一个季度到一年
+const PERIOD_PRESETS: Record<Granularity, number[]> = {
+  day:   [14, 30, 90],
+  week:  [4, 8, 12],
+  month: [3, 6, 12],
+};
+
+const GRANULARITY_LABELS: Record<Granularity, string> = {
+  day:   "日",
+  week:  "周",
+  month: "月",
+};
+
+const PERIOD_UNIT: Record<Granularity, string> = {
+  day:   "天",
+  week:  "周",
+  month: "月",
+};
 
 export default function Reports() {
   const [children, setChildren] = useState<Child[]>([]);
   const [activeChild, setActiveChild] = useState<string>("");
-  const [days, setDays] = useState<number>(14);
+  const [granularity, setGranularity] = useState<Granularity>("day");
+  const [periods, setPeriods] = useState<number>(14);
   const [daily, setDaily] = useState<DailyReportRow[]>([]);
+  // 上一个等长期 (用于"周期对比"卡): granularity=week periods=4 时,
+  // 拉 periods=8 然后切前后两段
+  const [prevPeriod, setPrevPeriod] = useState<{
+    active_seconds: number;
+    tokens_consumed: number;
+  } | null>(null);
   const [topApps, setTopApps] = useState<TopAppRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  // 切 granularity 时把 periods 重置到该 granularity 的中档值
+  function onGranularityChange(g: Granularity) {
+    setGranularity(g);
+    const presets = PERIOD_PRESETS[g];
+    setPeriods(presets[Math.floor(presets.length / 2)]);
+  }
 
   useEffect(() => {
     (async () => {
@@ -44,11 +90,34 @@ export default function Reports() {
     setLoading(true);
     setErr(null);
     try {
+      // 一次拉 2*periods, 前一半算"上一个相同长度期", 后一半显示
+      // (例 periods=4 周 → 拉 8 周, 切前 4 / 后 4 比较)
+      const expanded = Math.min(
+        PERIOD_PRESETS[granularity][PERIOD_PRESETS[granularity].length - 1] * 2,
+        periods * 2,
+      );
+      // top-apps 仍按当前 periods 转 days 估算 (周→7×N, 月→30×N)
+      const days = granularity === "day" ? periods
+                  : granularity === "week" ? periods * 7
+                  : Math.min(90, periods * 30);
       const [d, a] = await Promise.all([
-        api.getDailyReport(activeChild, days),
-        api.getTopAppsReport(activeChild, days, 10),
+        api.getDailyReport(activeChild, expanded, granularity),
+        api.getTopAppsReport(activeChild, Math.min(90, days), 10),
       ]);
-      setDaily(d.days);
+      // 切前后两段 — server 已按 period_start 升序返
+      const total = d.days.length;
+      const splitAt = Math.max(0, total - periods);
+      const cur = d.days.slice(splitAt);
+      const prev = d.days.slice(0, splitAt);
+      setDaily(cur);
+      if (prev.length > 0) {
+        setPrevPeriod({
+          active_seconds: prev.reduce((s, r) => s + r.active_seconds, 0),
+          tokens_consumed: prev.reduce((s, r) => s + r.tokens_consumed, 0),
+        });
+      } else {
+        setPrevPeriod(null);
+      }
       setTopApps(a.apps);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "加载报表失败");
@@ -59,7 +128,7 @@ export default function Reports() {
 
   useEffect(() => {
     loadReports();
-  }, [activeChild, days]);
+  }, [activeChild, periods, granularity]);
 
   // 汇总统计
   const summary = useMemo(() => {
@@ -84,7 +153,7 @@ export default function Reports() {
             使用报表
           </h1>
           <p className="text-sm text-ink-dim mt-1">
-            最近 {days} 天每天 active 时长 + Top 应用排名
+            最近 {periods} {PERIOD_UNIT[granularity]} active 时长 + Top 应用排名 + 周期对比
           </p>
         </div>
         <button onClick={loadReports} className="btn-ghost" disabled={loading}>
@@ -93,7 +162,7 @@ export default function Reports() {
         </button>
       </div>
 
-      {/* 孩子 + 天数选择 */}
+      {/* 孩子 + 桶宽 + 数量 选择 */}
       <div className="flex gap-3 flex-wrap items-center">
         <select
           className="input max-w-xs"
@@ -106,19 +175,36 @@ export default function Reports() {
             </option>
           ))}
         </select>
+        <div className="flex items-center gap-1 rounded-md border border-border bg-bg-card p-0.5">
+          {(["day", "week", "month"] as Granularity[]).map((g) => (
+            <button
+              key={g}
+              onClick={() => onGranularityChange(g)}
+              className={
+                "px-3 py-1 rounded text-sm " +
+                (g === granularity
+                  ? "bg-brand text-white"
+                  : "text-ink-dim hover:text-ink")
+              }
+              title={`按${GRANULARITY_LABELS[g]}聚合`}
+            >
+              {GRANULARITY_LABELS[g]}
+            </button>
+          ))}
+        </div>
         <div className="flex gap-1">
-          {[7, 14, 30].map((n) => (
+          {PERIOD_PRESETS[granularity].map((n) => (
             <button
               key={n}
-              onClick={() => setDays(n)}
+              onClick={() => setPeriods(n)}
               className={
                 "px-3 py-1.5 rounded-md text-sm " +
-                (n === days
+                (n === periods
                   ? "bg-brand text-white"
                   : "bg-bg-card border border-border text-ink-dim hover:text-ink")
               }
             >
-              {n} 天
+              {n} {PERIOD_UNIT[granularity]}
             </button>
           ))}
         </div>
@@ -136,11 +222,17 @@ export default function Reports() {
 
       {activeChild && (
         <>
-          {/* 汇总 */}
-          <section>
+          {/* 汇总 + 周期对比 */}
+          <section className="space-y-3">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <SummaryCard label="总 active 时长" value={formatDuration(summary.totalActive)} />
-              <SummaryCard label="日均 active" value={formatDuration(summary.dailyAvg)} />
+              <SummaryCard
+                label={`总 active 时长 (${periods}${PERIOD_UNIT[granularity]})`}
+                value={formatDuration(summary.totalActive)}
+              />
+              <SummaryCard
+                label={`${PERIOD_UNIT[granularity]}均 active`}
+                value={formatDuration(summary.dailyAvg)}
+              />
               <SummaryCard
                 label="总扣 token"
                 value={`${summary.totalTokens}`}
@@ -148,12 +240,23 @@ export default function Reports() {
               />
               <SummaryCard label="会话段数" value={`${summary.totalSessions}`} />
             </div>
+            {prevPeriod && (
+              <PeriodCompareCard
+                granularity={granularity}
+                periods={periods}
+                cur={{
+                  active_seconds: summary.totalActive,
+                  tokens_consumed: summary.totalTokens,
+                }}
+                prev={prevPeriod}
+              />
+            )}
           </section>
 
-          {/* 每日柱状图 */}
+          {/* 每{桶宽}柱状图 */}
           <section>
             <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3">
-              每日 active 分钟
+              每{GRANULARITY_LABELS[granularity]} active 分钟
             </h2>
             <div className="card p-5">
               {daily.length === 0 && !loading ? (
@@ -171,7 +274,11 @@ export default function Reports() {
                         <div
                           key={d.date}
                           className="flex flex-col items-center flex-1 min-w-[36px]"
-                          title={`${d.date}\n${minutes} 分钟 active\n-${d.tokens_consumed} token\n${d.session_count} 段`}
+                          title={
+                            granularity === "day"
+                              ? `${d.period_start}\n${minutes} 分钟 active\n-${d.tokens_consumed} token\n${d.session_count} 段`
+                              : `${d.period_start} ~ ${d.period_end}\n${minutes} 分钟 active\n-${d.tokens_consumed} token\n${d.session_count} 段`
+                          }
                         >
                           <div className="text-[10px] text-ink-dim mb-1">
                             {minutes > 0 ? `${minutes}` : ""}
@@ -183,7 +290,7 @@ export default function Reports() {
                             />
                           </div>
                           <div className="text-[10px] text-ink-light mt-1 font-mono">
-                            {formatDayLabel(d.date)}
+                            {formatPeriodLabel(d.period_start, granularity)}
                           </div>
                         </div>
                       );
@@ -194,13 +301,20 @@ export default function Reports() {
             </div>
           </section>
 
-          {/* 数据导出 */}
-          <ExportSection child_id={activeChild} days={days} />
+          {/* 数据导出 — 用当前视图换算成 days 喂 export API (export 仍只吃 days) */}
+          <ExportSection
+            child_id={activeChild}
+            days={
+              granularity === "day" ? periods
+              : granularity === "week" ? periods * 7
+              : Math.min(365, periods * 30)
+            }
+          />
 
           {/* Top 应用 */}
           <section>
             <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3">
-              Top 应用 (最近 {days} 天)
+              Top 应用 (最近 {periods} {PERIOD_UNIT[granularity]})
             </h2>
             <div className="card divide-y divide-border/60">
               {topApps.length === 0 && !loading ? (
@@ -416,4 +530,89 @@ function formatDayLabel(isoOrDate: string): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${m}-${day}`;
+}
+
+function formatPeriodLabel(isoOrDate: string, granularity: Granularity): string {
+  const d = new Date(isoOrDate);
+  if (Number.isNaN(d.getTime())) return isoOrDate;
+  if (granularity === "month") {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  if (granularity === "week") {
+    return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+  }
+  return formatDayLabel(isoOrDate);
+}
+
+/** 周期对比卡: 当前 vs 上一个相同长度期 (active 时长 + 扣 token), 显示变化 % + 箭头.
+ *  CLAUDE.md §15.5 Forecast / §15.6 周回顾的素材 — 让家长一眼看出"是不是越用越多". */
+function PeriodCompareCard({
+  granularity,
+  periods,
+  cur,
+  prev,
+}: {
+  granularity: Granularity;
+  periods: number;
+  cur: { active_seconds: number; tokens_consumed: number };
+  prev: { active_seconds: number; tokens_consumed: number };
+}) {
+  const unit = PERIOD_UNIT[granularity];
+  function pctChange(c: number, p: number): { pct: number; dir: "up" | "down" | "flat" } {
+    if (p === 0 && c === 0) return { pct: 0, dir: "flat" };
+    if (p === 0) return { pct: 100, dir: "up" };
+    const ratio = (c - p) / p;
+    if (Math.abs(ratio) < 0.02) return { pct: 0, dir: "flat" };
+    return { pct: Math.round(ratio * 100), dir: ratio > 0 ? "up" : "down" };
+  }
+  const active = pctChange(cur.active_seconds, prev.active_seconds);
+  const tokens = pctChange(cur.tokens_consumed, prev.tokens_consumed);
+
+  // active / tokens 都是 "降"对家长更舒服 (孩子用得少 = 好). 固定 down 绿 / up 黄.
+  function arrow(dir: "up" | "down" | "flat") {
+    if (dir === "flat") {
+      return { icon: <ArrowRight size={12} />, cls: "text-ink-light" };
+    }
+    if (dir === "up") return { icon: <ArrowUp size={12} />, cls: "text-warn" };
+    return { icon: <ArrowDown size={12} />, cls: "text-accent-600" };
+  }
+  const a = arrow(active.dir);
+  const t = arrow(tokens.dir);
+
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-ink-light mb-2 font-medium">
+        周期对比 · 本 {periods} {unit} vs 上 {periods} {unit}
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <div className="text-ink-dim text-xs mb-0.5">Active 时长</div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-bold text-ink">{formatDuration(cur.active_seconds)}</span>
+            <span className={`inline-flex items-center gap-0.5 text-xs ${a.cls}`}>
+              {a.icon}
+              {active.dir === "flat" ? "持平" : `${active.pct > 0 ? "+" : ""}${active.pct}%`}
+            </span>
+          </div>
+          <div className="text-[11px] text-ink-light">
+            上期 {formatDuration(prev.active_seconds)}
+          </div>
+        </div>
+        <div>
+          <div className="text-ink-dim text-xs mb-0.5 flex items-center gap-1">
+            <Gem size={11} className="text-warn" />
+            扣 token
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-bold text-ink">{cur.tokens_consumed}</span>
+            <span className={`inline-flex items-center gap-0.5 text-xs ${t.cls}`}>
+              {t.icon}
+              {tokens.dir === "flat" ? "持平" : `${tokens.pct > 0 ? "+" : ""}${tokens.pct}%`}
+            </span>
+          </div>
+          <div className="text-[11px] text-ink-light">上期 {prev.tokens_consumed}</div>
+        </div>
+      </div>
+    </div>
+  );
 }

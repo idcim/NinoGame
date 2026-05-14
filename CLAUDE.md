@@ -1873,7 +1873,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [ ] 应用特定信号检测（防刷 ③）
 - [x] ~~自动 maturity_mode 升级建议~~ (v0.4.2 完成): trust_level 升到 4/5 时 server 自动发"建议升档"事件 (Lv4 + strict/negotiable → 建议 advisory; Lv5 + advisory → 建议 self_regulated). 写 `events(maturity_upgrade_suggestion)` + 推家长浏览器 EventFeed + notifier (企微 + SMTP, info 级) + Dashboard ChildCard 横幅"一键应用 / 暂不升级". 30 天 cooldown (`children.last_maturity_suggestion_at`), 暂不升级用 `dismissed_maturity_target` 标记 (新 target 自动清). 详见 §22 决策 #43 + `backend/src/services/maturity_upgrade_suggester.ts`.
 - [x] ~~数据导出（CSV / JSON）~~ (v0.4.3 完成): 家长后台 /reports 页底部"数据导出"区, 5 类数据 (每日聚合 / token 账本 / 应用使用时段 / 事件日志 / 任务申报) × 2 格式 (CSV 带 UTF-8 BOM Excel 友好 / JSON 带 metadata). 时间范围跟 /reports 顶部 days (7/14/30) 联动; 路径 `GET /api/children/:id/export/:kind?format=csv|json&days=N` 或 `&from=YYYY-MM-DD&to=YYYY-MM-DD` 精确范围; 365 天上限防滥用. CLAUDE.md §1.1 透明可见的落地. 详见 `backend/src/routes/exports.ts`, `frontend/src/pages/Reports.tsx` ExportSection.
-- [ ] 周回顾 / 月回顾报表
+- [x] ~~周回顾 / 月回顾报表~~ (v0.4.4 完成): /reports 页加日/周/月三档桶宽 toggle, 桶宽切换时 periods 自动跳到该桶宽的中档预设 (日 14/30/90, 周 4/8/12, 月 3/6/12). 桶聚走 PG `date_trunc(granularity, ...)`. 顶部数量按钮 + "周期对比"卡 (本期 vs 上一个相同长度期, active 时长 + 扣 token 显示 % 变化 + 箭头: 降→绿/升→黄). 柱状图 tooltip 按桶宽展示 "起止日期范围"; Top 应用标题也跟随单位. 数据导出按钮智能把 periods+granularity 换算成 days 喂老 export API (周→×7, 月→×30, 上限 365). CLAUDE.md §15.5 Forecast / §15.6 周回顾的家长侧原料. 详见 `backend/src/routes/reports.ts` (granularity 分支), `frontend/src/pages/Reports.tsx` (PeriodCompareCard + formatPeriodLabel).
 - [ ] 屏幕使用时长统计（不是截屏，仅前台时间）
 
 ### P5 — 长期可选
