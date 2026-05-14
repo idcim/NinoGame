@@ -275,6 +275,10 @@ export const api = {
       { method: "POST" },
     ),
 
+  // Changelog (v0.4.9+) — 公开端点, 不强制 admin token
+  getChangelog: () =>
+    request<{ content: string; format: "markdown" }>("/api/changelog", {}, false),
+
   // Tenants
   listTenants: () => request<{ tenants: TenantRow[] }>("/api/admin/tenants"),
   resetTenantPassword: (id: string, password: string) =>

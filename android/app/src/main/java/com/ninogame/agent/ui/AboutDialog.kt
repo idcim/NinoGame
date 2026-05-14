@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,7 +42,10 @@ import com.ninogame.agent.R
  *    - 关闭按钮
  */
 @Composable
-fun AboutDialog(onDismiss: () -> Unit) {
+fun AboutDialog(
+    onDismiss: () -> Unit,
+    onOpenChangelog: (() -> Unit)? = null,
+) {
     val ctx = LocalContext.current
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -86,6 +90,18 @@ fun AboutDialog(onDismiss: () -> Unit) {
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 4.dp),
                 )
+                if (onOpenChangelog != null) {
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onOpenChangelog()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.about_view_changelog))
+                    }
+                }
             }
         },
         confirmButton = {

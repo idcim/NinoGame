@@ -114,6 +114,13 @@
     <string name="vendor_oneplus">OnePlus</string>
     <string name="vendor_meizu">魅族</string>
 
+    <!-- v0.5.17+ 更新日志 -->
+    <string name="changelog_title">更新日志</string>
+    <string name="changelog_subtitle">所有跨端版本变化, 跟 admin 后台同一份真相。</string>
+    <string name="changelog_error">加载失败: %1$s</string>
+    <string name="changelog_retry">重试</string>
+    <string name="about_view_changelog">查看更新日志</string>
+
     <!-- v0.5.16+ Token 耗尽锁屏 -->
     <string name="oot_header">NinoGame · Token 用光了</string>
     <string name="oot_title">你的 token 已经用完了</string>

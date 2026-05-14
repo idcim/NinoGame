@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.ninogame.agent.service.AgentService
 import com.ninogame.agent.service.AgentState
+import com.ninogame.agent.ui.ChangelogScreen
 import com.ninogame.agent.ui.DashboardScreen
 import com.ninogame.agent.ui.NinoTheme
 import com.ninogame.agent.ui.OutOfTokenScreen
@@ -106,6 +107,13 @@ private fun AppNavHost(
                         popUpTo(Route.Dashboard) { inclusive = true }
                     }
                 },
+                onOpenChangelog = { nav.navigate(Route.Changelog) },
+            )
+        }
+        composable(Route.Changelog) {
+            ChangelogScreen(
+                windowSize = windowSize,
+                onBack = { nav.popBackStack() },
             )
         }
     }
@@ -116,4 +124,5 @@ private object Route {
     const val Dashboard = "dashboard"
     const val Tasks = "tasks"
     const val Settings = "settings"
+    const val Changelog = "changelog"
 }

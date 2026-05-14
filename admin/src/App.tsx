@@ -10,6 +10,7 @@ import Defaults from "./pages/Defaults";
 import System from "./pages/System";
 import Push from "./pages/Push";
 import Tenants from "./pages/Tenants";
+import Changelog from "./pages/Changelog";
 
 function RequireAuth({ children }: { children: JSX.Element }) {
   if (!isAuthed()) return <Navigate to="/login" replace />;
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/system" element={<System />} />
         <Route path="/push" element={<Push />} />
         <Route path="/tenants" element={<Tenants />} />
+        <Route path="/changelog" element={<Changelog />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

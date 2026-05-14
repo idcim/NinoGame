@@ -70,6 +70,7 @@ fun SettingsScreen(
     windowSize: WindowSizeClass,
     onBack: () -> Unit,
     onResetPair: () -> Unit,
+    onOpenChangelog: () -> Unit,
 ) {
     val settings = ninoSettings
     val scope = rememberCoroutineScope()
@@ -172,6 +173,15 @@ fun SettingsScreen(
                 }
             }
 
+            // 更新日志
+            OutlinedButton(
+                onClick = onOpenChangelog,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null)
+                Text("  " + stringResource(R.string.changelog_title))
+            }
+
             // 关于我们
             OutlinedButton(
                 onClick = { showAbout = true },
@@ -202,7 +212,10 @@ fun SettingsScreen(
     }
 
     if (showAbout) {
-        AboutDialog(onDismiss = { showAbout = false })
+        AboutDialog(
+            onDismiss = { showAbout = false },
+            onOpenChangelog = onOpenChangelog,
+        )
     }
 
     if (showPinDialog) {

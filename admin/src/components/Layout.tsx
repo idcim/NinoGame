@@ -3,6 +3,7 @@ import {
   Bell,
   Box,
   Database,
+  FileText,
   LogOut,
   Package,
   ShieldCheck,
@@ -22,6 +23,7 @@ const NAV = [
   { to: "/system", label: "系统", Icon: Database },
   { to: "/push", label: "推送", Icon: Bell },
   { to: "/tenants", label: "家长", Icon: Users },
+  { to: "/changelog", label: "更新日志", Icon: FileText },
 ];
 
 export default function Layout() {

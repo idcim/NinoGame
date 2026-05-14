@@ -80,6 +80,9 @@ services:
     volumes:
       # Agent 升级包外挂卷 (镜像重建不丢)
       - artifacts:/var/lib/ninogame/artifacts
+      # v0.4.9+ CHANGELOG.md 挂载, /api/changelog 端点直接读;
+      # repo 里改 markdown 立刻生效, 不用 rebuild backend 镜像
+      - ../CHANGELOG.md:/app/CHANGELOG.md:ro
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8088/health || exit 1"]
       interval: 30s
