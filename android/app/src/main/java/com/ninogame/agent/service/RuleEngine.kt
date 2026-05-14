@@ -95,12 +95,12 @@ object RuleEngine {
     private fun windowMatchesNow(window: RulesCache.Window, now: Calendar): Boolean {
         val tFrom = parseHHMM(window.from) ?: return false
         val tTo = parseHHMM(window.to) ?: return false
-        val crossesMidnight = tTo < tFrom
-        val jsWeekday = (now.get(Calendar.DAY_OF_WEEK) - 1).coerceIn(0, 6)
-
+        // 先把 HH:MM 转分钟整数, 再比较 — data class 默认不实现 Comparable, 不能直接 tTo < tFrom
         val nowMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
         val fromMin = tFrom.hour * 60 + tFrom.minute
         val toMin = tTo.hour * 60 + tTo.minute
+        val crossesMidnight = toMin < fromMin
+        val jsWeekday = (now.get(Calendar.DAY_OF_WEEK) - 1).coerceIn(0, 6)
 
         if (window.days.isNotEmpty()) {
             if (jsWeekday in window.days) {
