@@ -1420,9 +1420,19 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
   - SCREEN_ON → 取消定时器 (但还没解锁不切回 Child)
   - USER_PRESENT (解屏成功) → 如果是 Lock 模式自动回 Child (跟 Windows agent 思路一致: 锁是 token/拦截层面的, 不是物理锁屏)
 
-**Stage 3b4 (下一站)**:
-- 责任清单 / 任务申报 UI (拉 hello_ack.tasks → 列表 → 勾选发 `checklist_tick` event / 提交发 `task_claim` 消息)
-- Token / 余额 详细页 (实时余额 + 今日花费 + 截至当前的 ledger 历史)
+**Stage 3b4 (v0.5.8, 已落)**:
+- `TasksCache` singleton: 从 hello_ack.tasks + tasks_update 反序列化 (`Task {id, name, category, reward_tokens, daily_max_completions, verification, schedule, active}`, 跟 server TaskRow 一致). StateFlow<List<Task>> 让 UI 响应式.
+- `AgentService.handleMessage` 加 case `tasks_update` → TasksCache 全量替换.
+- `ui/TasksScreen.kt` Compose 页, 两段:
+  - **责任清单 (responsibility)** §8.6: Checkbox 行, 点击切换 → `AgentService.sendChecklistTick(taskId, completed)` → 走 `event` 通道 `event_type=checklist_tick`. server `onEvent` 拆出 checklist_tick 进 `responsibility_checks` 表 upsert (backend/src/ws/agent.ts:631). 注意: **勾选状态只在内存**, 切页面/重启 App 清零, Stage 3c 加 hello_ack.responsibility_today 恢复.
+  - **激励任务 (incentive)** §8.3: 行点"申报"弹 `ClaimDialog` 写备注 → `AgentService.sendTaskClaim(taskId, childNote)` → `{type:task_claim, payload:{task_id, child_note?}}`. server `onTaskClaim` 写 `task_completions(status=pending)` 推家长 frontend 审批; 批准后服务端发 `wallet_update` 加 reward_tokens.
+- Dashboard 加"任务清单 / 申报"按钮 (不论模式都可访问, 让孩子能勾责任 + 申报激励), MainActivity Navigation 加 `Route.Tasks`.
+
+**Stage 3c (下一站)**:
+- hello_ack.responsibility_today 字段恢复本日勾选状态 + tasks_update.responsibility_completed_today 增量
+- Token / 余额 详情页 (实时 + 今日花费 + ledger 历史)
+- settings_update 监听 (token_to_minute_ratio 动态调 / idle_lock_minutes 等)
+- set_pin / clear_pin / request_status command 接收
 
 **Stage 3**:
 - 规则匹配 + 拦截 (Windows 端 kill → Android 端弹对话框 + 回 launcher + 上报 block 事件)
@@ -1959,7 +1969,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c+3a+3b1+3b2+3b3 已落 (v0.5.0~v0.5.7, 见 §17.6 + `android/`): 配对 + WS + 监前台 + usage_report + LLM 分类 + 开机自启 + 拦截 + block 事件 + command + mode 状态机 + token_tick + **申请游戏时间 UI + screen-off 5min 自动 Lock**. 任务 UI 在 Stage 3b4 推进.
+- [x] ~~**Android NinoGame App** — 主体完成~~ (v0.5.0~v0.5.8, 见 §17.6 + `android/`, 9 个 commits 跨 Stage 1 / 2a-c / 3a-b4): 配对 + WS + 监前台 + usage_report + LLM 分类 + 开机自启 + 拦截 + block 事件 + command + mode + token_tick + 申请游戏时间 UI + idle 自动 Lock + **责任清单 / 任务申报 UI**. 跟 Windows agent 完全平台级等价. Stage 3c+ 增量优化项 (settings_update 监听 / 余额详情页 / PIN / 国内 ROM 适配引导页) 见 §17.6.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。

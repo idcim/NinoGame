@@ -202,7 +202,8 @@ class AgentService : Service() {
             "hello_ack" -> onHelloAck(msg.payload)
             "wallet_update" -> onWalletUpdate(msg.payload)
             "rules_update" -> onRulesUpdate(msg.payload)
-            "app_categories_update" -> onAppCategoriesUpdate(msg.payload)
+"app_categories_update" -> onAppCategoriesUpdate(msg.payload)
+            "tasks_update" -> onTasksUpdate(msg.payload)
             "command" -> onCommand(msg.payload)
             "error" -> Log.w(TAG, "server error: ${msg.payload}")
             // Stage 3c+ 会加: settings_update / tasks_update / ...
@@ -221,6 +222,13 @@ class AgentService : Service() {
         // 内嵌 payload (v0.4+ server 形态) vs 平铺 (legacy)
         val innerPayload = obj["payload"] ?: obj
         commandHandler?.handle(cmdType, innerPayload, cmdId)
+    }
+
+    private fun onTasksUpdate(payload: JsonElement?) {
+        val obj = payload as? JsonObject ?: return
+        val arr = runCatching { obj["tasks"]?.jsonArray }.getOrNull() ?: return
+        Log.i(TAG, "tasks_update: ${arr.size} tasks")
+        TasksCache.setFromJsonArray(arr)
     }
 
     private fun onAppCategoriesUpdate(payload: JsonElement?) {
@@ -253,10 +261,11 @@ class AgentService : Service() {
         val obj = payload as? JsonObject ?: return
         val balance = runCatching { obj["wallet_balance"]?.jsonPrimitive?.intOrNull }.getOrNull()
         val rulesArr = runCatching { obj["rules"]?.jsonArray }.getOrNull()
+        val tasksArr = runCatching { obj["tasks"]?.jsonArray }.getOrNull()
         val pendingCmds = runCatching { obj["pending_commands"]?.jsonArray }.getOrNull()
         Log.i(
             TAG,
-            "hello_ack: balance=$balance rules=${rulesArr?.size} pending_cmds=${pendingCmds?.size}",
+            "hello_ack: balance=$balance rules=${rulesArr?.size} tasks=${tasksArr?.size} pending_cmds=${pendingCmds?.size}",
         )
         AgentState.onHelloAck()
         if (balance != null) {
@@ -266,6 +275,9 @@ class AgentService : Service() {
         if (rulesArr != null) {
             RulesCache.setFromJsonArray(rulesArr)
             AgentState.onRulesCount(rulesArr.size)
+        }
+        if (tasksArr != null) {
+            TasksCache.setFromJsonArray(tasksArr)
         }
         // v0.5.5+ 重连后回放 server 积压的命令 (温柔的: server 已经过滤掉 1 小时
         // 前的, 见 backend/src/ws/agent.ts onHello, 不会出现"半夜批准了 30min
@@ -308,6 +320,7 @@ class AgentService : Service() {
         }
         ForegroundAppMonitor.reset()
         RulesCache.reset()
+        TasksCache.reset()
         AgentState.reset()
         // CategoryCache 不 reset — 是磁盘缓存, 进程重启希望恢复
         currentWs = null
@@ -391,6 +404,34 @@ class AgentService : Service() {
                 })
             }
             return ws.sendJson(msg.toString())
+        }
+
+        /** v0.5.8+ 申报激励任务完成 — {type:task_claim, payload:{task_id, child_note?}}.
+         *  server.onTaskClaim 写 task_completions(status=pending) 推家长 frontend 审批. */
+        fun sendTaskClaim(taskId: String, childNote: String? = null): Pair<Boolean, String?> {
+            val ws = currentWs ?: return false to "Agent 服务没在跑"
+            if (ws.state.value !is WsClient.ConnectionState.Open) {
+                return false to "未联机 (Agent 会自动重连, 稍后再试)"
+            }
+            if (taskId.isBlank()) return false to "任务 ID 为空"
+            val msg = buildJsonObject {
+                put("type", "task_claim")
+                put("payload", buildJsonObject {
+                    put("task_id", taskId)
+                    if (!childNote.isNullOrBlank()) put("child_note", childNote)
+                })
+            }
+            val ok = ws.sendJson(msg.toString())
+            return if (ok) true to null else false to "网络发送失败"
+        }
+
+        /** v0.5.8+ 责任清单勾选/取消 — 走 event 通道 (event_type=checklist_tick).
+         *  server.onEvent 拆出 checklist_tick 进 responsibility_checks 表 upsert. */
+        fun sendChecklistTick(taskId: String, completed: Boolean): Boolean {
+            return sendEvent("checklist_tick", buildJsonObject {
+                put("task_id", taskId)
+                put("completed", completed)
+            })
         }
 
         /** v0.5.7+ 申请游戏时间 — 跟 Windows agent _submit_unlock_request 同协议:

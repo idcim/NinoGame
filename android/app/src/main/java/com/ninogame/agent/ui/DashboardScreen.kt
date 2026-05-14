@@ -67,6 +67,7 @@ import kotlinx.coroutines.launch
 fun DashboardScreen(
     windowSize: WindowSizeClass,
     onResetPair: () -> Unit,
+    onOpenTasks: () -> Unit,
 ) {
     val settings = ninoSettings
     val scope = rememberCoroutineScope()
@@ -273,6 +274,14 @@ fun DashboardScreen(
                     Icon(Icons.Filled.Send, contentDescription = null)
                     Text("  " + stringResource(R.string.dash_request_button))
                 }
+            }
+
+            // v0.5.8+ 任务清单 / 申报 (不论模式都可访问, 让孩子能勾责任清单 + 申报激励任务)
+            OutlinedButton(
+                onClick = onOpenTasks,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.dash_tasks_button))
             }
 
             // 操作行

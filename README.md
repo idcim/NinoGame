@@ -46,6 +46,16 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 3b4 (v0.5.8+, 责任清单 + 任务申报 UI) — **主体闭环完成**
+- **TasksCache** singleton: hello_ack.tasks + tasks_update push 解析为 `Task {id, name, category, reward_tokens, ...}`, StateFlow<List<Task>> 让 Compose 响应式
+- **TasksScreen** 两段 UI:
+  - **责任清单 (responsibility)** Checkbox 行 → `sendChecklistTick(taskId, completed)` 走 event 通道 → server upsert responsibility_checks 表
+  - **激励任务 (incentive)** 点"申报"弹 `ClaimDialog` 写备注 → `sendTaskClaim(taskId, childNote)` → server 写 task_completions(pending) 推家长 frontend 审批
+- AgentService.sendTaskClaim + sendChecklistTick 两个 companion 静态方法; sendChecklistTick 复用 sendEvent 通道
+- Dashboard 加"任务清单 / 申报"按钮跳 TasksScreen (Navigation Route.Tasks)
+- 注: 责任勾选状态**只在内存** — 切页面 / 重启 App 清零, Stage 3c 加 hello_ack.responsibility_today 字段恢复. server 数据库的 responsibility_checks 表数据是对的, 家长后台看得准
+- **见**: `service/TasksCache.kt`, `ui/TasksScreen.kt`
+
 ### Android Agent Stage 3b3 (v0.5.7+, 申请游戏时间 + screen-off Lock)
 - **RequestDialog** Compose AlertDialog — 多行 TextField + 发送按钮; `AgentService.sendUnlockRequest(text)` 静态发 `{type:unlock_request, payload:{request_text, structured:{}}}` 跟 Windows agent ui/request_dialog.py 一致; server `onUnlockRequest` 转家长浏览器, 批准后推 temporary_unlock command (Stage 3b1 链路自动放行)
 - Dashboard 加"申请玩游戏…"按钮 (仅 Child 模式显示); 发送 Snackbar 反馈"已发送, 等家长回" / 失败原因 (未联机/未配对/网络错)

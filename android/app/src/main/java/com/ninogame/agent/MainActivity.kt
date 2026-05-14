@@ -20,6 +20,7 @@ import com.ninogame.agent.service.AgentService
 import com.ninogame.agent.ui.DashboardScreen
 import com.ninogame.agent.ui.NinoTheme
 import com.ninogame.agent.ui.PairScreen
+import com.ninogame.agent.ui.TasksScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -67,6 +68,13 @@ class MainActivity : ComponentActivity() {
                                         popUpTo(Route.Dashboard) { inclusive = true }
                                     }
                                 },
+                                onOpenTasks = { nav.navigate(Route.Tasks) },
+                            )
+                        }
+                        composable(Route.Tasks) {
+                            TasksScreen(
+                                windowSize = windowSize,
+                                onBack = { nav.popBackStack() },
                             )
                         }
                     }
@@ -79,4 +87,5 @@ class MainActivity : ComponentActivity() {
 private object Route {
     const val Pair = "pair"
     const val Dashboard = "dashboard"
+    const val Tasks = "tasks"
 }

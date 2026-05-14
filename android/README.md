@@ -2,7 +2,7 @@
 
 跨端 (Windows + Android) 家长控制 Agent 的 **Android 端骨架**。当前进度: **Stage 1 — 仅配对联机**。
 
-> **当前状态 (v0.5.7)**: 全闭环 — 配对 + WS + 监前台 + usage_report + LLM 分类 + 开机自启 + 拦截 + block 事件 + command + mode + token_tick ✅ + **申请游戏时间 UI + screen-off 5min 自动 Lock** ✅. 任务 UI 在 **Stage 3b4** 实施.
+> **当前状态 (v0.5.8)**: **主体闭环全部完成** — 配对 + WS + 监前台 + usage_report + LLM 分类 + 开机自启 + 拦截 + block 事件 + command + mode + token_tick + 申请游戏时间 + idle Lock + **责任清单 / 任务申报 UI** ✅. 跟 Windows agent 平台级等价. **Stage 3c** 是增量优化 (settings_update / 余额详情 / PIN / 国内 ROM 引导).
 
 ## 兼容范围
 
@@ -142,7 +142,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 3b1 | Command 接收 (temporary_unlock / lock_device / start_free_pass) + mode 状态 | ✅ v0.5.5 |
 | 3b2 | TokenTicker 每分钟 token_tick 上报 (server 单一权威扣分) | ✅ v0.5.6 |
 | 3b3 | 申请游戏时间 UI (unlock_request) + screen-off 5min 自动 Lock | ✅ v0.5.7 |
-| 3b4 | 任务申报 UI / 责任清单 UI / 余额详情页 | 待 |
+| 3b4 | 责任清单 (checklist_tick) + 激励任务申报 (task_claim) UI | ✅ v0.5.8 |
+| 3c | settings_update / PIN / 余额详情页 / 国内 ROM 引导 | 待 |
 | 3 | Token 经济本地版 (server 权威, 本地缓存 + wallet_update 推送对齐) | 待 |
 | 3 | 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议) | 待 |
 | 3 | 责任清单 / 任务申报 UI | 待 |

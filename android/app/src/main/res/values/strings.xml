@@ -88,4 +88,11 @@
     <!-- v0.5.7+ screen-off auto Lock -->
     <string name="screen_lock_notif_title">已自动锁定</string>
     <string name="screen_lock_notif_body">屏幕灭超过 5 分钟, Agent 已切到 Lock 模式。家长可远程解锁或下次开屏自动恢复 Child。</string>
+
+    <!-- v0.5.8+ 任务页 -->
+    <string name="dash_tasks_button">任务清单 / 申报</string>
+    <string name="tasks_title">任务</string>
+    <string name="tasks_empty">家长还没创建任何任务. 让爸妈在家长后台 /tasks 添加.</string>
+    <string name="tasks_section_responsibility">责任清单 (不挣分, 但要做)</string>
+    <string name="tasks_section_incentive">激励任务 (挣 token)</string>
 </resources>
