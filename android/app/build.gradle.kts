@@ -11,9 +11,10 @@ android {
 
     defaultConfig {
         applicationId = "com.ninogame.agent"
-        // minSdk 24 (Android 7.0 / Nougat 2016) — 老平板能用; AccessibilityService
-        // / Compose / OkHttp 都支持. 再低就要回退 AppCompat, 不划算.
-        minSdk = 24
+        // minSdk 26 (Android 8.0 / Oreo 2017) — 跟自适应图标 (adaptive icons,
+        // mipmap-anydpi-v26) 一致, 不用造 PNG mipmap fallback. 2017 年后的平板
+        // 都支持. AccessibilityService / Compose / OkHttp 全 OK.
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "0.5.0"
