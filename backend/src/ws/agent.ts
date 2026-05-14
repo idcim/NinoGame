@@ -304,6 +304,19 @@ async function onHello(
   // settings 上云: Agent 启动 + 重连时拿当前最新设置 (家长可能离线时改过)
   const settings = meta.child_id ? await getMergedSettings(meta.child_id) : null;
 
+  // v0.5.10+: 今日已勾的责任清单 task_id 列表 — Android TasksScreen 重启 / 切页面
+  // 后能恢复 checkbox 状态. 来源: responsibility_checks 表 WHERE check_date=CURRENT_DATE
+  // AND completed=true. 单查询很轻量, 跟 wallet/rules 一批拉.
+  const responsibility_today = meta.child_id
+    ? (await pool.query<{ task_id: string }>(
+        `SELECT DISTINCT task_id::text FROM "NinoGame".responsibility_checks
+          WHERE child_id = $1
+            AND check_date = CURRENT_DATE
+            AND completed = TRUE`,
+        [meta.child_id],
+      )).rows.map((r) => r.task_id)
+    : [];
+
   socket.send(
     JSON.stringify({
       type: "hello_ack",
@@ -316,6 +329,7 @@ async function onHello(
         pending_commands: cmds.rows,
         active_free_pass,
         settings,
+        responsibility_today,
         server_time: new Date().toISOString(),
       },
     }),

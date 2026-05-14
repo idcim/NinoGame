@@ -282,6 +282,11 @@ class AgentService : Service() {
         if (tasksArr != null) {
             TasksCache.setFromJsonArray(tasksArr)
         }
+        // v0.5.10+ 本日已勾的责任清单 (server 推 task_id[]); 跨页面 / 进程重启恢复
+        runCatching { obj["responsibility_today"]?.jsonArray }.getOrNull()?.let { arr ->
+            val ids = arr.mapNotNull { it.jsonPrimitive.contentOrNull }.toSet()
+            TasksCache.setResponsibilityToday(ids)
+        }
         // v0.5.5+ 重连后回放 server 积压的命令 (温柔的: server 已经过滤掉 1 小时
         // 前的, 见 backend/src/ws/agent.ts onHello, 不会出现"半夜批准了 30min
         // 解锁早上才生效"这种破事)

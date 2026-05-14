@@ -73,7 +73,9 @@ fun TasksScreen(
     val incentive = tasks.filter { it.category == "incentive" }
 
     var claimingTask by remember { mutableStateOf<TasksCache.Task?>(null) }
-    val checkedIds = remember { mutableStateOf(setOf<String>()) }
+    // v0.5.10+ 勾选状态从 TasksCache.responsibilityToday 拿 — server hello_ack
+    // 携带本日已勾任务, 跨页面 / 进程重启都不会丢. 切日自动清.
+    val checkedIds = TasksCache.responsibilityToday.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -135,15 +137,12 @@ fun TasksScreen(
                                 checked = checked,
                                 onToggle = {
                                     val newChecked = !checked
-                                    checkedIds.value =
-                                        if (newChecked) checkedIds.value + t.id
-                                        else checkedIds.value - t.id
+                                    // 乐观更新 — TasksCache 单点写, UI 通过 StateFlow 自动刷
+                                    TasksCache.toggleResponsibilityLocal(t.id, newChecked)
                                     val ok = AgentService.sendChecklistTick(t.id, newChecked)
                                     if (!ok) {
-                                        // 回滚 UI
-                                        checkedIds.value =
-                                            if (checked) checkedIds.value + t.id
-                                            else checkedIds.value - t.id
+                                        // 回滚
+                                        TasksCache.toggleResponsibilityLocal(t.id, checked)
                                         scope.launch {
                                             snackbarHostState.showSnackbar("发送失败, WS 未连")
                                         }

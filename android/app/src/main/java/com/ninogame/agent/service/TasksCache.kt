@@ -61,6 +61,25 @@ object TasksCache {
 
     fun reset() {
         _tasks.value = emptyList()
+        _responsibilityToday.value = emptySet()
+    }
+
+    // v0.5.10+ 本日已勾的责任清单 task_id 集合 — server hello_ack.responsibility_today
+    // 携带. TasksScreen 初始勾选状态读这里, 跨页面 / 进程重启都不会丢. 跨日自动失效
+    // (server 端 responsibility_checks 按 check_date 存, 第二天 hello_ack 就空了).
+    private val _responsibilityToday = MutableStateFlow<Set<String>>(emptySet())
+    val responsibilityToday: StateFlow<Set<String>> = _responsibilityToday.asStateFlow()
+
+    fun setResponsibilityToday(taskIds: Set<String>) {
+        _responsibilityToday.value = taskIds
+        Log.i(TAG, "responsibility_today set: ${taskIds.size} checked")
+    }
+
+    /** 本地 toggle (TasksScreen 用户勾选时调) — 立刻乐观更新 UI 状态. */
+    fun toggleResponsibilityLocal(taskId: String, completed: Boolean) {
+        val cur = _responsibilityToday.value
+        _responsibilityToday.value =
+            if (completed) cur + taskId else cur - taskId
     }
 
     private const val TAG = "TasksCache"
