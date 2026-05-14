@@ -51,4 +51,10 @@
     <string name="a11y_explain">在系统设置 → 无障碍 → 已安装的服务 中找到 NinoGame Agent, 开启开关.</string>
     <string name="dash_foreground_now">当前前台</string>
     <string name="dash_segments_pending">缓冲 segments</string>
+
+    <!-- v0.5.4+ 拦截通知 -->
+    <string name="block_notif_channel">应用拦截通知</string>
+    <string name="block_notif_channel_desc">拦截命中规则时短促提示, 同 app 5 秒去重</string>
+    <string name="block_notif_title">已拦截: %1$s</string>
+    <string name="block_default_message">规则「%1$s」生效, 此应用现在不能玩。</string>
 </resources>

@@ -3,6 +3,8 @@ package com.ninogame.agent.service
 import android.accessibilityservice.AccessibilityService
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** 监听前台窗口变化 — 跟 Windows Agent 的 EnumWindows + 前台进程检测等价.
  *
@@ -30,8 +32,43 @@ class NinoAccessibilityService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString()
         if (pkg.isNullOrBlank()) return
-        // Stage 2b 仅记录, 不拦截
         ForegroundAppMonitor.setForeground(pkg)
+
+        // v0.5.4+ Stage 3a: 跑规则引擎 — 命中就执行 action + 上报 block 事件
+        val hits = RuleEngine.match(pkg)
+        if (hits.isEmpty()) return
+        for (hit in hits) {
+            handleHit(pkg, hit)
+        }
+    }
+
+    private fun handleHit(pkg: String, hit: RuleEngine.Hit) {
+        Log.i(TAG, "rule hit: pkg=$pkg rule=${hit.rule.name} action=${hit.rule.spec.action.type}")
+        val action = hit.rule.spec.action.type
+        when (action) {
+            "kill_and_warn" -> {
+                BlockNotifier.notifyBlocked(this, hit.rule, pkg)
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+            "kill_silent" -> {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+            "warn_only" -> {
+                BlockNotifier.notifyBlocked(this, hit.rule, pkg)
+            }
+            else -> {
+                Log.w(TAG, "unknown action type: $action")
+            }
+        }
+        // 上报 block 事件 — 跟 Windows agent 协议一致, server publishToParent 让
+        // 家长后台事件流立刻能看到 (跟 EventFeed 一致)
+        AgentService.sendEvent("block", buildJsonObject {
+            put("rule_id", hit.rule.id)
+            put("rule_name", hit.rule.name)
+            put("process_name", pkg)
+            put("matched_value", hit.matchedValue)
+            put("action", action)
+        })
     }
 
     override fun onInterrupt() {

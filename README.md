@@ -46,6 +46,16 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 3a (v0.5.4+, 规则匹配 + 拦截 + block 事件)
+- **RulesCache** singleton + `RuleEngine`: 从 hello_ack.rules / rules_update 反序列化, 移植 Windows agent core/rule_engine.py — matcher_logic AND/OR + 5 个 op (equals/iequals/contains/icontains/regex) + exclude_processes + schedule.windows 时间窗 (跨午夜拆段 OR)
+- **跨端 simplification**: 所有 matcher.field (process_name / exe_path / window_title) 在 Android 都对 packageName 匹配. 关键词 "pvz" / "plantsvszombies" / "douyin" 等 ASCII 规则两端通用; 中文窗口标题规则 Android 不命中是已知限制 (Stage 4 加 platform 字段)
+- **AccessibilityService 命中执行 action**:
+  - `kill_and_warn` → BlockNotifier 弹通知 (独立 channel IMPORTANCE_HIGH, 同 pkg 5s 去重) + `performGlobalAction(GLOBAL_ACTION_HOME)` 把孩子弹回桌面
+  - `kill_silent` → 仅回桌面, 不打扰
+  - `warn_only` → 仅通知不回桌面
+- **block 事件上报**: AgentService.sendEvent 静态方法 (companion `currentWs` volatile 引用) 让 AccessibilityService 上报 `{event_type:block, payload:{rule_id, rule_name, process_name, matched_value, action}}` 跟 Windows agent 协议一致. server publishToParent 让家长后台 EventFeed 立刻看到 Android 端拦截事件
+- **见**: `service/RulesCache.kt` / `service/RuleEngine.kt` / `service/BlockNotifier.kt`, AccessibilityService onAccessibilityEvent 调 RuleEngine.match
+
 ### Android Agent Stage 2c (v0.5.3+, LLM 自动分类 + 开机自启)
 - **CategoryCache** singleton + DataStore JSON 持久化: pkg → `{category, sub_type, display_name}`. 进程被系统杀后重启自动 `load()` 恢复.
 - **unknown_apps 闭环**: `ForegroundAppMonitor.setForeground` 见新 pkg → `CategoryCache.noteUnknown` 进 pending → `UnknownAppsReporter` 60s 一轮 `drainPending` → 打包 `unknown_apps` (带 `PackageManager.getApplicationLabel` 解析的应用标签当 `window_title` 给 LLM 强提示, 如 `com.tencent.mm` 加上 "微信") → server `onUnknownApps` (backend/src/ws/agent.ts) 调 `llm_app_classifier` → 推 `app_categories_update` → `AgentService.onAppCategoriesUpdate` upsert. 发送失败把 pkg 退回 pending 下轮重试

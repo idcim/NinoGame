@@ -70,6 +70,7 @@ class AgentService : Service() {
         super.onCreate()
         startForeground(NOTIF_ID, buildNotification())
         wsClient = WsClient(Api.client, scope)
+        currentWs = wsClient  // 暴露给 AccessibilityService 等组件
         usageReporter = UsageReporter(scope, wsClient!!, Settings.from(this))
         unknownAppsReporter = UnknownAppsReporter(scope, wsClient!!, applicationContext)
 
@@ -225,14 +226,17 @@ class AgentService : Service() {
     private fun onHelloAck(payload: JsonElement?) {
         val obj = payload as? JsonObject ?: return
         val balance = runCatching { obj["wallet_balance"]?.jsonPrimitive?.intOrNull }.getOrNull()
-        val rulesCount = runCatching { obj["rules"]?.jsonArray?.size }.getOrNull()
-        Log.i(TAG, "hello_ack: balance=$balance rules=$rulesCount")
+        val rulesArr = runCatching { obj["rules"]?.jsonArray }.getOrNull()
+        Log.i(TAG, "hello_ack: balance=$balance rules=${rulesArr?.size}")
         AgentState.onHelloAck()
         if (balance != null) {
             AgentState.onWalletBalance(balance)
             persistBalance(balance)
         }
-        if (rulesCount != null) AgentState.onRulesCount(rulesCount)
+        if (rulesArr != null) {
+            RulesCache.setFromJsonArray(rulesArr)
+            AgentState.onRulesCount(rulesArr.size)
+        }
     }
 
     private fun onWalletUpdate(payload: JsonElement?) {
@@ -245,9 +249,10 @@ class AgentService : Service() {
 
     private fun onRulesUpdate(payload: JsonElement?) {
         val obj = payload as? JsonObject ?: return
-        val count = runCatching { obj["rules"]?.jsonArray?.size }.getOrNull() ?: return
-        Log.i(TAG, "rules_update: count=$count")
-        AgentState.onRulesCount(count)
+        val arr = runCatching { obj["rules"]?.jsonArray }.getOrNull() ?: return
+        Log.i(TAG, "rules_update: count=${arr.size}")
+        RulesCache.setFromJsonArray(arr)
+        AgentState.onRulesCount(arr.size)
     }
 
     private fun persistBalance(balance: Int) {
@@ -262,8 +267,10 @@ class AgentService : Service() {
         usageReporter?.stop()
         unknownAppsReporter?.stop()
         ForegroundAppMonitor.reset()
+        RulesCache.reset()
         AgentState.reset()
         // CategoryCache 不 reset — 是磁盘缓存, 进程重启希望恢复
+        currentWs = null
         scope.cancel()
         wsClient?.close()
         super.onDestroy()
@@ -311,7 +318,12 @@ class AgentService : Service() {
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
         private const val INITIAL_BACKOFF_MS = 1_000L
         private const val MAX_BACKOFF_MS = 60_000L
-        private const val VERSION_NAME = "0.5.1-android"
+        private const val VERSION_NAME = "0.5.4-android"
+
+        /** 当前活跃实例的 wsClient — 给 AccessibilityService 等其它组件
+         *  上报 event 用. volatile 因为跨线程读 (AccessibilityService 在主线程, AgentService 在 IO). */
+        @Volatile
+        private var currentWs: WsClient? = null
 
         /** 启动 Service. MainActivity 在已配对时调一次. */
         fun start(ctx: Context) {
@@ -325,6 +337,20 @@ class AgentService : Service() {
 
         fun stop(ctx: Context) {
             ctx.stopService(Intent(ctx, AgentService::class.java))
+        }
+
+        /** 给 AccessibilityService 上报 block 事件用. WS 没连上返 false. */
+        fun sendEvent(eventType: String, payload: JsonObject): Boolean {
+            val ws = currentWs ?: return false
+            if (ws.state.value !is WsClient.ConnectionState.Open) return false
+            val msg = buildJsonObject {
+                put("type", "event")
+                put("payload", buildJsonObject {
+                    put("event_type", eventType)
+                    put("payload", payload)
+                })
+            }
+            return ws.sendJson(msg.toString())
         }
     }
 }

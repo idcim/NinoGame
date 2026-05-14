@@ -1386,8 +1386,22 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 - `UsageReporter` 调 `CategoryCache.getCategory(pkg)` 替代固定 `"neutral"`. 拿不到时降级 neutral, 下个 5min 周期一般就分好了.
 - `BootReceiver` 监 `BOOT_COMPLETED` + `QUICKBOOT_POWERON` (MIUI 兼容). `runBlocking { settings.isPairedNow() }` 同步查持久化状态, 已配对就 `AgentService.start`. Manifest 已经声明 `RECEIVE_BOOT_COMPLETED` 权限.
 
-**Stage 3 (下一站)**:
-- 规则匹配 + 拦截 (PvZ 等 → 弹对话框 + `performGlobalAction(GLOBAL_ACTION_HOME)` 回桌面)
+**Stage 3a (v0.5.4, 已落)**:
+- `RulesCache` singleton: 从 `hello_ack.rules` / `rules_update` 的 JsonArray 反序列化为 `Rule {id, name, enabled, spec}`. spec 包含 matchers / matcher_logic / exclude_processes / schedule / action — 跟 Windows agent core/rule_engine.py 同 schema.
+- `RuleEngine.match(pkg)` — 移植 Windows rule_engine.py: matcher_logic AND/OR + 5 个 op (equals/iequals/contains/icontains/regex) + exclude + schedule.windows 时间窗判定 (跨午夜支持: to<from 时拆"今日 from..23:59"+"次日 00:00..to"两段 OR).
+- **Android 跨端 simplification**: 所有 matcher.field (process_name / exe_path / window_title) 统一对 packageName 匹配. 大多数游戏规则关键词是 ASCII (例 "pvz" / "plantsvszombies" / "douyin"), Android pkg 名也是 ASCII, 命中率高. 中文窗口标题规则在 Android 上很难命中, 已知约束, Stage 4 加 platform 字段时再优化.
+- `NinoAccessibilityService.onAccessibilityEvent` 命中规则 → action 分支:
+  · `kill_and_warn` → `BlockNotifier.notifyBlocked` + `performGlobalAction(GLOBAL_ACTION_HOME)`
+  · `kill_silent` → 仅 home, 不通知
+  · `warn_only` → 仅通知不 home
+- `BlockNotifier`: 独立 channel "block" (IMPORTANCE_HIGH 红色) 跟 Service 常驻通知分开. 同 pkg 5 秒内去重 (内存 LRU).
+- `AgentService.sendEvent` companion 静态方法 — `currentWs` volatile 引用让 AccessibilityService 上报 block 事件: `{type:event, payload:{event_type:block, payload:{rule_id, rule_name, process_name, matched_value, action}}}`, 跟 Windows agent 协议一致. server `onEvent` publishToParent 让家长后台 EventFeed 立刻看到.
+
+**Stage 3b (下一站)**:
+- Command 接收 (`temporary_unlock` / `lock_device` / `start_free_pass` / `set_pin`) + 应用临时解锁状态 (RulesCache.unlockedIds)
+- Token 经济本地缓存 + token_tick 上报 (child 模式每分钟 tick)
+- 申请游戏时间 UI (`unlock_request` WS 消息)
+- 责任清单 / 任务申报 UI
 
 **Stage 3**:
 - 规则匹配 + 拦截 (Windows 端 kill → Android 端弹对话框 + 回 launcher + 上报 block 事件)
@@ -1924,7 +1938,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c 已落 (v0.5.0~v0.5.3, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report 上报 + unknown_apps LLM 自动分类 + 开机自启. 拦截 / token 经济 / 申请审批 在 Stage 3 推进.
+- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c+3a 已落 (v0.5.0~v0.5.4, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report + unknown_apps LLM 分类 + 开机自启 + **规则匹配 + 拦截 + block 事件上报**. token 经济 / 申请审批 / 任务 UI 在 Stage 3b 推进.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。

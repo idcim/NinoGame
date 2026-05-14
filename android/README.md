@@ -2,7 +2,7 @@
 
 跨端 (Windows + Android) 家长控制 Agent 的 **Android 端骨架**。当前进度: **Stage 1 — 仅配对联机**。
 
-> **当前状态 (v0.5.3)**: 配对联机 ✅ + Foreground Service + WS 长连接 + 心跳 + 实时余额/规则数同步 ✅ + AccessibilityService 监前台 + 5min usage_report 上报 ✅ + unknown_apps LLM 自动分类 + 开机自启 ✅. 拦截 / token 经济 / 申请审批 在 **Stage 3** 实施.
+> **当前状态 (v0.5.4)**: 配对联机 ✅ + Foreground Service + WS 长连接 + 心跳 ✅ + AccessibilityService 监前台 + 5min usage_report + unknown_apps LLM 分类 + 开机自启 ✅ + **规则匹配 + 拦截 + block 事件上报** ✅. token 经济 / 申请审批 / 任务 UI 在 **Stage 3b** 实施.
 
 ## 兼容范围
 
@@ -138,7 +138,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 | 2b | UsageReporter 上报 app_session (5min 间隔, 用法同 Windows agent) | ✅ v0.5.2 |
 | 2c | unknown_apps 上报让 server LLM 分类 → 本地 category cache (告别全 neutral) | ✅ v0.5.3 |
 | 2c | BootReceiver 开机自启 | ✅ v0.5.3 |
-| 3 | 规则匹配 + 拦截 (PvZ 等 → 弹对话框 + 回到 launcher) | 待 |
+| 3a | 规则匹配 + 拦截 (PvZ 等 → 弹通知 + 回桌面) + block 事件上报 | ✅ v0.5.4 |
+| 3b | Command 接收 (temporary_unlock / lock_device / start_free_pass) + 临时解锁状态 | 待 |
 | 3 | Token 经济本地版 (server 权威, 本地缓存 + wallet_update 推送对齐) | 待 |
 | 3 | 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议) | 待 |
 | 3 | 责任清单 / 任务申报 UI | 待 |
