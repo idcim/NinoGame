@@ -54,18 +54,15 @@ Settings → Languages & Frameworks → Android SDK
 Android Studio → File → Open → 选 G:\DEL_GAME\android\
 ```
 
-第一次会自动 sync, 拉所有依赖 (Compose BOM / OkHttp / DataStore / kotlinx.serialization). 国内速度可能慢, 必要时配 Gradle 镜像:
+第一次会自动 sync, 拉所有依赖 (Compose BOM / OkHttp / DataStore / kotlinx.serialization).
 
-`%USERPROFILE%\.gradle\init.gradle` 加:
+**国内开发者: 镜像已内置在 settings.gradle.kts**:
+- Maven 镜像: 阿里云 (google/central/gradle-plugin) + 腾讯云兜底, 官方最后回落
+- Gradle distribution 镜像: 腾讯云 (`gradle-wrapper.properties` 已配)
+- 不需要额外配 `~/.gradle/init.gradle` (那种写法只加 repo 不替换, 而且加不进 pluginManagement 真正卡的地方)
+- 如果已经有 init.gradle 也无妨, settings PREFER_SETTINGS 让两者并存
 
-```groovy
-allprojects {
-    repositories {
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/central' }
-    }
-}
-```
+Gradle distribution zip 100MB+, 首次首次同步如果腾讯云镜像也慢可以改 `gradle/wrapper/gradle-wrapper.properties` 切阿里云 / 华为云 (文件内有备选 URL).
 
 ### 4. 生成 Gradle wrapper jar (第一次)
 
