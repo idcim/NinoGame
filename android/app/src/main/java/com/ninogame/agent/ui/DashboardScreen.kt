@@ -23,6 +23,7 @@ import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material.icons.Icons
@@ -58,6 +59,7 @@ import com.ninogame.agent.ninoSettings
 import com.ninogame.agent.service.AccessibilityPermission
 import com.ninogame.agent.service.AgentState
 import com.ninogame.agent.service.ForegroundAppMonitor
+import com.ninogame.agent.service.RomAutostartHelper
 import kotlinx.coroutines.launch
 
 /** 主面板 — Stage 1 仅显示"已配对"状态 + agent_token / device_id / child_id 摘要.
@@ -98,11 +100,15 @@ fun DashboardScreen(
     // Settings.Secure 没 listener API, 老套路: onResume 重查一次.
     val ctx = LocalContext.current
     var a11yEnabled by remember { mutableStateOf(AccessibilityPermission.isEnabled(ctx)) }
+    // v0.5.11+ ROM 后台引导 — 仅国内 ROM + 未 dismiss 时显示
+    val romGuideDismissed by settings.romGuideDismissed.collectAsState(initial = false)
+    var batteryOk by remember { mutableStateOf(RomAutostartHelper.isBatteryOptimizationIgnored(ctx)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 a11yEnabled = AccessibilityPermission.isEnabled(ctx)
+                batteryOk = RomAutostartHelper.isBatteryOptimizationIgnored(ctx)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -133,6 +139,19 @@ fun DashboardScreen(
                 enabled = a11yEnabled,
                 onOpenSettings = { AccessibilityPermission.openSettings(ctx) },
             )
+
+            // v0.5.11+ 国内 ROM 后台引导 — Stock Android / 已 dismiss / 电池已白名单 + 厂商未识别都不显示
+            if (RomAutostartHelper.needsAutostartGuide() && !romGuideDismissed) {
+                RomGuidanceCard(
+                    vendor = RomAutostartHelper.detectVendor(),
+                    batteryOk = batteryOk,
+                    onOpenAutostart = { RomAutostartHelper.openAutostartSettings(ctx) },
+                    onRequestBattery = { RomAutostartHelper.requestIgnoreBatteryOpt(ctx) },
+                    onDismiss = {
+                        scope.launch { settings.dismissRomGuide() }
+                    },
+                )
+            }
 
             // v0.5.5+ 模式徽章 + 限免倒计时
             if (mode != AgentState.Mode.Child || freePassUntilMs != null) {
@@ -315,6 +334,59 @@ fun DashboardScreen(
                 scope.launch { snackbarHostState.showSnackbar(msg) }
             },
         )
+    }
+}
+
+/** 国内 ROM 后台引导卡 (v0.5.11+) — MIUI/EMUI/ColorOS 等会杀后台 Service.
+ *  仅识别到国内 ROM + 用户未 dismiss 时显示. */
+@Composable
+private fun RomGuidanceCard(
+    vendor: RomAutostartHelper.Vendor,
+    batteryOk: Boolean,
+    onOpenAutostart: () -> Unit,
+    onRequestBattery: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val vendorName = stringResource(when (vendor) {
+        RomAutostartHelper.Vendor.Xiaomi -> R.string.vendor_xiaomi
+        RomAutostartHelper.Vendor.Huawei -> R.string.vendor_huawei
+        RomAutostartHelper.Vendor.Oppo -> R.string.vendor_oppo
+        RomAutostartHelper.Vendor.Vivo -> R.string.vendor_vivo
+        RomAutostartHelper.Vendor.OnePlus -> R.string.vendor_oneplus
+        RomAutostartHelper.Vendor.Meizu -> R.string.vendor_meizu
+        RomAutostartHelper.Vendor.Stock -> R.string.app_name
+    })
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.rom_guide_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF78350F),
+            )
+            Text(
+                stringResource(R.string.rom_guide_body, vendorName),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF78350F),
+            )
+            OutlinedButton(onClick = onOpenAutostart, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.rom_guide_open_autostart))
+            }
+            if (!batteryOk) {
+                OutlinedButton(onClick = onRequestBattery, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.rom_guide_request_battery))
+                }
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.rom_guide_dismiss),
+                    color = Color(0xFF78350F),
+                )
+            }
+        }
     }
 }
 

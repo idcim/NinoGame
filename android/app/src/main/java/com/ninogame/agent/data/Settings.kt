@@ -2,6 +2,7 @@ package com.ninogame.agent.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -30,7 +31,8 @@ private val K_AGENT_TOKEN         = stringPreferencesKey("agent_token")
 private val K_DEVICE_ID           = stringPreferencesKey("device_id")
 private val K_CHILD_ID            = stringPreferencesKey("child_id")
 private val K_CACHED_BALANCE      = intPreferencesKey("cached_balance")
-private val K_APP_CATEGORIES_JSON = stringPreferencesKey("app_categories_json")
+private val K_APP_CATEGORIES_JSON  = stringPreferencesKey("app_categories_json")
+private val K_ROM_GUIDE_DISMISSED  = booleanPreferencesKey("rom_guide_dismissed")
 
 class Settings(private val ctx: Context) {
 
@@ -46,6 +48,9 @@ class Settings(private val ctx: Context) {
     /** v0.5.3+: 应用分类缓存 (CategoryCache 序列化的 JSON List<Entry>). 整张表
      *  一次写, 不分键 — 100-300 条 entry, 单 JSON ~50KB 完全 OK. */
     val appCategoriesJson: Flow<String?> = ctx.dataStore.data.map { it[K_APP_CATEGORIES_JSON] }
+
+    /** v0.5.11+: 用户已经看过 ROM 后台引导卡且点"我知道了"忽略, 不再展示. */
+    val romGuideDismissed: Flow<Boolean> = ctx.dataStore.data.map { it[K_ROM_GUIDE_DISMISSED] ?: false }
 
     /** 简洁的 "已配对没" 状态 — Dashboard / 起始路由用. */
     val isPaired: Flow<Boolean> = ctx.dataStore.data.map { p ->
@@ -77,6 +82,10 @@ class Settings(private val ctx: Context) {
 
     suspend fun saveAppCategoriesJson(json: String) {
         ctx.dataStore.edit { p -> p[K_APP_CATEGORIES_JSON] = json }
+    }
+
+    suspend fun dismissRomGuide() {
+        ctx.dataStore.edit { p -> p[K_ROM_GUIDE_DISMISSED] = true }
     }
 
     /** 同步读 isPaired — BootReceiver 在 onReceive ~10s 预算内, runBlocking 读 OK. */

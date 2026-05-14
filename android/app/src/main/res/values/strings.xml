@@ -89,6 +89,19 @@
     <string name="screen_lock_notif_title">已自动锁定</string>
     <string name="screen_lock_notif_body">屏幕灭超过 5 分钟, Agent 已切到 Lock 模式。家长可远程解锁或下次开屏自动恢复 Child。</string>
 
+    <!-- v0.5.11+ 国内 ROM 后台引导 -->
+    <string name="rom_guide_title">需要允许后台运行</string>
+    <string name="rom_guide_body">检测到 %1$s 系统. 这类系统默认会偷偷杀掉后台 Agent, 导致监控失效. 请点下面两个按钮分别配:\n• 自启动管理: 把 NinoGame Agent 加白名单\n• 电池优化: 忽略 NinoGame (允许后台耗电)</string>
+    <string name="rom_guide_open_autostart">打开自启动管理</string>
+    <string name="rom_guide_request_battery">允许后台耗电</string>
+    <string name="rom_guide_dismiss">我已配好, 别再提醒</string>
+    <string name="vendor_xiaomi">小米 / 红米 / POCO (MIUI)</string>
+    <string name="vendor_huawei">华为 / 荣耀 (EMUI/HarmonyOS)</string>
+    <string name="vendor_oppo">OPPO / Realme (ColorOS)</string>
+    <string name="vendor_vivo">vivo (OriginOS/FunTouchOS)</string>
+    <string name="vendor_oneplus">OnePlus</string>
+    <string name="vendor_meizu">魅族</string>
+
     <!-- v0.5.8+ 任务页 -->
     <string name="dash_tasks_button">任务清单 / 申报</string>
     <string name="tasks_title">任务</string>
