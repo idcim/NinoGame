@@ -98,6 +98,10 @@ dependencies {
     // 协程
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // WorkManager — v0.5.12+ Watchdog 周期拉起 Service (跟 Windows agent Watchdog.exe 等价).
+    // 最小周期 15min (Android 系统约束), 国内 ROM 杀 Service 后由 WorkManager 拉回.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // 测试 (skeleton 现阶段不写测试, 留依赖位置)
     testImplementation("junit:junit:4.13.2")
 }

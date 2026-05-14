@@ -77,7 +77,13 @@ class NinoAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
-        Log.i(TAG, "onUnbind")
+        Log.i(TAG, "onUnbind — 无障碍权限被关")
+        // v0.5.12+ 立刻上报 server, 让家长后台 EventFeed 实时看到 "孩子关了无障碍"
+        // (跟 Windows agent watchdog 死告警 / pin_fail 上报 等价). server 端 onEvent
+        // 落 events 表 + publishToParent + 触发 notifier (企微/SMTP) 推家长.
+        AgentService.sendEvent("accessibility_disabled", buildJsonObject {
+            put("ts", System.currentTimeMillis())
+        })
         ForegroundAppMonitor.reset()
         return super.onUnbind(intent)
     }

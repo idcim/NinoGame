@@ -69,6 +69,13 @@ class AgentService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /** v0.5.12+ 显式 START_STICKY — 进程被 OOM/ROM 杀掉后 Android 自动重新创建
+     *  Service (用 null Intent 调 onStartCommand). 跟 Watchdog WorkManager 双层兜底:
+     *  系统能拉就系统拉, 系统懒得拉时 Watchdog 15min 一查也能拉. */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_STICKY
+    }
+
     override fun onCreate() {
         super.onCreate()
         startForeground(NOTIF_ID, buildNotification())
