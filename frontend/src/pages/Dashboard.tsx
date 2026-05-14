@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   Gem,
+  GraduationCap,
   History,
   Loader2,
   Minus,
@@ -12,6 +13,7 @@ import {
   Plus,
   RefreshCw,
   RotateCw,
+  Sparkles,
   TabletSmartphone,
   Trash2,
   X,
@@ -64,7 +66,11 @@ export default function Dashboard() {
   useEffect(() => {
     if (stream.events.length === 0) return;
     const top = stream.events[0];
-    if (top.event_type === "token_credit" || top.event_type === "token_deduct") {
+    if (
+      top.event_type === "token_credit" ||
+      top.event_type === "token_deduct" ||
+      top.event_type === "maturity_upgrade_suggestion"
+    ) {
       load();
     }
   }, [latestKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -148,44 +154,51 @@ function ChildCard({ child, onChanged }: { child: Child; onChanged: () => void }
   const [showGrant, setShowGrant] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
   return (
-    <div className="card p-5 flex items-center gap-4">
-      <div className="w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center">
-        <Baby size={24} />
+    <div className="card p-5 space-y-3">
+      <div className="flex items-center gap-4">
+        <div className="w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center">
+          <Baby size={24} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold">{child.display_name || child.username}</span>
+            <span className="badge badge-info">{maturityLabel(child.maturity_mode)}</span>
+          </div>
+          <div className="text-xs text-ink-dim mt-0.5 flex items-center gap-2 flex-wrap">
+            <span>@{child.username} · {child.birth_year ?? "—"} 生</span>
+            <TrustStars level={child.trust_level} />
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="flex items-center justify-end gap-1.5 text-brand font-bold text-xl">
+            <Gem size={18} />
+            {child.balance}
+          </div>
+          <div className="text-xs text-ink-dim">token</div>
+          <div className="flex items-center gap-2 justify-end mt-1">
+            <button
+              onClick={() => setShowGrant(true)}
+              className="text-xs text-brand hover:underline"
+            >
+              调账 / 发奖
+            </button>
+            <span className="text-ink-light text-xs">·</span>
+            <button
+              onClick={() => setShowLedger(true)}
+              className="text-xs text-ink-dim hover:text-brand inline-flex items-center gap-0.5"
+              title="查看 token 变动记录"
+            >
+              <History size={11} />
+              变动记录
+            </button>
+          </div>
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold">{child.display_name || child.username}</span>
-          <span className="badge badge-info">{maturityLabel(child.maturity_mode)}</span>
-        </div>
-        <div className="text-xs text-ink-dim mt-0.5 flex items-center gap-2 flex-wrap">
-          <span>@{child.username} · {child.birth_year ?? "—"} 生</span>
-          <TrustStars level={child.trust_level} />
-        </div>
-      </div>
-      <div className="text-right shrink-0">
-        <div className="flex items-center justify-end gap-1.5 text-brand font-bold text-xl">
-          <Gem size={18} />
-          {child.balance}
-        </div>
-        <div className="text-xs text-ink-dim">token</div>
-        <div className="flex items-center gap-2 justify-end mt-1">
-          <button
-            onClick={() => setShowGrant(true)}
-            className="text-xs text-brand hover:underline"
-          >
-            调账 / 发奖
-          </button>
-          <span className="text-ink-light text-xs">·</span>
-          <button
-            onClick={() => setShowLedger(true)}
-            className="text-xs text-ink-dim hover:text-brand inline-flex items-center gap-0.5"
-            title="查看 token 变动记录"
-          >
-            <History size={11} />
-            变动记录
-          </button>
-        </div>
-      </div>
+
+      {child.maturity_suggestion && (
+        <MaturitySuggestionBanner child={child} onChanged={onChanged} />
+      )}
+
       {showGrant && (
         <GrantDialog
           child={child}
@@ -202,6 +215,92 @@ function ChildCard({ child, onChanged }: { child: Child; onChanged: () => void }
           onClose={() => setShowLedger(false)}
         />
       )}
+    </div>
+  );
+}
+
+/** 系统建议升档横幅 (CLAUDE.md §1.2 让系统逐步退场).
+ *  trust_level 升到 4/5 时自动出现, 家长可一键应用 / 暂不升级.
+ *  暂不升级 30 天后会再次出现 (或新 target 触发时立刻清). */
+function MaturitySuggestionBanner({
+  child,
+  onChanged,
+}: {
+  child: Child;
+  onChanged: () => void;
+}) {
+  const sug = child.maturity_suggestion!;
+  const [busy, setBusy] = useState<"apply" | "dismiss" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function apply() {
+    setBusy("apply");
+    setErr(null);
+    try {
+      await api.updateChild(child.id, { maturity_mode: sug.to });
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "应用失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function dismiss() {
+    setBusy("dismiss");
+    setErr(null);
+    try {
+      await api.dismissMaturitySuggestion(child.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "操作失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-accent/30 bg-accent/5 p-3">
+      <div className="flex items-start gap-2">
+        <Sparkles size={16} className="text-accent-600 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium text-ink flex items-center gap-1.5 flex-wrap">
+            <GraduationCap size={14} className="text-accent-600" />
+            系统建议升级档位
+          </div>
+          <div className="text-xs text-ink-dim mt-1 leading-relaxed">
+            信任值已升到 <b className="text-accent-600">Lv {sug.trust_level}</b>,
+            建议从「{maturityLabel(sug.from)}」升到「{maturityLabel(sug.to)}」 —
+            这是"让系统逐步退场"的一步, 不强制. 30 天后会再次提示.
+          </div>
+          {err && (
+            <div className="text-xs text-warn bg-warn/10 border border-warn/30 rounded px-2 py-1 mt-2">
+              {err}
+            </div>
+          )}
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={apply}
+              disabled={busy !== null}
+              className="text-xs px-3 py-1 rounded-md bg-accent text-white hover:bg-accent-600 disabled:opacity-50 inline-flex items-center gap-1"
+            >
+              {busy === "apply" ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Check size={12} />
+              )}
+              应用为「{maturityLabel(sug.to)}」
+            </button>
+            <button
+              onClick={dismiss}
+              disabled={busy !== null}
+              className="text-xs px-3 py-1 rounded-md border border-border text-ink-dim hover:text-ink hover:border-ink/30 disabled:opacity-50"
+            >
+              暂不升级
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

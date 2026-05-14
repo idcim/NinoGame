@@ -257,17 +257,152 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
   );
 
   // ── 列出当前家长的孩子 ────────────────────────────────
+  // 同时附 maturity_suggestion (若有): 最近 30 天内 emit 过 maturity_upgrade_suggestion,
+  // 且 target 与当前 maturity_mode 不同, 且未被家长 dismiss 过.
   app.get("/api/children", { preHandler: app.parentAuth }, async (req) => {
-    const r = await pool.query<ChildRow & { balance: number }>(
+    const r = await pool.query<
+      ChildRow & {
+        balance: number;
+        dismissed_maturity_target: string | null;
+        suggestion_to: string | null;
+        suggestion_from: string | null;
+        suggestion_trust_level: number | null;
+        suggestion_at: string | null;
+      }
+    >(
       `SELECT c.id, c.parent_id, c.username, c.display_name, c.birth_year,
               c.maturity_mode, c.quota_package, c.trust_level, c.created_at,
-              COALESCE(w.balance, 0)::int AS balance
+              COALESCE(w.balance, 0)::int AS balance,
+              c.dismissed_maturity_target,
+              s.to_mode AS suggestion_to,
+              s.from_mode AS suggestion_from,
+              s.trust_level AS suggestion_trust_level,
+              s.occurred_at AS suggestion_at
          FROM "NinoGame".children c
          LEFT JOIN "NinoGame".wallets w ON w.child_id = c.id
+         LEFT JOIN LATERAL (
+           SELECT payload->>'to' AS to_mode,
+                  payload->>'from' AS from_mode,
+                  (payload->>'trust_level')::int AS trust_level,
+                  occurred_at::text AS occurred_at
+             FROM "NinoGame".events
+            WHERE child_id = c.id
+              AND event_type = 'maturity_upgrade_suggestion'
+              AND occurred_at > NOW() - INTERVAL '30 days'
+            ORDER BY occurred_at DESC
+            LIMIT 1
+         ) s ON TRUE
         WHERE c.parent_id = $1
         ORDER BY c.created_at`,
       [req.parent!.sub],
     );
-    return { children: r.rows };
+    const children = r.rows.map((row) => {
+      const live =
+        row.suggestion_to &&
+        row.suggestion_to !== row.maturity_mode &&
+        row.suggestion_to !== row.dismissed_maturity_target;
+      const {
+        suggestion_to,
+        suggestion_from,
+        suggestion_trust_level,
+        suggestion_at,
+        dismissed_maturity_target: _dmt,
+        ...base
+      } = row;
+      return {
+        ...base,
+        maturity_suggestion: live
+          ? {
+              from: suggestion_from!,
+              to: suggestion_to!,
+              trust_level: suggestion_trust_level ?? 0,
+              suggested_at: suggestion_at!,
+            }
+          : null,
+      };
+    });
+    return { children };
   });
+
+  // ── 改 maturity_mode (一键应用建议 / 家长手动调档) ────
+  app.patch(
+    "/api/children/:id",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const child_id = (req.params as { id: string }).id;
+      const PatchBody = z.object({
+        maturity_mode: z
+          .enum(["strict", "negotiable", "advisory", "self_regulated"])
+          .optional(),
+      });
+      const parsed = PatchBody.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+      const { maturity_mode } = parsed.data;
+      if (!maturity_mode) {
+        return reply.badRequest("没有字段可更新");
+      }
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "NinoGame".children
+          WHERE id = $1 AND parent_id = $2`,
+        [child_id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      const upd = await pool.query<{ maturity_mode: string }>(
+        `UPDATE "NinoGame".children
+            SET maturity_mode = $2,
+                dismissed_maturity_target = NULL
+          WHERE id = $1
+        RETURNING maturity_mode`,
+        [child_id, maturity_mode],
+      );
+      app.log.info(
+        { child_id, maturity_mode },
+        "child maturity_mode updated",
+      );
+      return { maturity_mode: upd.rows[0].maturity_mode };
+    },
+  );
+
+  // ── 暂不升级 (dismiss 当前 suggestion) ───────────────
+  app.post(
+    "/api/children/:id/maturity-suggestion/dismiss",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const child_id = (req.params as { id: string }).id;
+      // 验证归属 + 拉当前建议 target
+      const r = await pool.query<{ to_mode: string | null }>(
+        `SELECT (e.payload->>'to') AS to_mode
+           FROM "NinoGame".children c
+           LEFT JOIN LATERAL (
+             SELECT payload FROM "NinoGame".events
+              WHERE child_id = c.id
+                AND event_type = 'maturity_upgrade_suggestion'
+                AND occurred_at > NOW() - INTERVAL '30 days'
+              ORDER BY occurred_at DESC
+              LIMIT 1
+           ) e ON TRUE
+          WHERE c.id = $1 AND c.parent_id = $2`,
+        [child_id, req.parent!.sub],
+      );
+      if (r.rows.length === 0) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      const target = r.rows[0].to_mode;
+      if (!target) {
+        return reply.notFound("当前没有未处理的升级建议");
+      }
+      await pool.query(
+        `UPDATE "NinoGame".children
+            SET dismissed_maturity_target = $2
+          WHERE id = $1`,
+        [child_id, target],
+      );
+      app.log.info({ child_id, dismissed_target: target }, "maturity suggestion dismissed");
+      return { dismissed: target };
+    },
+  );
 }

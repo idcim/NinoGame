@@ -15,7 +15,9 @@
  *   - 防刷 alert 命中 → -1
  *   - 按周聚合, 周日 cron 跑
  */
+import type { FastifyBaseLogger } from "fastify";
 import { pool } from "../db.js";
+import { suggestMaturityUpgrade } from "./maturity_upgrade_suggester.js";
 
 const TRUST_MIN = 0;
 const TRUST_MAX = 5;
@@ -63,7 +65,10 @@ async function changedTodayAlready(child_id: string): Promise<boolean> {
   return Boolean(r.rows[0]?.exists);
 }
 
-export async function recomputeTrust(child_id: string): Promise<{
+export async function recomputeTrust(
+  child_id: string,
+  logger?: FastifyBaseLogger,
+): Promise<{
   current_level: number;
   changed: boolean;
   delta: number;
@@ -131,6 +136,14 @@ export async function recomputeTrust(child_id: string): Promise<{
     throw err;
   } finally {
     client.release();
+  }
+
+  // 升到 Lv4/Lv5 时尝试推一条成熟度升级建议 (§1.2 让系统逐步退场).
+  // fire-and-forget: 失败软吞, 不阻当前调用方的响应.
+  if (delta > 0 && newLevel >= 4) {
+    void suggestMaturityUpgrade(child_id, logger).catch((err) => {
+      logger?.warn({ err, child_id }, "suggestMaturityUpgrade failed");
+    });
   }
 
   return { current_level: newLevel, changed: true, delta, reason };

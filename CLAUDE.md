@@ -1871,7 +1871,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~Agent 自升级~~ (v0.3.0 完成): server 端 `agent_releases` 表 + `/api/admin/releases` CRUD + `@fastify/static` 鉴权下载 + `onHello` 写 devices.agent_version 比对入队 `update_self` command; Agent 端 `_handle_command(update_self)` 缓存 → 主循环 30s SafeMoment 检查 (lock 态稳定 30s + 无对话框) → `kick_update` (下载 sha256 校验 + 解压) → spawn Updater.exe → 写 quit.flag → sys.exit(0); Updater.exe 独立 onefile 接管 nssm stop → 备份 → 替换 → start → 60s 心跳验证, 失败自动回滚到 backup-old. 详见 [agile-giggling-dahl 计划](C:\Users\Administrator\.claude\plans\agile-giggling-dahl.md).
 - [ ] 卸载密码保护流程
 - [ ] 应用特定信号检测（防刷 ③）
-- [ ] 自动 maturity_mode 升级建议
+- [x] ~~自动 maturity_mode 升级建议~~ (v0.4.2 完成): trust_level 升到 4/5 时 server 自动发"建议升档"事件 (Lv4 + strict/negotiable → 建议 advisory; Lv5 + advisory → 建议 self_regulated). 写 `events(maturity_upgrade_suggestion)` + 推家长浏览器 EventFeed + notifier (企微 + SMTP, info 级) + Dashboard ChildCard 横幅"一键应用 / 暂不升级". 30 天 cooldown (`children.last_maturity_suggestion_at`), 暂不升级用 `dismissed_maturity_target` 标记 (新 target 自动清). 详见 §22 决策 #43 + `backend/src/services/maturity_upgrade_suggester.ts`.
 - [ ] 数据导出（CSV / JSON）
 - [ ] 周回顾 / 月回顾报表
 - [ ] 屏幕使用时长统计（不是截屏，仅前台时间）
@@ -1967,6 +1967,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 | 40   | 升级包分发渠道         | **Backend 自手托管 (Docker 卷)**: `@fastify/static` 挂 `/artifacts/*` → `/var/lib/ninogame/artifacts` 外挂卷, 镜像重建包不丢. 拒 GitHub Releases (家庭场景不需要公网 CDN, 自家服务器 + 1Panel OpenResty `client_max_body_size 200M` 反代足够). 鉴权: 30 分钟 jwt 含 device_id + version, 防公网拖包 (虽然 sha256 + TLS 已经足够防中间人). | §17 P4 |
 | 41   | 管理后台拆分模型       | **独立 admin 后台 (v0.4.0+)**: 独立子域 `admin.ninogame.{domain}` + 独立 Docker 服务 `ninogame-admin-frontend` + 独立 `admin_accounts` 表 + 独立 JWT (kind='admin' 字段区分). 不走 parents.role 多角色, 也不走 ENV 硬编码 — admin 跟 parent 完全两套登录, 互不能调对方 API. 多租户暂不真做, 仅加 `parents.tenant_id` 列接缝, 当前所有 parent 视为 default tenant. **理由**: 家庭场景里运营 (上 LLM key / 发版 / 调全局应用分类) 跟家长日常 (审批 / 报表) 心智完全不同, 同一 UI 互相干扰; 真切多租户时只需 backfill tenant_id + 在每个 query 加 WHERE tenant_id, schema 主体不动. | §17 P4 / SaaS 准备 |
 | 42   | 文件存储抽象           | **三驱动**: local (Docker 卷) / S3-compatible (`@aws-sdk/client-s3` 吃 AWS S3 / MinIO / B2 / R2 / 腾讯 COS / 七牛) / 阿里云 OSS (`ali-oss` SDK). `STORAGE_DRIVER` 环境变量切, 启动时 factory 校验 env 缺时 fallback local + 告警. signedUrl: local 走 server jwt + `/artifacts/?token=` 流量过 server; S3/OSS 走云存储自己的 presigned URL, server 不代理流量 (省自家带宽). 旧版本数据不自动迁移驱动 — 文档说明. | §17 P4 / v0.4.0 |
+| 43   | 自动 maturity 升档建议 | **trust → maturity 桥接 (v0.4.2)**: 信任值升到 Lv4 / Lv5 时 server 自动发"建议升档"事件 (Lv4 + strict/negotiable → 建议 advisory; Lv5 + advisory → 建议 self_regulated). 不强制改, 只是给家长看 — 写 `events(maturity_upgrade_suggestion)` + 推浏览器 EventFeed + notifier (info 级) + Dashboard ChildCard 横幅"一键应用 / 暂不升级". 30 天 cooldown (`children.last_maturity_suggestion_at`), "暂不升级"用 `dismissed_maturity_target` 标记, 新 target 出现时自动清零. **理由**: §1.2 让系统逐步退场的机制化 — 信任值 (P2) 是数据, 这条是把它转成"该松手了"的可执行建议; 家长仍是决策权, LLM-free, 不当裁判. | §1.2, §8.7, §21 P4 |
 
 ------
 

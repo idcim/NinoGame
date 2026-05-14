@@ -46,6 +46,14 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### 自动成熟度升级建议 (v0.4.2+, P4 完成)
+- **触发链路**: 每次家长 approve/reject 申请后 server 重算 `trust_level`; 信任值升到 Lv4/Lv5 时根据 §8.7 决策表自动发"建议升档"事件 (Lv4 + strict/negotiable → 建议 `advisory`; Lv5 + advisory → 建议 `self_regulated`)
+- **展示**: 浏览器 Dashboard 孩子卡片下方出现🎓"系统建议升级档位"横幅 (信任值徽章 + 升级目标 + 一键应用 / 暂不升级按钮); EventFeed 实时浮出一条"成熟度升级建议"; 配置了企微/SMTP 时 notifier 也同步推 info 级通知
+- **不强制**: 家长点"应用" → PATCH `/api/children/:id { maturity_mode }` 把档位升上去, 顺手清除 `dismissed_maturity_target`; 点"暂不升级" → 把当前 target 写入 `dismissed_maturity_target`, 横幅消失
+- **防爆**: `children.last_maturity_suggestion_at` 撑 30 天 cooldown, 同 child 30 天内只发一次; "暂不升级"状态 30 天内压住老 target, 但只要系统出新 target (例从 advisory→self_regulated) 立刻清空 dismiss 让新建议过来
+- **理念**: CLAUDE.md §1.2 "让系统逐步退场" 的机制化 — 信任值 (P2) 是冷冰冰的数据, 这条把它翻译成"该松手了"的可执行建议; 决策权仍 100% 在家长手里, 系统不当裁判 (§12.5)
+- **见**: `backend/src/services/maturity_upgrade_suggester.ts`, `backend/src/routes/children.ts` (PATCH + dismiss 路由 + LATERAL JOIN 拉最新 suggestion), `frontend/src/pages/Dashboard.tsx` (`MaturitySuggestionBanner`)
+
 ### Token 调账 / 奖励 (孩子卡片 → 调账/发奖)
 - **正数**: 家长酌赠 / 任务奖励 (CLAUDE.md §8.5)
 - **负数**: 扣除 / 误扣修正 (§14.5 调账)
@@ -107,6 +115,7 @@
 | ✅ | ~~限免活动 (§14.4)~~ | 设备详情页「限免 30 分 / 1 小时 / 2 小时」一键; backend `POST /api/free-pass` 写 `free_pass_periods` + push `start_free_pass` 到该孩子所有在线 Agent; Agent 期间 consumption 跳扣 token (规则仍生效); 浏览器实时显示倒计时 + 终止按钮; Agent 重连 hello_ack 带活跃段, 重启不丢限免态 |
 | ✅ | ~~行为基线异常告警 (§16.1 ④)~~ | server 后台调度器每小时跑一次 `scanAllChildrenBaseline`: 按 `child × category` 拉过去 14 天每天 `active_seconds` 算均值, 今日 >2x 均值 (且 >30 min, 样本天数 ≥5) 触发, 写 `events(event_type='behavior_anomaly')` + push 给该家长浏览器实时面板; 单 child+category 24h 限频。"不阻止使用, 只是提醒" |
 | ✅ | ~~时间窗口规则 (§9.1 schedule.windows)~~ | 规则编辑器加"生效时段"区: 始终生效 / 仅指定时段 / 暂停。"仅指定时段"可加多段窗口, 每段挑星期 + HH:MM 起止 (跨午夜支持)。Agent rule_engine 按本地 wall-clock 判定, 任一窗口命中即生效; 列表卡片展示概要 ("工作日 21:00-23:00")。Zod 严格校验 from/to 格式 + days ∈ [0..6]。 |
+| ✅ | ~~自动 maturity_mode 升级建议 (P4)~~ | trust_level 升到 Lv4/Lv5 时 server 自动发"建议升档"事件 (Lv4 + strict/negotiable → advisory; Lv5 + advisory → self_regulated); 写 events + 推浏览器横幅"一键应用 / 暂不升级" + notifier (info 级). 30 天 cooldown + dismiss 标记. CLAUDE.md §1.2 让系统逐步退场的机制化, §22 #43. |
 | 🟢 | **Android Agent** | Kotlin + AccessibilityService |
 
 ## 当前状态

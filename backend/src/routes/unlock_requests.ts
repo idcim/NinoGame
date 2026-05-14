@@ -240,8 +240,9 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
         "unlock_request approved",
       );
 
-      // 信任值重算 (异步, 不阻塞响应)
-      void recomputeTrust(child_id).then((tr) => {
+      // 信任值重算 (异步, 不阻塞响应). 透传 logger 让 trust → maturity_suggester
+      // 链路里 notify/log 能落到统一 fastify logger.
+      void recomputeTrust(child_id, app.log).then((tr) => {
         if (tr.changed) {
           app.log.info({ child_id, ...tr }, "trust level changed");
         }
@@ -288,7 +289,7 @@ export async function registerUnlockRequestRoutes(app: FastifyInstance) {
         [id, comment ?? null],
       );
       app.log.info({ request_id: id }, "unlock_request rejected");
-      void recomputeTrust(rq.rows[0].child_id).then((tr) => {
+      void recomputeTrust(rq.rows[0].child_id, app.log).then((tr) => {
         if (tr.changed) {
           app.log.info({ child_id: rq.rows[0].child_id, ...tr }, "trust level changed");
         }

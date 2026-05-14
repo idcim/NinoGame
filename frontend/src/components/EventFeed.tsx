@@ -5,6 +5,7 @@ import {
   CircleDot,
   ClipboardList,
   Gem,
+  GraduationCap,
   Loader2,
   LogIn,
   LogOut,
@@ -13,6 +14,7 @@ import {
   WifiOff,
   type LucideIcon,
 } from "lucide-react";
+import { MATURITY_LABELS } from "../lib/labels";
 import { useEventStream, type LiveEvent } from "../lib/eventStream";
 
 const TYPE_META: Record<
@@ -27,6 +29,7 @@ const TYPE_META: Record<
   pin_fail:          { icon: AlertTriangle,  label: "PIN 错误",      tone: "warn" },
   jiggler_alert:     { icon: AlertTriangle,  label: "刷分嫌疑",      tone: "warn" },
   behavior_anomaly:  { icon: AlertTriangle,  label: "行为基线异常",  tone: "warn" },
+  maturity_upgrade_suggestion: { icon: GraduationCap, label: "成熟度升级建议", tone: "ok" },
   unknown_app:       { icon: CircleDot,      label: "未知应用",       tone: "info" },
   unlock_request:    { icon: MessageSquare,  label: "孩子申请",       tone: "info" },
   task_claim:        { icon: ClipboardList,  label: "任务申报",       tone: "info" },
@@ -74,6 +77,14 @@ function _renderSummary(ev: LiveEvent): string {
     const tid = p?.task_id as string | undefined;
     const done = p?.completed as boolean | undefined;
     return `${tid ?? "—"} ${done ? "✓ 完成" : "✗ 撤销"}`;
+  }
+  if (ev.event_type === "maturity_upgrade_suggestion") {
+    const from = (p?.from as string) ?? "?";
+    const to = (p?.to as string) ?? "?";
+    const trust = p?.trust_level as number | undefined;
+    const fromCn = MATURITY_LABELS[from] ?? from;
+    const toCn = MATURITY_LABELS[to] ?? to;
+    return `信任值 Lv${trust ?? "?"} · 建议「${fromCn}」→「${toCn}」`;
   }
   if (ev.event_type === "behavior_anomaly") {
     const cat = p?.category as string | undefined;

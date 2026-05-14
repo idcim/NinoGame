@@ -80,6 +80,23 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  /** 修改孩子档位 (一键应用建议 / 家长手动调档). */
+  updateChild: (
+    child_id: string,
+    data: { maturity_mode?: Child["maturity_mode"] },
+  ) =>
+    request<{ maturity_mode: string }>(`/api/children/${child_id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+
+  /** 暂不升级: 把当前 maturity_suggestion 标记为 dismissed. */
+  dismissMaturitySuggestion: (child_id: string) =>
+    request<{ dismissed: string }>(
+      `/api/children/${child_id}/maturity-suggestion/dismiss`,
+      { method: "POST" },
+    ),
+
   // ── devices ────────────────────────────────────────────────
   listDevices: () =>
     request<{ devices: Array<Device> }>("/api/devices"),
@@ -364,17 +381,32 @@ export const api = {
 };
 
 // ── types ──────────────────────────────────────────────────────
+export type MaturityMode =
+  | "strict"
+  | "negotiable"
+  | "advisory"
+  | "self_regulated";
+
+export interface MaturitySuggestion {
+  from: MaturityMode;
+  to: MaturityMode;
+  trust_level: number;
+  suggested_at: string;
+}
+
 export interface Child {
   id: string;
   parent_id: string;
   username: string;
   display_name: string | null;
   birth_year: number | null;
-  maturity_mode: string;
+  maturity_mode: MaturityMode;
   quota_package: string;
   trust_level: number;
   balance: number;
   created_at: string;
+  /** 系统给出的"建议升档"提示, 没有时为 null. */
+  maturity_suggestion: MaturitySuggestion | null;
 }
 
 export interface Device {
