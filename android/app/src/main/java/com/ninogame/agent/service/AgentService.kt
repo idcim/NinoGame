@@ -31,8 +31,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -60,6 +62,7 @@ class AgentService : Service() {
     private var connectJob: Job? = null
     private var heartbeatJob: Job? = null
     private var usageReporter: UsageReporter? = null
+    private var unknownAppsReporter: UnknownAppsReporter? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -68,6 +71,10 @@ class AgentService : Service() {
         startForeground(NOTIF_ID, buildNotification())
         wsClient = WsClient(Api.client, scope)
         usageReporter = UsageReporter(scope, wsClient!!, Settings.from(this))
+        unknownAppsReporter = UnknownAppsReporter(scope, wsClient!!, applicationContext)
+
+        // v0.5.3+ 启动时从 DataStore 把 CategoryCache 恢复回内存
+        scope.launch { CategoryCache.load(this@AgentService) }
 
         // 把 ws state mirror 到 AgentState, UI 一行 collectAsState 拿
         scope.launch {
@@ -132,20 +139,22 @@ class AgentService : Service() {
             return
         }
 
-        // 3) Open → 发 hello + 启 heartbeat 30s + 启 UsageReporter 5min
+        // 3) Open → 发 hello + 启 heartbeat 30s + 启 UsageReporter 5min + UnknownAppsReporter 60s
         Log.i(TAG, "WS open, sending hello")
         sendHello(agentToken)
         heartbeatJob = scope.launch { heartbeatLoop() }
         usageReporter?.start()
+        unknownAppsReporter?.start()
 
         // 4) 阻塞等到 state 离开 Open (Disconnected 或 Failed)
         ws.state.first {
             it is WsClient.ConnectionState.Disconnected ||
             it is WsClient.ConnectionState.Failed
         }
-        Log.i(TAG, "WS closed; cancel heartbeat + usage reporter, return for retry")
+        Log.i(TAG, "WS closed; cancel heartbeat + reporters, return for retry")
         heartbeatJob?.cancel()
         usageReporter?.stop()
+        unknownAppsReporter?.stop()
     }
 
     private suspend fun heartbeatLoop() {
@@ -180,9 +189,36 @@ class AgentService : Service() {
             "hello_ack" -> onHelloAck(msg.payload)
             "wallet_update" -> onWalletUpdate(msg.payload)
             "rules_update" -> onRulesUpdate(msg.payload)
+            "app_categories_update" -> onAppCategoriesUpdate(msg.payload)
             "error" -> Log.w(TAG, "server error: ${msg.payload}")
-            // Stage 3 会加: command / app_categories_update / settings_update / tasks_update / ...
-            else -> Log.d(TAG, "msg ignored (Stage 2a): ${msg.type}")
+            // Stage 3 会加: command / settings_update / tasks_update / ...
+            else -> Log.d(TAG, "msg ignored (Stage 2c): ${msg.type}")
+        }
+    }
+
+    private fun onAppCategoriesUpdate(payload: JsonElement?) {
+        val obj = payload as? JsonObject ?: return
+        val updates = runCatching { obj["updates"]?.jsonArray }.getOrNull() ?: return
+        val entries = mutableListOf<CategoryCache.Entry>()
+        for (u in updates) {
+            val o = runCatching { u.jsonObject }.getOrNull() ?: continue
+            val pkg = o["app_identifier"]?.jsonPrimitive?.contentOrNull ?: continue
+            val cat = o["category"]?.jsonPrimitive?.contentOrNull ?: continue
+            val sub = o["sub_type"]?.jsonPrimitive?.contentOrNull ?: ""
+            val dn = o["display_name"]?.jsonPrimitive?.contentOrNull
+            entries.add(
+                CategoryCache.Entry(
+                    app_identifier = pkg,
+                    category = cat,
+                    sub_type = sub,
+                    display_name = dn,
+                    cached_at_ms = System.currentTimeMillis(),
+                )
+            )
+        }
+        if (entries.isNotEmpty()) {
+            Log.i(TAG, "app_categories_update: ${entries.size} entries")
+            CategoryCache.upsert(entries, applicationContext)
         }
     }
 
@@ -224,8 +260,10 @@ class AgentService : Service() {
     override fun onDestroy() {
         Log.i(TAG, "AgentService onDestroy")
         usageReporter?.stop()
+        unknownAppsReporter?.stop()
         ForegroundAppMonitor.reset()
         AgentState.reset()
+        // CategoryCache 不 reset — 是磁盘缓存, 进程重启希望恢复
         scope.cancel()
         wsClient?.close()
         super.onDestroy()

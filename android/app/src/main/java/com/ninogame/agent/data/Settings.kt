@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /** DataStore-backed 配置. SharedPreferences 的协程友好替代.
@@ -24,11 +25,12 @@ import kotlinx.coroutines.flow.map
  */
 private val Context.dataStore by preferencesDataStore(name = "ninogame_settings")
 
-private val K_BACKEND_URL    = stringPreferencesKey("backend_url")
-private val K_AGENT_TOKEN    = stringPreferencesKey("agent_token")
-private val K_DEVICE_ID      = stringPreferencesKey("device_id")
-private val K_CHILD_ID       = stringPreferencesKey("child_id")
-private val K_CACHED_BALANCE = intPreferencesKey("cached_balance")
+private val K_BACKEND_URL         = stringPreferencesKey("backend_url")
+private val K_AGENT_TOKEN         = stringPreferencesKey("agent_token")
+private val K_DEVICE_ID           = stringPreferencesKey("device_id")
+private val K_CHILD_ID            = stringPreferencesKey("child_id")
+private val K_CACHED_BALANCE      = intPreferencesKey("cached_balance")
+private val K_APP_CATEGORIES_JSON = stringPreferencesKey("app_categories_json")
 
 class Settings(private val ctx: Context) {
 
@@ -40,6 +42,10 @@ class Settings(private val ctx: Context) {
      *  Service 进程被系统杀后, 重启时给 UI 一个不可信但有用的"上次余额"展示, 直到
      *  WS 重连成功收到新值. */
     val cachedBalance: Flow<Int?> = ctx.dataStore.data.map { it[K_CACHED_BALANCE] }
+
+    /** v0.5.3+: 应用分类缓存 (CategoryCache 序列化的 JSON List<Entry>). 整张表
+     *  一次写, 不分键 — 100-300 条 entry, 单 JSON ~50KB 完全 OK. */
+    val appCategoriesJson: Flow<String?> = ctx.dataStore.data.map { it[K_APP_CATEGORIES_JSON] }
 
     /** 简洁的 "已配对没" 状态 — Dashboard / 起始路由用. */
     val isPaired: Flow<Boolean> = ctx.dataStore.data.map { p ->
@@ -68,6 +74,13 @@ class Settings(private val ctx: Context) {
     suspend fun saveCachedBalance(balance: Int) {
         ctx.dataStore.edit { p -> p[K_CACHED_BALANCE] = balance }
     }
+
+    suspend fun saveAppCategoriesJson(json: String) {
+        ctx.dataStore.edit { p -> p[K_APP_CATEGORIES_JSON] = json }
+    }
+
+    /** 同步读 isPaired — BootReceiver 在 onReceive ~10s 预算内, runBlocking 读 OK. */
+    suspend fun isPairedNow(): Boolean = isPaired.first()
 
     companion object {
         @Volatile

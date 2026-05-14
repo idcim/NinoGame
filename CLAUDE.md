@@ -1378,9 +1378,16 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 - `AccessibilityPermission.isEnabled()` — `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` + `ACCESSIBILITY_ENABLED` master switch 双重判定. Dashboard 顶部加权限引导卡 (未启用 → 黄色警告 + "去启用"按钮跳 `ACTION_ACCESSIBILITY_SETTINGS`), DisposableEffect 监 lifecycle ON_RESUME 让用户跳系统设置回来自动刷新.
 - Manifest 注册 service + intent-filter + meta-data → `res/xml/accessibility_service_config.xml`.
 
-**Stage 2c (下一站)**:
-- `unknown_apps` 上报 (新见 package 推 server, LLM 分类后推回 `app_categories_update`, Android 缓存 category 让 usage_report 不再全 neutral)
-- `BOOT_COMPLETED` BroadcastReceiver 开机自启 (孩子重启平板后 Agent 自动回来)
+**Stage 2c (v0.5.3, 已落)**:
+- `CategoryCache` singleton: 内存 map + DataStore JSON 持久化 (`app_categories_json`). 100-300 个 app, 单 JSON ~50KB.
+- `ForegroundAppMonitor.setForeground` 见到不在 IGNORED + 不在 cache 的 pkg → `CategoryCache.noteUnknown` 进 pending.
+- `UnknownAppsReporter` AgentService scope 60s 一轮 `drainPending` → 打包 `unknown_apps` 消息 → server LLM (复用 `llm_app_classifier.ts`) → 推 `app_categories_update`. Android 端 `PackageManager.getApplicationLabel` 解析 pkg → 应用标签 (例 `com.tencent.mm` → "微信") 当 `window_title` 给 LLM 强提示, 命中率比裸包名高一档. 发送失败把 pkg 退回 pending 重试.
+- `AgentService.onAppCategoriesUpdate` 解析 server 推送 → `CategoryCache.upsert` 写内存 + 持久化 DataStore. 上次会话已分类的 pkg 进程重启后自动 `CategoryCache.load` 恢复.
+- `UsageReporter` 调 `CategoryCache.getCategory(pkg)` 替代固定 `"neutral"`. 拿不到时降级 neutral, 下个 5min 周期一般就分好了.
+- `BootReceiver` 监 `BOOT_COMPLETED` + `QUICKBOOT_POWERON` (MIUI 兼容). `runBlocking { settings.isPairedNow() }` 同步查持久化状态, 已配对就 `AgentService.start`. Manifest 已经声明 `RECEIVE_BOOT_COMPLETED` 权限.
+
+**Stage 3 (下一站)**:
+- 规则匹配 + 拦截 (PvZ 等 → 弹对话框 + `performGlobalAction(GLOBAL_ACTION_HOME)` 回桌面)
 
 **Stage 3**:
 - 规则匹配 + 拦截 (Windows 端 kill → Android 端弹对话框 + 回 launcher + 上报 block 事件)
@@ -1917,7 +1924,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1+2a+2b 已落 (v0.5.0 / v0.5.1 / v0.5.2, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report 上报 (跟 Windows agent 同协议). 拦截 / token 经济 / 申请审批 在 Stage 3 推进.
+- [ ] **Android NinoGame App** — Stage 1+2a+2b+2c 已落 (v0.5.0~v0.5.3, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report 上报 + unknown_apps LLM 自动分类 + 开机自启. 拦截 / token 经济 / 申请审批 在 Stage 3 推进.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。

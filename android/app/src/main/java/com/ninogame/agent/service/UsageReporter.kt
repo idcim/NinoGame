@@ -89,8 +89,10 @@ class UsageReporter(
                 for (s in segments) {
                     add(buildJsonObject {
                         put("app", s.app)
-                        // Stage 2b: 全 neutral; Stage 2c+ 走 unknown_apps 让 server 分类
-                        put("category", "neutral")
+                        // v0.5.3+: 优先用 CategoryCache 真实 category; 还没分类完
+                        // (新装 app, server LLM 还没回来) 降级 neutral, 下个 5min
+                        // 周期里大概率就分好了
+                        put("category", CategoryCache.getCategory(s.app) ?: "neutral")
                         put("rate", 0.0)
                         put("active_seconds", s.activeSeconds)
                         put("idle_seconds", 0)

@@ -60,6 +60,10 @@ object ForegroundAppMonitor {
     fun setForeground(packageName: String?) {
         if (packageName.isNullOrBlank()) return
         if (packageName == openApp) return // 同 app 内 Activity 切, 忽略
+        // 不在 IGNORED 才进 unknown 分类队列, 否则会让自家 app + launcher 也被发 LLM
+        if (packageName !in IGNORED_PACKAGES) {
+            CategoryCache.noteUnknown(packageName)
+        }
         val now = System.currentTimeMillis()
 
         // 关掉当前 open segment

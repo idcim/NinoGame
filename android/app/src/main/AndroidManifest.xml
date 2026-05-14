@@ -48,6 +48,18 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- v0.5.3+ Stage 2c: 开机自启 receiver. RECEIVE_BOOT_COMPLETED 权限已在
+             顶部声明; exported=true 是 BOOT_COMPLETED 调起的必要条件 -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- MIUI / 部分国内 ROM 用这个 action 替代 BOOT_COMPLETED -->
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
         <!-- v0.5.2+ Stage 2b: AccessibilityService 监前台 app.
              用户必须在系统设置 → 无障碍 → 已安装的服务 中手动启用一次.
              权限 BIND_ACCESSIBILITY_SERVICE 系统级保护, 防止其它 App 调起. -->

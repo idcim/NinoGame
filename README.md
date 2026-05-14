@@ -46,6 +46,13 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 2c (v0.5.3+, LLM 自动分类 + 开机自启)
+- **CategoryCache** singleton + DataStore JSON 持久化: pkg → `{category, sub_type, display_name}`. 进程被系统杀后重启自动 `load()` 恢复.
+- **unknown_apps 闭环**: `ForegroundAppMonitor.setForeground` 见新 pkg → `CategoryCache.noteUnknown` 进 pending → `UnknownAppsReporter` 60s 一轮 `drainPending` → 打包 `unknown_apps` (带 `PackageManager.getApplicationLabel` 解析的应用标签当 `window_title` 给 LLM 强提示, 如 `com.tencent.mm` 加上 "微信") → server `onUnknownApps` (backend/src/ws/agent.ts) 调 `llm_app_classifier` → 推 `app_categories_update` → `AgentService.onAppCategoriesUpdate` upsert. 发送失败把 pkg 退回 pending 下轮重试
+- **真实 category**: UsageReporter 调 `CategoryCache.getCategory(pkg)`, 没分类完的降级 neutral, 下个 5min 周期一般就分好. **server 端零改动**, 复用 v0.4 LLM 分类器
+- **BootReceiver**: 监 `BOOT_COMPLETED` + `QUICKBOOT_POWERON` (MIUI 兼容). `runBlocking { settings.isPairedNow() }` 同步查持久化状态, 已配对就 `AgentService.start`. Manifest `RECEIVE_BOOT_COMPLETED` 权限已声明
+- **见**: `service/CategoryCache.kt` / `service/UnknownAppsReporter.kt` / `service/BootReceiver.kt`
+
 ### Android Agent Stage 2b (v0.5.2+, 监前台 + 5min usage_report)
 - **AccessibilityService** (`NinoAccessibilityService`): 监 `TYPE_WINDOW_STATE_CHANGED`, 抓前台 `packageName`. 用户首次需在系统设置 → 无障碍 启用一次. Dashboard 顶部检测未启用时显示黄色警告 + "去启用"按钮跳 `ACTION_ACCESSIBILITY_SETTINGS`. **不读屏 / 不取内容**, AccessibilityServiceInfo 配置 `canRetrieveWindowContent="false"`
 - **ForegroundAppMonitor** singleton (synchronized): app 持续前台 ≥ 2 秒才记 segment; 自家 app + 系统 launcher 黑名单跳过 (`com.miui.home`, `com.android.launcher3`, ...)
