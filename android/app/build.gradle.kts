@@ -59,6 +59,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.activity:activity-compose:1.9.1")
 
+    // Material Components — 提供 XML 主题 parent (Theme.Material3.DayNight.NoActionBar
+    // 等). Compose material3 是 Kotlin 部分, 不带 XML 资源; Activity 的 android:theme
+    // 在 Compose 加载前还要靠 XML 主题做窗口背景 + 状态栏色, 因此这个库要装.
+    implementation("com.google.android.material:material:1.12.0")
+
     // Compose BOM — 一行管多版本
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
