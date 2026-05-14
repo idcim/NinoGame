@@ -1363,10 +1363,18 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 - HTTP POST `/api/devices/pair/redeem` → 拿 agent_token + device_id + child_id, DataStore 存盘
 - DashboardScreen 占位 (显示已配对状态 + ID 摘要 + 重新配对按钮)
 
-**Stage 2 (下一站)**:
-- `AgentService` Foreground Service (`dataSync` 类型, Android 14+ 强制声明), 持 WS 长连接
-- WsClient 实装 hello / heartbeat / event / 接收 `rules_update` / `wallet_update` / `command`
-- AccessibilityService 监前台 app (Android 6.0+ 强制走这条路, 没有"无障碍能力" Agent 装了也白装)
+**Stage 2a (v0.5.1, 已落)**:
+- `AgentService` Foreground Service (`dataSync` 类型, Android 14+ 强制声明) — 配对后 MainActivity 自动 startForegroundService, 解配对自动 stop. 通知栏常驻 IMPORTANCE_LOW.
+- `WsClient` 实装 WS 长连接 — `?token=AGENT_TOKEN` query 鉴权 (跟 server `/ws/agent` 约定一致, 不是 Authorization header). State Flow 暴露 Disconnected/Connecting/Open/Failed.
+- WS 生命周期 (`AgentService.connectOnce`): 调 connect → `state.first { Open || Failed }` 等到决定态 → Open 后发 hello + 启动 heartbeat 30s 协程 → 等 terminal state → 函数返回 → connectLoop 退避重试 (1s→2s→4s→...→60s 封顶)
+- `hello` payload 带 agent_version/platform/os_release/os_sdk/model. `heartbeat` 空 payload.
+- 接收 `hello_ack` (写 walletBalance + rulesCount 到 `AgentState` singleton + DataStore 持久化 balance), `wallet_update` (实时更新), `rules_update` (实时更新). 其它消息类型 Stage 2b+ 加.
+- Dashboard 顶部实时连接徽章 + 余额卡 (实时优先, 离线显示 DataStore 缓存) + 规则数卡.
+
+**Stage 2b (下一站)**:
+- AccessibilityService 监前台 app (Android 6.0+ 必须走这条路, 跟 Windows EnumWindows 等价)
+- 引导孩子在系统设置启用"无障碍能力" (一次性手动操作)
+- UsageReporter 5min 间隔上报 `usage_report` (跟 Windows agent 同协议)
 - `BOOT_COMPLETED` BroadcastReceiver 开机自启
 
 **Stage 3**:
@@ -1904,7 +1912,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1 已起 (v0.5.0, 见 §17.6 + `android/`): Kotlin 2.0 + Compose + minSdk 24 (老平板友好) + Material 3 + WindowSizeClass 平板自适应. 当前能配对 + 持久化 token, WS 长连 / 拦截 / token 经济在 Stage 2+ 推进.
+- [ ] **Android NinoGame App** — Stage 1 + 2a 已落 (v0.5.0 / v0.5.1, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + 心跳 + 退避重连 + 实时余额/规则数同步. AccessibilityService 监前台 / 拦截 / token 经济 / 申请审批 在 Stage 2b+ 推进.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。

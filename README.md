@@ -46,6 +46,13 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 2a (v0.5.1+, 联机闭环)
+- **Foreground Service** (`AgentService`): 配对后 MainActivity 自动启, 解配对自动停; 通知栏常驻 IMPORTANCE_LOW; `foregroundServiceType=dataSync` 满足 Android 14+ 类型声明
+- **WS 长连接**: OkHttp WebSocket, `?token=AGENT_TOKEN` query 鉴权 (跟 server `/ws/agent` 约定一致), 不走 Authorization header
+- **生命周期**: connect → `state.first {Open||Failed}` 等决定态 → Open 后发 hello + 心跳 30s → terminal state 返回 → connectLoop 退避 1s/2s/4s/.../60s 封顶
+- **实时同步**: `hello_ack` / `wallet_update` / `rules_update` 自动写 AgentState singleton, Dashboard 顶部连接徽章 + 余额 + 规则数实时刷新; balance 同步持久化 DataStore 兜底离线显示
+- **见**: `android/app/src/main/java/com/ninogame/agent/service/` (AgentService + AgentState) + 更新的 `WsClient.kt` / `MainActivity.kt` / `DashboardScreen.kt`
+
 ### Android Agent Stage 1 (v0.5.0+)
 - **位置**: 新 `android/` 子目录, 跟 `agent/` (Windows 端) 并列
 - **技术栈**: Kotlin 2.0 + Compose + Material 3 + AGP 8.5 + minSdk 24 (Android 7 老平板友好) + targetSdk 34

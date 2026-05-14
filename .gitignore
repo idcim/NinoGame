@@ -14,7 +14,8 @@ dist/
 *.spec
 
 # 运行时数据（SQLite / 日志 / 心跳文件）
-data/
+# 注意: 老版本写 `data/` 会把 android/.../data/ 一并屏蔽 — 用绝对路径精确匹配
+/data/
 agent/data/
 *.alive
 *.db

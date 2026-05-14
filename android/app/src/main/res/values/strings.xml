@@ -25,4 +25,18 @@
     <string name="mode_parent">家长模式</string>
     <string name="mode_lock">已锁定</string>
     <string name="mode_unknown">未知</string>
+
+    <!-- v0.5.1+ Foreground Service 通知 -->
+    <string name="notif_channel_agent">Agent 后台运行</string>
+    <string name="notif_channel_agent_desc">让 Agent 在后台保持联机, 接收家长后台的命令</string>
+    <string name="notif_agent_title">NinoGame 在运行</string>
+    <string name="notif_agent_text">联机中, 接收家长后台命令</string>
+
+    <!-- 连接状态徽章 -->
+    <string name="conn_open">已联机</string>
+    <string name="conn_connecting">连接中…</string>
+    <string name="conn_disconnected">离线</string>
+    <string name="conn_failed">连接失败</string>
+    <string name="dash_rules_count">已同步规则</string>
+    <string name="dash_rules_count_value">%1$d 条</string>
 </resources>

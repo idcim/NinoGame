@@ -2,7 +2,7 @@
 
 跨端 (Windows + Android) 家长控制 Agent 的 **Android 端骨架**。当前进度: **Stage 1 — 仅配对联机**。
 
-> **当前状态**: 项目骨架 + Compose 配对 UI + HTTP `/pair/redeem` + DataStore 持久化. WebSocket / Foreground Service / AccessibilityService / 拦截 / token 经济都在 **Stage 2+** 实施.
+> **当前状态 (v0.5.1)**: 配对联机 ✅ + Foreground Service + WebSocket 长连接 + 心跳 + 实时余额/规则数同步 ✅. AccessibilityService 监前台 / 拦截 / token 经济 / 申请审批 在 **Stage 2b+** 实施.
 
 ## 兼容范围
 
@@ -100,29 +100,40 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 3. USB 连电脑, 第一次会弹"授权该计算机"
 4. `adb devices` 看到设备就能 `Run`
 
-## 当前能做什么 (Stage 1)
+## 当前能做什么 (Stage 1 + Stage 2a)
 
 启动 App → 配对页:
 
-1. **粘贴魔法链接** (推荐): 家长后台 `/pair-codes` 生成的码会带形如 `https://ninogame.example.com/#pair=ABCDEFGH`, 粘贴整段
+1. **粘贴魔法链接** (推荐): 家长后台生成的码会带形如 `https://ninogame.example.com/#pair=ABCDEFGH`, 粘贴整段
 2. **手填**: 后端 URL + 8 位码分开填
 
-点"配对" → 成功后 DataStore 存 `agent_token / device_id / child_id / backend_url`, 跳到主面板. 主面板目前仅显示已配对状态 + ID 摘要.
+点"配对" → 成功后 DataStore 存 `agent_token / device_id / child_id / backend_url`, 跳到主面板.
 
-**重新配对** 按钮清掉 token, 回配对页.
+**主面板** (Stage 2a 已落):
+- **顶部连接徽章**: 实时显示 WS 连接状态 (🟢 已联机 / 🟡 连接中 / ⚪ 离线 / 🔴 失败)
+- **Token 余额**: 实时来自 server `wallet_update` 推送 + 离线时显示 DataStore 缓存的"上次同步"值
+- **规则数**: `hello_ack` / `rules_update` 收到后实时刷新 (Stage 2b 解析规则做拦截)
+- **重新配对**: 清 token + 停 Service, 回配对页
+
+**后台 Foreground Service** (`AgentService`):
+- 配对后自动启动, 解配对自动停
+- 通知栏常驻"NinoGame 在运行" (IMPORTANCE_LOW, 不打扰)
+- WebSocket 长连接 + 心跳 30s/次 + 断线指数退避重连 (1s→2s→4s→...→60s 封顶)
+- 服务端推送 `wallet_update` / `rules_update` 等消息即时分发到 `AgentState` 单例, UI 自动刷新
 
 ## 还没做 (Stage 2+ 路线图)
 
-| Stage | 内容 | 大致工作量 |
+| Stage | 内容 | 状态 |
 |---|---|---|
-| 2 | Foreground Service + WebSocket 长连接 (hello / heartbeat / event / wallet_update) | 中 |
-| 2 | AccessibilityService 监前台 app (替代 Windows 端 EnumWindows) | 中 |
-| 3 | 规则匹配 + 拦截 (PvZ 等 → 弹对话框 + 回到 launcher) | 中 |
-| 3 | Token 经济本地版 (server 权威, 本地缓存 + wallet_update 推送对齐) | 小 |
-| 3 | 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议) | 小 |
-| 3 | 责任清单 / 任务申报 UI | 小 |
-| 4 | 国内 ROM 适配 (MIUI/华为/OPPO/vivo 自启动 + 后台权限白名单引导页) | 中 |
-| 4 | 开机自启 (BootReceiver) | 小 |
+| 2a | Foreground Service + WebSocket 长连接 (hello / heartbeat / wallet_update / rules_update) | ✅ v0.5.1 |
+| 2b | AccessibilityService 监前台 app (替代 Windows 端 EnumWindows) | 待 |
+| 2b | UsageReporter 上报 app_session (5min 间隔, 用法同 Windows agent) | 待 |
+| 3 | 规则匹配 + 拦截 (PvZ 等 → 弹对话框 + 回到 launcher) | 待 |
+| 3 | Token 经济本地版 (server 权威, 本地缓存 + wallet_update 推送对齐) | 待 |
+| 3 | 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议) | 待 |
+| 3 | 责任清单 / 任务申报 UI | 待 |
+| 4 | 国内 ROM 适配 (MIUI/华为/OPPO/vivo 自启动 + 后台权限白名单引导页) | 待 |
+| 4 | 开机自启 (BootReceiver) | 待 |
 | 4 | 跨端钱包聚合 (Path 1 阅读类等), 但 Path 1 在决策 #33 已下线, 暂搁置 | — |
 
 ## 已知约束 / 设计取舍
@@ -152,16 +163,19 @@ android/
 │       │   └── xml/                       # backup_rules + data_extraction_rules
 │       └── java/com/ninogame/agent/
 │           ├── NinoApp.kt                 # Application 入口 + appContext
-│           ├── MainActivity.kt            # Compose host + Navigation
-│           ├── data/Settings.kt           # DataStore (backend_url / agent_token / device_id / child_id)
+│           ├── MainActivity.kt            # Compose host + Navigation + Service 启停联动
+│           ├── data/Settings.kt           # DataStore (backend_url / agent_token / device_id / child_id / cached_balance)
 │           ├── net/
 │           │   ├── Api.kt                 # HTTP + 配对兑换 (OkHttp + kotlinx.serialization)
-│           │   ├── WsClient.kt            # Stage 2+ WebSocket 长连接
+│           │   ├── WsClient.kt            # WebSocket 长连接 (OkHttp WS, ?token= query auth)
 │           │   └── Messages.kt            # hello / hello_ack / 协议 dataclass
+│           ├── service/
+│           │   ├── AgentService.kt        # ✨ Foreground Service: 持 WS + 心跳 30s + 退避重连 1s→60s
+│           │   └── AgentState.kt          # ✨ 进程内 singleton StateFlow (connection/balance/rulesCount)
 │           └── ui/
 │               ├── Theme.kt               # NinoGame 配色 (Material 3 + Material You 动态色)
 │               ├── PairScreen.kt          # 配对 (魔法链接 / 手填 两 mode)
-│               └── DashboardScreen.kt     # 已配对状态 + 重新配对
+│               └── DashboardScreen.kt     # 实时连接 + 余额 + 规则数 + 重新配对
 ```
 
 ## 跟主仓库的协议关系

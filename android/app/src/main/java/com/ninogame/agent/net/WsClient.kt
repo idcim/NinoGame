@@ -40,14 +40,15 @@ class WsClient(
 
     private var socket: WebSocket? = null
 
-    /** 建立连接. backendUrl 是 http(s)://, OkHttp 自动转 ws(s):// 升级. */
+    /** 建立连接. backendUrl 是 http(s)://, OkHttp 自动转 ws(s):// 升级.
+     *  Server 期望 token 走 query string (?token=AGENT_TOKEN), 不走 Authorization header. */
     fun connect(backendUrl: String, agentToken: String, onMessage: (WsMessage) -> Unit) {
-        val wsUrl = backendUrl.trimEnd('/')
+        val wsBase = backendUrl.trimEnd('/')
             .replaceFirst("https://", "wss://")
-            .replaceFirst("http://", "ws://") + "/ws/agent"
+            .replaceFirst("http://", "ws://")
+        val wsUrl = "$wsBase/ws/agent?token=${java.net.URLEncoder.encode(agentToken, "UTF-8")}"
         val req = Request.Builder()
             .url(wsUrl)
-            .header("Authorization", "Bearer $agentToken")
             .build()
         _state.value = ConnectionState.Connecting
         socket = httpClient.newWebSocket(req, object : WebSocketListener() {

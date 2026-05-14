@@ -11,9 +11,12 @@ import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.ninogame.agent.service.AgentService
 import com.ninogame.agent.ui.DashboardScreen
 import com.ninogame.agent.ui.NinoTheme
 import com.ninogame.agent.ui.PairScreen
@@ -35,6 +38,15 @@ class MainActivity : ComponentActivity() {
                     // 切换路由在各自 Screen 完成动作后调 nav.navigate.
                     val paired by ninoSettings.isPaired.collectAsState(initial = false)
                     val start = if (paired) Route.Dashboard else Route.Pair
+
+                    // paired ↔ AgentService 联动: 已配对就启 Service, 反之停.
+                    // 用 LaunchedEffect(paired) 让配对状态变化时切. ServiceCompat
+                    // 自身防重复 start, 不会被多次启动.
+                    val ctx = LocalContext.current
+                    LaunchedEffect(paired) {
+                        if (paired) AgentService.start(ctx)
+                        else AgentService.stop(ctx)
+                    }
 
                     NavHost(navController = nav, startDestination = start) {
                         composable(Route.Pair) {

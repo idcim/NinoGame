@@ -41,13 +41,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Stage 2 会真正实现; Stage 1 先注册类型让 manifest 完整 -->
-        <!--
+        <!-- v0.5.1+ Stage 2a: Foreground Service 持 WS 长连接 + 心跳.
+             foregroundServiceType=dataSync 是 Android 14+ 必须的类型声明 -->
         <service
             android:name=".service.AgentService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
-        -->
 
     </application>
 </manifest>
