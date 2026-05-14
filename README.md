@@ -46,6 +46,13 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### 类别使用占比 (v0.4.5+, P4 "屏幕使用时长" 完成)
+- **位置**: /reports 顶部汇总区, 在"周期对比"卡之后
+- **三类**: 消遣类 (warn 黄) / 学习类 (accent 绿) / 中性 (brand 蓝); 每行一条水平 bar + 时长 + 百分比
+- **端点**: `GET /api/children/:id/reports/category-breakdown?periods=N&granularity=` — 整个时段 (不分桶) 按 `app_sessions.category` 聚合, 同步跟主页 granularity+periods 联动
+- **纯描述性**: CLAUDE.md §22 决策 #33 之后 category 不再参与扣分决策, 但 rule_engine + app_categories 仍持续分类, 这里把数据展现给家长 — "时间花在哪"是有效信号, 不是"该扣不该扣"的依据
+- **见**: `backend/src/routes/reports.ts` (category-breakdown 路由), `frontend/src/pages/Reports.tsx` `CategoryBreakdownCard`
+
 ### 日/周/月报表 + 周期对比 (v0.4.4+, P4 完成)
 - **桶宽 toggle**: /reports 顶部三档「日 · 周 · 月」按钮, 切换后数量预设自动跳到中档 (日 30 / 周 8 / 月 6); 数量按钮自适应 (日 14/30/90, 周 4/8/12, 月 3/6/12)
 - **后端聚合**: `/api/children/:id/reports/daily?granularity=day|week|month&periods=N` 走 PG `date_trunc`, 一行 SQL 桶聚 + ledger 同桶宽对齐; periods 上限 day 90 / week 26 / month 24

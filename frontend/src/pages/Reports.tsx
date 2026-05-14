@@ -18,6 +18,7 @@ import {
 import {
   api,
   ApiError,
+  type CategoryBreakdownRow,
   type Child,
   type DailyReportRow,
   type Granularity,
@@ -61,6 +62,7 @@ export default function Reports() {
     tokens_consumed: number;
   } | null>(null);
   const [topApps, setTopApps] = useState<TopAppRow[]>([]);
+  const [breakdown, setBreakdown] = useState<CategoryBreakdownRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -100,9 +102,10 @@ export default function Reports() {
       const days = granularity === "day" ? periods
                   : granularity === "week" ? periods * 7
                   : Math.min(90, periods * 30);
-      const [d, a] = await Promise.all([
+      const [d, a, b] = await Promise.all([
         api.getDailyReport(activeChild, expanded, granularity),
         api.getTopAppsReport(activeChild, Math.min(90, days), 10),
+        api.getCategoryBreakdown(activeChild, periods, granularity),
       ]);
       // 切前后两段 — server 已按 period_start 升序返
       const total = d.days.length;
@@ -119,6 +122,7 @@ export default function Reports() {
         setPrevPeriod(null);
       }
       setTopApps(a.apps);
+      setBreakdown(b.categories);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "加载报表失败");
     } finally {
@@ -251,6 +255,11 @@ export default function Reports() {
                 prev={prevPeriod}
               />
             )}
+            <CategoryBreakdownCard
+              periods={periods}
+              granularity={granularity}
+              rows={breakdown}
+            />
           </section>
 
           {/* 每{桶宽}柱状图 */}
@@ -530,6 +539,64 @@ function formatDayLabel(isoOrDate: string): string {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${m}-${day}`;
+}
+
+/** 类别使用占比卡 (v0.4.5, P4 "屏幕使用时长统计").
+ *  app_sessions.category 桶聚, 横向 bar + 百分比. 纯描述性, 不参与扣分决策
+ *  (CLAUDE.md §22 #33 后 category 不再影响 token), 但仍是有效的"时间花在哪"信号. */
+function CategoryBreakdownCard({
+  periods,
+  granularity,
+  rows,
+}: {
+  periods: number;
+  granularity: Granularity;
+  rows: CategoryBreakdownRow[];
+}) {
+  // 颜色: 消遣 warn (黄) / 学习 accent (绿) / 中性 brand (蓝) / 其它 ink-light
+  const COLOR: Record<string, string> = {
+    consumption: "bg-warn",
+    productive:  "bg-accent",
+    neutral:     "bg-brand",
+    unknown:     "bg-ink-light",
+  };
+  const total = rows.reduce((s, r) => s + r.active_seconds, 0);
+  return (
+    <div className="card p-4">
+      <div className="text-xs text-ink-light mb-2 font-medium flex items-center gap-1">
+        <Monitor size={11} className="text-brand" />
+        类别使用占比 · 本 {periods} {PERIOD_UNIT[granularity]}
+        {total === 0 && <span className="text-ink-light"> · 暂无数据</span>}
+      </div>
+      {total === 0 ? (
+        <div className="text-xs text-ink-dim py-2">
+          这段时间还没有应用使用记录。Agent 配对后 5 分钟会推一次 usage_report。
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => {
+            const color = COLOR[r.category] || COLOR.unknown;
+            return (
+              <div key={r.category}>
+                <div className="flex justify-between items-center text-xs mb-1">
+                  <span className="text-ink font-medium">{categoryLabel(r.category)}</span>
+                  <span className="text-ink-dim font-mono">
+                    {formatDuration(r.active_seconds)} · {r.percentage.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-2.5 bg-bg-card rounded overflow-hidden border border-border/60">
+                  <div
+                    className={`h-full ${color} transition-all`}
+                    style={{ width: `${Math.max(2, r.percentage)}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatPeriodLabel(isoOrDate: string, granularity: Granularity): string {

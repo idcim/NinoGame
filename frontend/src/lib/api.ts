@@ -185,6 +185,21 @@ export const api = {
       `/api/children/${child_id}/reports/top-apps?days=${days}&limit=${limit}`,
     ),
 
+  /** 类别细分 (v0.4.5+): 应用类别按 active_seconds 占比, 纯描述性. */
+  getCategoryBreakdown: (
+    child_id: string,
+    periods = 14,
+    granularity: Granularity = "day",
+  ) =>
+    request<{
+      granularity: Granularity;
+      periods: number;
+      total_active_seconds: number;
+      categories: CategoryBreakdownRow[];
+    }>(
+      `/api/children/${child_id}/reports/category-breakdown?periods=${periods}&granularity=${granularity}`,
+    ),
+
   // (v0.4.0+: LLM 配置 + Agent 升级包都搬到独立的 admin 后台,
   //  parent frontend 不再有这些 API; 见 admin/ 项目)
 
@@ -595,6 +610,13 @@ export interface DailyReportRow {
   active_seconds: number;
   tokens_consumed: number;
   session_count: number;
+}
+
+export interface CategoryBreakdownRow {
+  category: string;
+  active_seconds: number;
+  session_count: number;
+  percentage: number;
 }
 
 export interface TopAppRow {

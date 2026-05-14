@@ -159,6 +159,60 @@ export async function registerReportRoutes(app: FastifyInstance) {
     },
   );
 
+  // ── 类别细分 (v0.4.5: 屏幕使用时长按类别占比) ─────────────
+  // CLAUDE.md §22 决策 #33 后, category 不再参与扣分决策, 但 app_sessions 仍存
+  // category 列 (rule_engine 分类) — 这里给家长看 "消遣/学习/中性" 时长分布,
+  // 纯描述性, 不引导行为. 桶宽 / 时长 范围跟 /reports/daily 保持一致.
+  app.get(
+    "/api/children/:id/reports/category-breakdown",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const child_id = (req.params as { id: string }).id;
+      const q = (req.query ?? {}) as Record<string, string>;
+      const granRaw = (q.granularity || "day").toLowerCase();
+      if (!["day", "week", "month"].includes(granRaw)) {
+        return reply.badRequest("granularity 必须是 day / week / month");
+      }
+      const granularity = granRaw as Granularity;
+      const cfg = GRANULARITY_CONFIG[granularity];
+      const reqPeriods = Number(q.periods) || Number(q.days) || 14;
+      const periods = Math.max(1, Math.min(cfg.max_periods, reqPeriods));
+      if (!(await ensureOwnership(req.parent!.sub, child_id))) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      const r = await pool.query<{
+        category: string;
+        active_seconds: string;
+        session_count: string;
+      }>(
+        `SELECT COALESCE(category, 'unknown') AS category,
+                COALESCE(SUM(active_seconds), 0)::text AS active_seconds,
+                COUNT(*)::text AS session_count
+           FROM "NinoGame".app_sessions
+          WHERE child_id = $1
+            AND started_at >= date_trunc($3, NOW()) - ($2::int - 1 || ' ' || $4)::interval
+          GROUP BY COALESCE(category, 'unknown')
+          ORDER BY SUM(active_seconds) DESC`,
+        [child_id, periods, cfg.trunc, cfg.step],
+      );
+      const rows = r.rows.map((row) => ({
+        category: row.category,
+        active_seconds: Number(row.active_seconds),
+        session_count: Number(row.session_count),
+      }));
+      const total = rows.reduce((s, x) => s + x.active_seconds, 0);
+      return {
+        granularity,
+        periods,
+        total_active_seconds: total,
+        categories: rows.map((row) => ({
+          ...row,
+          percentage: total > 0 ? Math.round((row.active_seconds / total) * 1000) / 10 : 0,
+        })),
+      };
+    },
+  );
+
   // ── Top 应用 ─────────────────────────────────────────────
   app.get(
     "/api/children/:id/reports/top-apps",
