@@ -46,6 +46,15 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### 每日总结推送 (v0.4.7+, P4 补)
+- **位置**: 每天 21:00 (server local tz, 默认 Asia/Shanghai), 走企微 + SMTP (复用 v0.4.1 notifier)
+- **触发**: 服务端 `daily_summary_scheduler` 每分钟扫本地时间, 命中目标 HH:MM 触发当日批次
+- **内容**: 今日 active 时长 / Token 净变化 (+挣 / -花) / 时长最多的 Top 1 应用 / "详情见家长后台 /reports"
+- **opt-in**: 默认关 — admin_settings 设 `daily_summary = { enabled: true, time: "21:00" }` 才启动 (admin UI 后续加, 当前先 backend 就绪)
+- **不发空**: 今日 active_seconds=0 跳过 (孩子没用就别发); 同日重启 server 不重发 (dedupe_key=daily_summary:CHILD:DATE)
+- **闭环**: CLAUDE.md §15 家长可见性 — 不打开浏览器也知道"今天 Nino 怎么样"
+- **见**: `backend/src/services/daily_summary_scheduler.ts`
+
 ### 多孩子全局切换器 (v0.4.6+, P4 完成)
 - **问题**: v0.4.5 之前每个页面 (Rules/Tasks/Reports/ChildSettings) 独立拉 listChildren + 选 activeChild, 切页面又要重选, 多孩子家庭体验崩盘
 - **方案**: 新 `lib/childContext.tsx` 提供 `ChildProvider` (一次拉 + localStorage 持久化) + `useChild()` hook, App.tsx 在 RequireAuth 之内、Layout 之上包一层 Provider

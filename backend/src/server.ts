@@ -34,6 +34,10 @@ import {
   startDeviceOfflineAlerter,
   stopDeviceOfflineAlerter,
 } from "./services/device_offline_alerter.js";
+import {
+  startDailySummaryScheduler,
+  stopDailySummaryScheduler,
+} from "./services/daily_summary_scheduler.js";
 import { seedDefaultRulesForChild } from "./services/default_rules.js";
 import {
   startWalletSyncScheduler,
@@ -262,11 +266,15 @@ export async function buildServer() {
   startWalletSyncScheduler(app.log);
   // 设备掉线告警 (v0.4.1+, CLAUDE.md §11.3): 每 2min 扫, last_seen_at >10min 推家长
   startDeviceOfflineAlerter(app.log);
+  // 每日总结推送 (v0.4.7+): 每分钟检查本地时间, 命中 admin_settings.daily_summary.time
+  // (默认 21:00, opt-in via .enabled) 时给有今日活动的孩子推一条"今日总结"
+  startDailySummaryScheduler(app.log);
 
   app.addHook("onClose", async () => {
     stopBehaviorBaselineScheduler();
     stopWalletSyncScheduler();
     stopDeviceOfflineAlerter();
+    stopDailySummaryScheduler();
     await pool.end();
   });
 
