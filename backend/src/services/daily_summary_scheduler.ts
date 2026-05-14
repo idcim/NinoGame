@@ -29,7 +29,7 @@ import { notify } from "./notifier/index.js";
 const CHECK_INTERVAL_MS = 60_000;
 const STARTUP_DELAY_MS = 30_000;
 
-interface DailySummaryConfig {
+export interface DailySummaryConfig {
   enabled?: boolean;
   time?: string; // "HH:MM"
 }
@@ -187,6 +187,29 @@ async function runOnce(logger: FastifyBaseLogger): Promise<void> {
   } catch (err) {
     logger.warn({ err }, "daily_summary tick error");
   }
+}
+
+/** admin "立即触发一次" 用 — 忽略 enabled / time 检查, 直接拉今日数据并推. */
+export async function fireSummariesNow(log: FastifyBaseLogger): Promise<{
+  pushed: number;
+  skipped: number;
+  errors: number;
+}> {
+  let pushed = 0;
+  let skipped = 0;
+  let errors = 0;
+  const summaries = await fetchTodaySummaries();
+  for (const s of summaries) {
+    try {
+      await pushOne(log, s);
+      pushed++;
+    } catch (err) {
+      log.warn({ err, child_id: s.child_id }, "daily_summary manual push failed");
+      errors++;
+    }
+  }
+  skipped = 0; // fetchTodaySummaries 已经过滤 0 active
+  return { pushed, skipped, errors };
 }
 
 export function startDailySummaryScheduler(log: FastifyBaseLogger): void {

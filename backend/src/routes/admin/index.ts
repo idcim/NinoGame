@@ -17,6 +17,7 @@ import { registerAdminAppCategoriesRoutes } from "./app_categories.js";
 import { registerAdminDefaultsRoutes } from "./defaults.js";
 import { registerAdminSystemRoutes } from "./system.js";
 import { registerAdminPushRoutes } from "./push.js";
+import { registerAdminDailySummaryRoutes } from "./daily_summary.js";
 import { registerAdminTenantsRoutes } from "./tenants.js";
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -26,5 +27,6 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   await registerAdminDefaultsRoutes(app);
   await registerAdminSystemRoutes(app);
   await registerAdminPushRoutes(app);
+  await registerAdminDailySummaryRoutes(app);
   await registerAdminTenantsRoutes(app);
 }

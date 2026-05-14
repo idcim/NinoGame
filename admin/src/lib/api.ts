@@ -117,6 +117,11 @@ export interface AdminSystemView {
   };
 }
 
+export interface AdminDailySummaryConfig {
+  enabled: boolean;
+  time: string; // "HH:MM"
+}
+
 export interface AdminPushConfig {
   wechat_work: { enabled: boolean; webhook_url: string };
   smtp: {
@@ -255,6 +260,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ channel }),
     }),
+
+  // Daily summary
+  getDailySummary: () =>
+    request<{ daily_summary: AdminDailySummaryConfig }>("/api/admin/daily-summary"),
+  saveDailySummary: (data: AdminDailySummaryConfig) =>
+    request<{ daily_summary: AdminDailySummaryConfig }>("/api/admin/daily-summary", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  triggerDailySummary: () =>
+    request<{ pushed: number; skipped: number; errors: number }>(
+      "/api/admin/daily-summary/trigger",
+      { method: "POST" },
+    ),
 
   // Tenants
   listTenants: () => request<{ tenants: TenantRow[] }>("/api/admin/tenants"),

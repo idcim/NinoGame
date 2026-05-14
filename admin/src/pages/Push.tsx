@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
-import { Bell, Loader2, Zap } from "lucide-react";
-import { api, ApiError, type AdminPushConfig } from "../lib/api";
+import { Bell, CalendarClock, Loader2, Zap } from "lucide-react";
+import { api, ApiError, type AdminDailySummaryConfig, type AdminPushConfig } from "../lib/api";
 
 export default function Push() {
   const [cfg, setCfg] = useState<AdminPushConfig | null>(null);
+  const [daily, setDaily] = useState<AdminDailySummaryConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [dailyErr, setDailyErr] = useState<string | null>(null);
+  const [dailyMsg, setDailyMsg] = useState<string | null>(null);
+  const [dailyTriggering, setDailyTriggering] = useState(false);
+  const [dailyTriggerResult, setDailyTriggerResult] =
+    useState<{ pushed: number; skipped: number; errors: number } | null>(null);
 
   useEffect(() => {
     void (async () => {
-      try { const r = await api.getPush(); setCfg(r.push); }
+      try {
+        const [p, d] = await Promise.all([api.getPush(), api.getDailySummary()]);
+        setCfg(p.push);
+        setDaily(d.daily_summary);
+      }
       catch (e) { setErr(e instanceof ApiError ? e.message : "加载失败"); }
       finally { setLoading(false); }
     })();
@@ -21,6 +31,25 @@ export default function Push() {
     setErr(null); setMsg(null);
     try { const r = await api.savePush(cfg); setCfg(r.push); setMsg("✓ 已保存"); }
     catch (e) { setErr(e instanceof ApiError ? e.message : "保存失败"); }
+  }
+
+  async function saveDaily() {
+    if (!daily) return;
+    setDailyErr(null); setDailyMsg(null);
+    try { const r = await api.saveDailySummary(daily); setDaily(r.daily_summary); setDailyMsg("✓ 已保存"); }
+    catch (e) { setDailyErr(e instanceof ApiError ? e.message : "保存失败"); }
+  }
+
+  async function triggerDaily() {
+    setDailyTriggering(true); setDailyTriggerResult(null); setDailyErr(null);
+    try {
+      const r = await api.triggerDailySummary();
+      setDailyTriggerResult(r);
+    } catch (e) {
+      setDailyErr(e instanceof ApiError ? e.message : "触发失败");
+    } finally {
+      setDailyTriggering(false);
+    }
   }
 
   const [testing, setTesting] = useState<string>("");
@@ -51,7 +80,7 @@ export default function Push() {
           推送通道
         </h1>
         <p className="text-sm text-ink-dim mt-1">
-          v0.4.0 仅做配置 + 落库; 实际发送实现在 P5 (notifier 模块)。
+          v0.4.1 起 4 个关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 / 行为基线异常) 自动推; v0.4.8 加每日总结。
         </p>
       </div>
 
@@ -160,8 +189,66 @@ export default function Push() {
           </section>
 
           <div className="flex justify-end">
-            <button onClick={save} className="btn-primary">保存</button>
+            <button onClick={save} className="btn-primary">保存推送通道</button>
           </div>
+
+          <section>
+            <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3 flex items-center gap-2">
+              <CalendarClock size={16} className="text-brand" />
+              每日总结推送
+            </h2>
+            <div className="card p-5 space-y-3">
+              <p className="text-xs text-ink-dim leading-relaxed">
+                每天到点把每个孩子今日活动 (active 时长 / token 净变化 / Top 应用) 推一条到企微 + SMTP — 走上面配的同一通道。
+                没活动的孩子不发, 重启 server 同日不重发 (dedupe_key=daily_summary:CHILD:DATE)。
+              </p>
+              {daily && (
+                <>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={daily.enabled}
+                      onChange={(e) => setDaily({ ...daily, enabled: e.target.checked })} />
+                    启用每日总结推送
+                  </label>
+                  <div>
+                    <label className="label">触发时刻 (HH:MM, server 本地时区)</label>
+                    <input className="input font-mono w-32" value={daily.time}
+                      onChange={(e) => setDaily({ ...daily, time: e.target.value })}
+                      placeholder="21:00" />
+                    <p className="text-xs text-ink-light mt-1">
+                      建议晚饭后 / 睡前 (例 21:00). 每分钟检查一次, 命中目标分钟即触发该日批次.
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button onClick={triggerDaily}
+                      disabled={dailyTriggering}
+                      className="btn-ghost text-xs">
+                      {dailyTriggering ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                      立即触发一次 (测试)
+                    </button>
+                    <button onClick={saveDaily} className="btn-primary text-sm">保存每日总结</button>
+                  </div>
+                  {dailyMsg && (
+                    <div className="text-xs rounded px-2 py-1 text-accent-600 bg-accent/10">{dailyMsg}</div>
+                  )}
+                  {dailyErr && (
+                    <div className="text-xs rounded px-2 py-1 text-warn bg-warn/10">{dailyErr}</div>
+                  )}
+                  {dailyTriggerResult && (
+                    <div className={"text-xs rounded px-2 py-1 " +
+                      (dailyTriggerResult.errors > 0 ? "text-warn bg-warn/10" : "text-accent-600 bg-accent/10")}>
+                      {dailyTriggerResult.errors > 0 ? "△ " : "✓ "}
+                      推送 {dailyTriggerResult.pushed} 条
+                      {dailyTriggerResult.errors > 0 ? `, 失败 ${dailyTriggerResult.errors} 条` : ""}
+                      {dailyTriggerResult.pushed === 0 ? " — 今日所有孩子 active=0, 没东西可发" : ""}
+                    </div>
+                  )}
+                  <p className="text-xs text-ink-light">
+                    要先把上面的企微 / SMTP 通道配好 + 保存 + 测过, 这里启用才有效。
+                  </p>
+                </>
+              )}
+            </div>
+          </section>
         </>
       )}
     </div>
