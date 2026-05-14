@@ -75,9 +75,13 @@ from ui.panel import StatusPanel  # noqa: E402
 from ui.qt_bridge import get_bridge, init_bridge  # noqa: E402
 from ui.tray_icon import TrayController  # noqa: E402
 
+from services.updater_kick import (  # noqa: E402
+    PendingUpdate, kick_update, install_dir_from_argv,
+)
+
 # agent/__init__.py 在 PyInstaller --onefile 模式下不一定能 import 到包名,
 # 此处直接持有与 __init__.py 同步的字符串; 升版时改两处。
-AGENT_VERSION = "0.2.0"
+AGENT_VERSION = "0.3.0"
 
 _log = logging.getLogger(__name__)
 
@@ -257,6 +261,13 @@ class Agent:
         # 由 server push start_free_pass / end_free_pass 维护, 重连 hello_ack 携带活跃段。
         self._free_pass_until: "datetime | None" = None
 
+        # 无感更新 (v0.3.0+, CLAUDE.md §17): server 推 update_self 后存这,
+        # 主循环每 30s 检查 SafeMoment (mode=lock + 持续 ≥30s + 无对话框) 才动手。
+        self._pending_update: PendingUpdate | None = None
+        # 何时进入 lock 态 — 用于 "持续 ≥ 30s" 稳定判定
+        self._lock_entered_at: "datetime | None" = None
+        self._last_update_check_at: "datetime | None" = None
+
         # 托盘 (孩子主动 lock/resume 入口已移除, 详见 panel.py / tray_icon.py)
         self.tray = TrayController(
             get_balance=self.wallet.get_balance,
@@ -411,6 +422,18 @@ class Agent:
                     _log.info("清掉残留的 %s", fname)
             except Exception:
                 _log.exception("清 %s 失败", fname)
+
+        # 写 version_marker.txt: Updater 用这个判定 "新版本起来了没"
+        try:
+            (self.data_dir / "version_marker.txt").write_text(
+                AGENT_VERSION, encoding="utf-8",
+            )
+        except Exception:
+            _log.exception("写 version_marker.txt 失败")
+
+        # 启动时检查 update_log.json: Updater 上一轮升级结果 (成功/失败/回滚)
+        # 如果存在, 走 events 表上报让家长后台看到
+        self._maybe_report_update_log()
 
         # 日发放: 服务端是权威源。仅未配对 (离线模式) 时 Agent 本地发,
         # 保证孩子离线也能用 token; 配对后 hello_ack 时 server 端 ensureTodayGrant
@@ -622,6 +645,13 @@ class Agent:
                 kills_since_heartbeat = 0
                 ms_sum = 0.0
                 ms_max = 0.0
+
+            # 无感更新 SafeMoment 检查 (v0.3.0+): 每 ~30s
+            # 放心跳后面是因为 60s 已经是合理的"非紧急"轮询粒度
+            try:
+                self._maybe_apply_pending_update()
+            except Exception:
+                _log.exception("maybe_apply_pending_update 失败")
 
             time.sleep(scan_interval)
 
@@ -1068,6 +1098,28 @@ class Agent:
                 _log.exception("set_pin 失败")
             return
 
+        if ctype == "update_self":
+            # 无感更新 (CLAUDE.md §17 / v0.3.0+). 缓存 pending, 主循环
+            # 等 SafeMoment (mode=lock + 持续 30s + 无对话框) 才下载 + 启 Updater.
+            version = str(payload.get("version") or "").strip()
+            url = str(payload.get("url") or "").strip()
+            sha256 = str(payload.get("sha256") or "").strip()
+            size_bytes = int(payload.get("size_bytes") or 0)
+            if not version or not url or not sha256:
+                _log.warning("update_self payload 缺字段: version=%s url? sha?", version)
+                return
+            if self._pending_update and self._pending_update.version == version:
+                _log.info("update_self: 同版本 (%s) 已 pending, 跳过", version)
+                return
+            self._pending_update = PendingUpdate(
+                version=version, url=url, sha256=sha256,
+                size_bytes=size_bytes,
+                received_at=datetime.utcnow().isoformat(timespec="seconds"),
+            )
+            _log.info("★ update_self 已缓存: v%s, 等 Lock 态触发 (当前模式=%s)",
+                      version, self.session_manager.mode)
+            return
+
         if ctype == "clear_pin":
             # 清空 PIN, 退出回退到普通确认对话框模式
             try:
@@ -1086,6 +1138,122 @@ class Agent:
             return
 
         _log.warning("未知 command type: %s", ctype)
+
+    def _maybe_report_update_log(self) -> None:
+        """启动时把 Updater 上一轮的结果 (data/update_log.json) 走 events 上报,
+        让家长后台看到 "升级成功 / 失败 / 回滚"; 上报完删 log 避免重复。"""
+        log_path = self.data_dir / "update_log.json"
+        if not log_path.exists():
+            return
+        try:
+            import json
+            data = json.loads(log_path.read_text(encoding="utf-8"))
+        except Exception:
+            _log.exception("读 update_log.json 失败")
+            try: log_path.unlink()
+            except Exception: pass
+            return
+
+        try:
+            from comms.message_types import Event
+            self.events.emit(Event(
+                type="agent_update_completed",
+                payload={
+                    "status": data.get("status"),
+                    "from_version": data.get("from_version"),
+                    "to_version": data.get("to_version"),
+                    "took_ms": data.get("took_ms"),
+                    "error": data.get("error") or "",
+                    "when": data.get("when"),
+                },
+            ))
+            _log.info("已上报 update_log: status=%s %s → %s",
+                      data.get("status"), data.get("from_version"), data.get("to_version"))
+        except Exception:
+            _log.exception("上报 update_log 失败 (events.emit 异常)")
+        finally:
+            try: log_path.unlink()
+            except Exception: pass
+
+    def _any_dialog_visible(self) -> bool:
+        """SafeMoment 判定的子条件 — 任何对话框打开都不动手, 避免打断孩子操作。"""
+        for dlg in (
+            getattr(self, "pair_dialog", None),
+            getattr(self, "request_dialog", None),
+            getattr(self, "task_claim_dialog", None),
+            getattr(self, "about_dialog", None),
+            getattr(self, "out_of_token_dialog", None),
+            getattr(self, "messages_window", None),
+            getattr(self, "ledger_window", None),
+        ):
+            try:
+                if dlg is not None and dlg.isVisible():
+                    return True
+            except Exception:
+                # widget 已销毁等
+                pass
+        return False
+
+    def _maybe_apply_pending_update(self) -> None:
+        """SafeMoment 检查 → 触发更新.
+
+        SafeMoment 条件:
+          - 有 pending_update 在等
+          - session_manager.mode == 'lock'
+          - 进入 lock 态持续 ≥ 30 秒 (稳定窗口, 避免孩子按 Win+L 又立刻解锁)
+          - 没有任何对话框打开
+          - 距离上次同版本失败 ≥ 6h (cooldown, 由 updater_kick 内部判)
+
+        满足 → kick_update + sys.exit(0). Updater 接管后会重启服务.
+        不满足 → 静默返回, 下个 30s 再试.
+        """
+        if self._pending_update is None:
+            return
+
+        from datetime import datetime, timedelta
+        mode = self.session_manager.mode
+
+        # 维护 lock_entered_at 状态机
+        if mode == "lock":
+            if self._lock_entered_at is None:
+                self._lock_entered_at = datetime.utcnow()
+        else:
+            self._lock_entered_at = None
+            return  # 非 lock 直接结束
+
+        # lock 持续 ≥ 30s ?
+        if datetime.utcnow() - self._lock_entered_at < timedelta(seconds=30):
+            return
+
+        # 有对话框? (锁屏自带 PIN 输入框就是 out_of_token_dialog 等)
+        if self._any_dialog_visible():
+            _log.debug("update SafeMoment: 有对话框打开, 跳过本轮")
+            return
+
+        # 同版本太频繁? (在 kick_update 里也会再判一次, 这里早退避免下载)
+        from services.updater_kick import should_retry
+        ok, why = should_retry(self.data_dir, self._pending_update.version)
+        if not ok:
+            _log.info("update SafeMoment: cooldown 未到, 跳过: %s", why)
+            return
+
+        _log.info("★ 升级 SafeMoment 满足, 启动 Updater (target=v%s)",
+                  self._pending_update.version)
+        success, msg = kick_update(
+            self._pending_update,
+            self.data_dir,
+            install_dir_from_argv(),
+            AGENT_VERSION,
+        )
+        if success:
+            _log.info("升级已 kick: %s. Agent 退出, 让 Updater 接管。", msg)
+            # 写优雅退出 flag + 真退出 (Watchdog 也会随 quit.flag 一起退)
+            self._stop = True
+            # 给主循环跳出后 main 的 finally 收尾 0.5s
+            import threading
+            threading.Timer(0.5, lambda: os._exit(0)).start()
+        else:
+            _log.warning("升级未启动: %s. 下次 SafeMoment 再试或冷却到期。", msg)
 
     def _rule_name(self, rule_id: str) -> str:
         """从本地 rules.json 找规则名给通知用; 找不到回退到 id。"""

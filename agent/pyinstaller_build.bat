@@ -143,6 +143,29 @@ if errorlevel 1 (
 )
 echo.
 
+REM ---- 5.5) build Updater (onefile, 无 GUI 极小依赖) ----
+echo [build] building Updater (v0.3.0+ 无感更新接管进程) ...
+pyinstaller ^
+    --noconfirm ^
+    --clean ^
+    --noconsole ^
+    --onefile ^
+    --name Updater ^
+    --icon assets\icon.ico ^
+    --paths . ^
+    --exclude-module numpy ^
+    --exclude-module PySide6 ^
+    --exclude-module qtawesome ^
+    --exclude-module PIL ^
+    --exclude-module pystray ^
+    --distpath dist\NinoGameAgent ^
+    updater.py
+if errorlevel 1 (
+    echo [error] Updater build failed
+    goto :end
+)
+echo.
+
 REM ---- 6) sanity check: run the EXE briefly, see if it stays up ----
 echo [build] sanity check: launching NinoGameAgent.exe for 6s ...
 start "" /B dist\NinoGameAgent\NinoGameAgent.exe
@@ -174,6 +197,7 @@ echo    dist\NinoGameAgent\NinoGameAgent.exe   (entry)
 echo    dist\NinoGameAgent\_internal\          (deps)
 echo    dist\NinoGameAgent\assets\             (icons)
 echo    dist\NinoGameAgent\Watchdog.exe        (peer)
+echo    dist\NinoGameAgent\Updater.exe         (silent update, v0.3.0+)
 echo.
 echo  Install: copy dist\NinoGameAgent\ folder to your target
 echo           (e.g. C:\Program Files\NinoGame\)

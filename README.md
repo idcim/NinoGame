@@ -30,6 +30,16 @@
 - **Agent 同步**: 模板增删改后 server 立刻全量推 `tasks_update`; Agent 收到后覆写本地 `config/tasks.json` + 重载 `ResponsibilityChecklist` (responsibility 类立即在托盘菜单刷新)
 - **审批拒绝**: 不扣已有余额, 仅标 status=rejected, reward_granted=0; 孩子端目前只在浏览器可见家长意见
 
+### Agent 无感软件更新 (`/releases`, v0.3.0+)
+- **思路**: 家长在浏览器 `/releases` 上传新版本 zip → 点"设为目标" → 所有落后 Agent 在孩子 **Lock 态稳定 30s** 时自动下载 + 解压 + 重启, 孩子无感, 失败自动回滚
+- **触发链路**: Agent hello 带 `agent_version` → server 写 `devices.agent_version`, 比对 `agent_releases.is_target=TRUE` 行, 落后则入 `commands(command_type='update_self')` + 实时 WS push (离线时 hello_ack 也补)
+- **SafeMoment**: Agent 收到 update_self 后缓存 pending, 主循环 30s 一查; 同时满足 `session_manager.mode=='lock'` + 持续 ≥30s + 无任何对话框打开 才动手, 否则等下次
+- **Updater.exe**: 独立 PyInstaller onefile (~5MB), 接管文件替换 — 写 `agent_quit.flag` + `watchdog_quit.flag` (复用决策 #36 后的优雅退出机制) → `nssm stop watchdog && nssm stop monitor` → 备份当前 install_dir → xcopy staging → `nssm start` → 60s 内看 `data/agent.alive` + `data/version_marker.txt == to_version` 即成功, 不然回滚
+- **防雪崩**: 同版本失败后 6h 内不再重试 (`data/last_update_attempt.json`)
+- **签名下载**: `/artifacts/<filename>?token=<jwt>` 走 fastify-static, token 是 server 签的 30 分钟 jwt, 含 device_id + version
+- **chicken-and-egg**: v0.2.0 没带 Updater, 升 v0.3.0 还要手动重装一次; v0.3.0 起自动
+- **见**: `backend/src/services/agent_release.ts`, `backend/src/routes/admin_releases.ts`, `agent/updater.py`, `agent/services/updater_kick.py`, `frontend/src/pages/Releases.tsx`
+
 ### 规则一句话生成 (`/rules` 顶部)
 - **输入框**: 家长打一句话 ("禁止玩原神" / "晚上 9 点后不让玩王者荣耀" / "工作日不能玩 Minecraft") → 调 `POST /api/rules/draft-from-text` → LLM 翻译成 `RuleDraft` (name + 关键词列表 + action + schedule)
 - **不直接落库**: 后端返 draft, 前端打开 RuleEditor 预填字段, 家长再调 (改关键词/动作/时段) 后点保存才真正 INSERT — 保留人工兜底, LLM 不当裁判 (§12.5)

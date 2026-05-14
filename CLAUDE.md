@@ -1699,7 +1699,7 @@ Agent 启动 → 读 agent_token
 | `start_free_pass`  | `{duration_minutes, reason}`                 | 开启限免                |
 | `end_free_pass`    | `{}`                                         | 终止限免                |
 | `request_status`   | `{}`                                         | 要求 Agent 上报当前状态 |
-| `update_self`      | `{version, url}`                             | 自升级（P3）            |
+| `update_self`      | `{version, url, sha256, size_bytes}`         | 无感更新 (v0.3.0+); Agent 等 Lock 态触发 Updater.exe |
 
 ------
 
@@ -1868,7 +1868,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 ### P4 — 进阶（目标 3-6 月内）
 
 - [ ] 多孩子 UI
-- [ ] Agent 自升级
+- [x] ~~Agent 自升级~~ (v0.3.0 完成): server 端 `agent_releases` 表 + `/api/admin/releases` CRUD + `@fastify/static` 鉴权下载 + `onHello` 写 devices.agent_version 比对入队 `update_self` command; Agent 端 `_handle_command(update_self)` 缓存 → 主循环 30s SafeMoment 检查 (lock 态稳定 30s + 无对话框) → `kick_update` (下载 sha256 校验 + 解压) → spawn Updater.exe → 写 quit.flag → sys.exit(0); Updater.exe 独立 onefile 接管 nssm stop → 备份 → 替换 → start → 60s 心跳验证, 失败自动回滚到 backup-old. 详见 [agile-giggling-dahl 计划](C:\Users\Administrator\.claude\plans\agile-giggling-dahl.md).
 - [ ] 卸载密码保护流程
 - [ ] 应用特定信号检测（防刷 ③）
 - [ ] 自动 maturity_mode 升级建议
@@ -1963,6 +1963,8 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 | 36   | 取消活跃判定          | **child 模式在跑即扣**: 不再判定"最近 2 分钟有键鼠输入"。理由: 用户报"不管什么情况, 模式在运行就要扣费" (孩子看视频不动鼠也该扣)。闲置 10 分钟自动 Lock 仍兜底, 真正离开屏幕的场景由 Lock 停扣。`is_active_consumption` 函数保留但仅用于活跃事件流, 不参与扣分决策。 | §10.2, §10.3 |
 | 37   | jiggler_detector 默认禁用 | 决策 #36 后扣分不看活跃判定, jiggler 检测价值消失。原 "1px 位移 + box<80" 逻辑对孩子键盘打字 / 滚轮 / 点击 但鼠标几乎不动的场景大量误报。默认 disabled, settings.json `jiggler_detector_enabled: true` 才启动。代码保留, 阈值可调 (`jiggler_box_threshold_px`). | §16.1 |
 | 38   | 自动赚分恢复方向       | **P6 题库主线**: 决策 #33 下线了"前台学习应用自动检测 +token", 自动赚分能力缺失. 改用**主动答题**模式: 按年龄匹配题库, 答对自动 +token, 错不扣. 这与下线的 Path 1 本质区别 — 孩子有明确意图 (开始答题) + 系统有明确判定 (答案对错), 符合 §1.3 "协商接口而非控制器". 形态: **独立可插拔模块, PWA 跨端**, 不做各端原生 App. 与现有 token 经济模型 (#33-#36) 兼容, 只新增 reason='quiz_reward' 入账. | §21 P6 |
+| 39   | 无感软件更新触发模型   | **server 自动 + SafeMoment 等待**: hello 时比对 `devices.agent_version` < `agent_releases.is_target.version` → 入队 `update_self` command (走老 commands 表链路, 离线 hello_ack 补发). Agent 端等 mode==lock 持续 30s + 无对话框才动手. 真"无感", 孩子端零打扰. 拒做"立即执行"模型 (打断孩子) + "仅家长后台手动" (与设计哲学 §1.2 让系统逐步退场冲突, 家长不该花时间催升级). 失败自动回滚 (Updater 备份 install_dir + 60s 心跳验证), 同版本 6h 内不重试. | §17 P4 / §19 |
+| 40   | 升级包分发渠道         | **Backend 自手托管 (Docker 卷)**: `@fastify/static` 挂 `/artifacts/*` → `/var/lib/ninogame/artifacts` 外挂卷, 镜像重建包不丢. 拒 GitHub Releases (家庭场景不需要公网 CDN, 自家服务器 + 1Panel OpenResty `client_max_body_size 200M` 反代足够). 鉴权: 30 分钟 jwt 含 device_id + version, 防公网拖包 (虽然 sha256 + TLS 已经足够防中间人). | §17 P4 |
 
 ------
 
