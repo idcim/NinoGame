@@ -1,15 +1,19 @@
 package com.ninogame.agent.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -34,7 +38,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import com.ninogame.agent.R
@@ -129,16 +136,29 @@ fun PairScreen(
                 .padding(PaddingValues(horizontal = 16.dp, vertical = 24.dp)),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(R.string.pair_title),
-                style = MaterialTheme.typography.headlineMedium,
-            )
+            // 头部: logo + 大字标题, 跟 Dashboard 视觉一致
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(vertical = 4.dp),
+            ) {
+                Image(
+                    painter = painterResource(id = com.ninogame.agent.R.mipmap.ic_launcher),
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)),
+                )
+                Spacer(Modifier.height(0.dp))
+                Text(
+                    "  " + stringResource(R.string.pair_title),
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             Text(
                 text = stringResource(R.string.pair_intro),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // 模式切 (魔法链接 / 手填) — segment 风格 row
             ModeSelector(inputMode) { inputMode = it }
