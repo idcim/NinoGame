@@ -33,11 +33,13 @@ class ScreenStateReceiver(private val scope: CoroutineScope) : BroadcastReceiver
     }
 
     private fun onScreenOff() {
-        Log.i(TAG, "screen off; arm idle-lock timer ${IDLE_LOCK_MINUTES}min")
+        // 从 AgentSettings 拿当前 idle_lock_minutes (server 推 settings_update 后即时生效)
+        val mins = AgentSettings.current().idleLockMinutes.coerceIn(1L, 60L)
+        Log.i(TAG, "screen off; arm idle-lock timer ${mins}min")
         idleLockJob?.cancel()
         idleLockJob = scope.launch {
-            delay(IDLE_LOCK_MINUTES * 60_000L)
-            if (AgentState.mode.value != AgentState.Mode.Child) return@launch  // 已经不是 Child 就不动
+            delay(mins * 60_000L)
+            if (AgentState.mode.value != AgentState.Mode.Child) return@launch
             Log.i(TAG, "★ idle-lock fired → mode=Lock")
             AgentState.setMode(AgentState.Mode.Lock)
         }
@@ -61,8 +63,6 @@ class ScreenStateReceiver(private val scope: CoroutineScope) : BroadcastReceiver
 
     companion object {
         private const val TAG = "ScreenStateReceiver"
-        // 5 分钟比 Windows agent 默认的 10 分钟短一些 — Android 平板放下随手锁屏更常见
-        private const val IDLE_LOCK_MINUTES = 5L
 
         fun intentFilter(): IntentFilter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)

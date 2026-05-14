@@ -46,13 +46,15 @@ class TokenTicker(
         if (job?.isActive == true) return
         job = scope.launch {
             while (isActive) {
-                delay(INTERVAL_MS)
+                // 每轮重新读 settings — 家长后台改 billing_tick_seconds 当场生效, 不用重启
+                val intervalMs = AgentSettings.current().billingTickSeconds * 1000L
+                delay(intervalMs.coerceIn(10_000L, 600_000L))
                 runCatching { tickOnce() }.onFailure {
                     Log.w(TAG, "token_tick failed", it)
                 }
             }
         }
-        Log.i(TAG, "TokenTicker started; period=${INTERVAL_MS / 1000}s amount=$AMOUNT_PER_TICK")
+        Log.i(TAG, "TokenTicker started; reads AgentSettings each tick")
     }
 
     @Synchronized
@@ -85,18 +87,20 @@ class TokenTicker(
             return
         }
 
-        // 满足全部条件 — 发 tick
+        // 满足全部条件 — 发 tick. amount + tick_seconds 都从 AgentSettings 拿,
+        // 跟 Windows agent settings.token_to_minute_ratio 同一源
+        val s = AgentSettings.current()
         val msg = buildJsonObject {
             put("type", "token_tick")
             put("payload", buildJsonObject {
-                put("amount", AMOUNT_PER_TICK)
+                put("amount", s.tokenToMinuteRatio)
                 put("ref_id", pkg)
                 put("app", pkg)
-                put("tick_seconds", INTERVAL_MS / 1000)
+                put("tick_seconds", s.billingTickSeconds)
             })
         }
         val sent = wsClient.sendJson(msg.toString())
-        Log.i(TAG, "token_tick sent: -$AMOUNT_PER_TICK ($pkg); ok=$sent")
+        Log.i(TAG, "token_tick sent: -${s.tokenToMinuteRatio} ($pkg); ok=$sent")
     }
 
     private fun isScreenInteractive(): Boolean {
@@ -106,9 +110,5 @@ class TokenTicker(
 
     companion object {
         private const val TAG = "TokenTicker"
-        // 60s 跟 Windows agent billing_tick_seconds 默认一致
-        private const val INTERVAL_MS = 60_000L
-        // 每 tick 扣多少 token — Stage 3b2 hard-code 1.0, Stage 3c 接 server settings_update
-        private const val AMOUNT_PER_TICK = 1.0
     }
 }

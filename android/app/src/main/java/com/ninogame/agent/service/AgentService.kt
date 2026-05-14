@@ -204,6 +204,7 @@ class AgentService : Service() {
             "rules_update" -> onRulesUpdate(msg.payload)
 "app_categories_update" -> onAppCategoriesUpdate(msg.payload)
             "tasks_update" -> onTasksUpdate(msg.payload)
+            "settings_update" -> AgentSettings.applyFromServer(msg.payload)
             "command" -> onCommand(msg.payload)
             "error" -> Log.w(TAG, "server error: ${msg.payload}")
             // Stage 3c+ 会加: settings_update / tasks_update / ...
@@ -263,10 +264,12 @@ class AgentService : Service() {
         val rulesArr = runCatching { obj["rules"]?.jsonArray }.getOrNull()
         val tasksArr = runCatching { obj["tasks"]?.jsonArray }.getOrNull()
         val pendingCmds = runCatching { obj["pending_commands"]?.jsonArray }.getOrNull()
+        val settings = obj["settings"]
         Log.i(
             TAG,
-            "hello_ack: balance=$balance rules=${rulesArr?.size} tasks=${tasksArr?.size} pending_cmds=${pendingCmds?.size}",
+            "hello_ack: balance=$balance rules=${rulesArr?.size} tasks=${tasksArr?.size} pending_cmds=${pendingCmds?.size} settings=${settings != null}",
         )
+        if (settings != null) AgentSettings.applyFromServer(settings)
         AgentState.onHelloAck()
         if (balance != null) {
             AgentState.onWalletBalance(balance)
@@ -321,6 +324,7 @@ class AgentService : Service() {
         ForegroundAppMonitor.reset()
         RulesCache.reset()
         TasksCache.reset()
+        AgentSettings.reset()
         AgentState.reset()
         // CategoryCache 不 reset — 是磁盘缓存, 进程重启希望恢复
         currentWs = null
