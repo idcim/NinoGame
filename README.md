@@ -46,6 +46,14 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 3b3 (v0.5.7+, 申请游戏时间 + screen-off Lock)
+- **RequestDialog** Compose AlertDialog — 多行 TextField + 发送按钮; `AgentService.sendUnlockRequest(text)` 静态发 `{type:unlock_request, payload:{request_text, structured:{}}}` 跟 Windows agent ui/request_dialog.py 一致; server `onUnlockRequest` 转家长浏览器, 批准后推 temporary_unlock command (Stage 3b1 链路自动放行)
+- Dashboard 加"申请玩游戏…"按钮 (仅 Child 模式显示); 发送 Snackbar 反馈"已发送, 等家长回" / 失败原因 (未联机/未配对/网络错)
+- **ScreenStateReceiver**: 运行时注册 (Android 安全限制不能 Manifest 声明) 监 SCREEN_OFF / SCREEN_ON / USER_PRESENT
+  - SCREEN_OFF → 5min 定时, 还在 Child 就切 Lock
+  - USER_PRESENT → Lock 模式自动回 Child (锁是 token/拦截层面, 不是物理)
+- **见**: `ui/RequestDialog.kt`, `service/ScreenStateReceiver.kt`
+
 ### Android Agent Stage 3b2 (v0.5.6+, token_tick 每分钟上报)
 - **TokenTicker** 协程 (跟 Windows agent core/token_engine.py 同语义): AgentService scope 内每 60s 一轮; 5 个短路条件全满足才发 `token_tick`:
   1. `AgentState.mode == Child` (lock 不扣)

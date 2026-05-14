@@ -13,11 +13,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
@@ -26,6 +30,7 @@ import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Warning
@@ -80,6 +85,10 @@ fun DashboardScreen(
     val pendingSegments by ForegroundAppMonitor.pendingSegmentCount.collectAsState()
     val mode by AgentState.mode.collectAsState()
     val freePassUntilMs by AgentState.freePassUntilMs.collectAsState()
+
+    // v0.5.7+ 申请游戏时间对话框 + Snackbar 反馈
+    var showRequest by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // 优先实时余额, 没收到就用 DataStore 缓存
     val displayBalance = liveBalance ?: cachedBalance
@@ -254,6 +263,18 @@ fun DashboardScreen(
             }
 
             Spacer(Modifier.height(0.dp))
+
+            // v0.5.7+ 申请玩游戏 — 仅 Child 模式 + 已配对显示, lock/parent 不展示
+            if (mode == AgentState.Mode.Child) {
+                Button(
+                    onClick = { showRequest = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.Send, contentDescription = null)
+                    Text("  " + stringResource(R.string.dash_request_button))
+                }
+            }
+
             // 操作行
             OutlinedButton(
                 onClick = {
@@ -268,6 +289,23 @@ fun DashboardScreen(
                 Text("  " + stringResource(R.string.dash_reset_pair))
             }
         }
+
+        // SnackbarHost 浮在底部, 占用 Box 而不是 Column 区
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+        ) { data -> Snackbar(snackbarData = data) }
+    }
+
+    if (showRequest) {
+        RequestDialog(
+            onDismiss = { showRequest = false },
+            onResult = { ok, errMsg ->
+                val msg = if (ok) ctx.getString(R.string.request_sent_ok)
+                else (errMsg ?: "发送失败")
+                scope.launch { snackbarHostState.showSnackbar(msg) }
+            },
+        )
     }
 }
 

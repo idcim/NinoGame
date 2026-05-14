@@ -65,6 +65,7 @@ class AgentService : Service() {
     private var unknownAppsReporter: UnknownAppsReporter? = null
     private var commandHandler: CommandHandler? = null
     private var tokenTicker: TokenTicker? = null
+    private var screenReceiver: ScreenStateReceiver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -77,6 +78,11 @@ class AgentService : Service() {
         unknownAppsReporter = UnknownAppsReporter(scope, wsClient!!, applicationContext)
         commandHandler = CommandHandler(scope, applicationContext)
         tokenTicker = TokenTicker(scope, wsClient!!, applicationContext)
+
+        // v0.5.7+ screen ON/OFF 监听 — idle-lock 5min 自动切 Lock 模式
+        screenReceiver = ScreenStateReceiver(scope).also {
+            registerReceiver(it, ScreenStateReceiver.intentFilter())
+        }
 
         // v0.5.3+ 启动时从 DataStore 把 CategoryCache 恢复回内存
         scope.launch { CategoryCache.load(this@AgentService) }
@@ -296,6 +302,10 @@ class AgentService : Service() {
         unknownAppsReporter?.stop()
         tokenTicker?.stop()
         commandHandler?.reset()
+        screenReceiver?.let {
+            runCatching { unregisterReceiver(it) }
+            screenReceiver = null
+        }
         ForegroundAppMonitor.reset()
         RulesCache.reset()
         AgentState.reset()
@@ -381,6 +391,27 @@ class AgentService : Service() {
                 })
             }
             return ws.sendJson(msg.toString())
+        }
+
+        /** v0.5.7+ 申请游戏时间 — 跟 Windows agent _submit_unlock_request 同协议:
+         *  {type:unlock_request, payload:{request_text, structured:{}}}.
+         *  return: (ok, errorMessage). 失败时 errorMessage 非空给 UI 显示. */
+        fun sendUnlockRequest(text: String): Pair<Boolean, String?> {
+            val ws = currentWs
+                ?: return false to "Agent 服务没在跑 — 重启 App 试试"
+            if (ws.state.value !is WsClient.ConnectionState.Open) {
+                return false to "未联机 (Agent 会自动重连, 稍后再试)"
+            }
+            if (text.isBlank()) return false to "请先输入想说的话"
+            val msg = buildJsonObject {
+                put("type", "unlock_request")
+                put("payload", buildJsonObject {
+                    put("request_text", text)
+                    put("structured", buildJsonObject {})
+                })
+            }
+            val ok = ws.sendJson(msg.toString())
+            return if (ok) true to null else false to "网络发送失败"
         }
     }
 }

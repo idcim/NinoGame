@@ -74,4 +74,18 @@
     <string name="dash_mode_label_v2">当前模式</string>
     <string name="dash_free_pass_active">🎁 限免活动中</string>
     <string name="dash_free_pass_remaining">剩余 %1$d 分钟</string>
+
+    <!-- v0.5.7+ 申请游戏时间 -->
+    <string name="dash_request_button">申请玩游戏…</string>
+    <string name="request_title">申请玩游戏</string>
+    <string name="request_hint">写一段话告诉爸妈你想玩什么、玩多久, 用文字描述就行。家长收到后会决定。</string>
+    <string name="request_text_label">想说的话</string>
+    <string name="request_placeholder">例: 作业写完了, 想玩 PvZ 30 分钟可以吗？</string>
+    <string name="request_send">发送</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="request_sent_ok">已发送, 等家长回</string>
+
+    <!-- v0.5.7+ screen-off auto Lock -->
+    <string name="screen_lock_notif_title">已自动锁定</string>
+    <string name="screen_lock_notif_body">屏幕灭超过 5 分钟, Agent 已切到 Lock 模式。家长可远程解锁或下次开屏自动恢复 Child。</string>
 </resources>
