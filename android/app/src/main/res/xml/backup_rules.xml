@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v0.5.0 暂不参与全量备份: agent_token 进系统备份云端泄漏没意义,
+     重新配对很简单. Stage 2+ 看情况开放. -->
+<full-backup-content>
+    <exclude domain="root" path="."/>
+</full-backup-content>

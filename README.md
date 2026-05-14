@@ -46,6 +46,15 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 1 (v0.5.0+)
+- **位置**: 新 `android/` 子目录, 跟 `agent/` (Windows 端) 并列
+- **技术栈**: Kotlin 2.0 + Compose + Material 3 + AGP 8.5 + minSdk 24 (Android 7 老平板友好) + targetSdk 34
+- **平板兼容**: WindowSizeClass 适配, Compact 撑满 / Medium+Expanded 内容居中限宽 (Pair 540dp / Dashboard 720dp), 一份 APK 通吃手机+平板+折叠屏
+- **Stage 1 能做**: 配对页接受 "魔法链接" 或 "URL+8 位码" 两 mode → POST `/api/devices/pair/redeem` → DataStore 持久化 agent_token; Dashboard 占位显示已配对状态
+- **Stage 2 路线**: AccessibilityService 监前台 + Foreground Service 持 WS 长连接 (hello/heartbeat/event/wallet_update); Stage 3 拦截 + token 经济; Stage 4 国内 ROM 引导页. 详见 `android/README.md` + CLAUDE.md §17.6
+- **构建**: 用户回头 Android Studio (Hedgehog+) 打开 `android/`, JDK 17, 第一次 `gradle wrapper --gradle-version 8.7` 生成 wrapper jar (二进制不进库); 之后 `gradlew assembleDebug` 出 APK 直接 sideload 给平板
+- **不进 Play Store**: 拦截类 App Play Store 政策一般不让上, 走 sideload 或后续接入 admin `/releases` 共享 server `/artifacts/` 分发链路
+
 ### 每日总结推送 (v0.4.7+, P4 补)
 - **位置**: 每天 21:00 (server local tz, 默认 Asia/Shanghai), 走企微 + SMTP (复用 v0.4.1 notifier)
 - **触发**: 服务端 `daily_summary_scheduler` 每分钟扫本地时间, 命中目标 HH:MM 触发当日批次

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NinoGame Agent</string>
+
+    <!-- 配对页 -->
+    <string name="pair_title">配对家长后台</string>
+    <string name="pair_intro">向家长要"魔法链接"或 8 位配对码, 粘贴到这里就行。</string>
+    <string name="pair_backend_url_label">后端地址 (例 https://ninogame.example.com)</string>
+    <string name="pair_code_label">配对码 / 魔法链接</string>
+    <string name="pair_submit">配对</string>
+    <string name="pair_pairing">配对中...</string>
+    <string name="pair_success">配对成功! 设备已绑定.</string>
+
+    <!-- Dashboard -->
+    <string name="dash_title">NinoGame</string>
+    <string name="dash_status_paired">已配对</string>
+    <string name="dash_status_unpaired">未配对</string>
+    <string name="dash_balance_label">Token 余额</string>
+    <string name="dash_mode_label">当前模式</string>
+    <string name="dash_reset_pair">重新配对</string>
+    <string name="dash_stage_note">Stage 1 / Stage 2 实现监控 + 拦截 + 跨端同步 (见 android/README.md 路线图)</string>
+
+    <!-- 模式 -->
+    <string name="mode_child">使用中</string>
+    <string name="mode_parent">家长模式</string>
+    <string name="mode_lock">已锁定</string>
+    <string name="mode_unknown">未知</string>
+</resources>

@@ -1,0 +1,21 @@
+# Android / Gradle
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+*.iml
+.idea/
+.kotlin/
+
+# Keystores 谨慎不要进库 (生产签名用 keystore 单独管)
+*.jks
+*.keystore
+release.keystore
+
+# Wrapper jar 由 gradle 首次 wrapper 生成, 也可手动 commit 让其他人零依赖跑
+# 不强制屏蔽 — 若希望进库, 删掉下一行
+# gradle/wrapper/gradle-wrapper.jar

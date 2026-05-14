@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose 接管 UI 后, Activity 主题仅需 Material3 base + DayNight,
+         具体 Surface/typography/colorScheme 在 Compose 端 NinoGameTheme 里定. -->
+    <style name="Theme.NinoGame" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

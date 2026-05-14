@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- NinoGame brand: 跟 frontend (Tailwind brand) 大致对齐
+         frontend brand-50 #eef4ff brand-500 #4a7cff brand-600 #3563e6 -->
+    <color name="brand_50">#EEF4FF</color>
+    <color name="brand_500">#4A7CFF</color>
+    <color name="brand_600">#3563E6</color>
+    <color name="accent_600">#16A34A</color>  <!-- 学习/绿 -->
+    <color name="warn">#F59E0B</color>         <!-- 黄 -->
+
+    <color name="bg_light">#FFFFFF</color>
+    <color name="bg_dark">#0F172A</color>
+    <color name="ink_light">#0F172A</color>
+    <color name="ink_dark">#F1F5F9</color>
+</resources>

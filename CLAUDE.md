@@ -1343,6 +1343,50 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 
 **核心设计：** 几乎每张表都有 `synced_to_server` 字段。P1 永远写 0，P2 上线后老数据可批量回传补上。这是 P1→P2 平滑过渡的核心。
 
+### 17.6 Android Agent 分阶段路线图 (v0.5.0+)
+
+跟 Windows Agent 共用同一个 backend + 同一套协议 (§19), Android 端不是另起炉灶, 是孩子主用平板时一份等价能力。**最好兼容平板** — minSdk 24 + WindowSizeClass + 限宽布局, 手机/平板一份 APK.
+
+**技术栈**:
+- Kotlin 2.0 + AGP 8.5 + Gradle 8.7
+- Jetpack Compose + Material 3 + Material You 动态色
+- minSdk 24 (Android 7 老平板) / targetSdk 34
+- OkHttp 4.12 (HTTP + WebSocket) + kotlinx.serialization (JSON)
+- DataStore Preferences (持久化 agent_token / device_id / child_id / backend_url)
+- Navigation Compose (PairScreen → DashboardScreen)
+
+**目录**: `android/` (跟 `agent/` Windows 端并列), `android/README.md` 写环境 + 构建 + 路线图.
+
+**Stage 1 (v0.5.0, 已落)**:
+- 项目骨架 + Compose hello world + 平板自适应布局 (Pair 限宽 540dp, Dashboard 限宽 720dp)
+- PairScreen: 接受魔法链接 `https://host/#pair=XXXXXXXX` 或手填后端 URL + 8 位码两 mode
+- HTTP POST `/api/devices/pair/redeem` → 拿 agent_token + device_id + child_id, DataStore 存盘
+- DashboardScreen 占位 (显示已配对状态 + ID 摘要 + 重新配对按钮)
+
+**Stage 2 (下一站)**:
+- `AgentService` Foreground Service (`dataSync` 类型, Android 14+ 强制声明), 持 WS 长连接
+- WsClient 实装 hello / heartbeat / event / 接收 `rules_update` / `wallet_update` / `command`
+- AccessibilityService 监前台 app (Android 6.0+ 强制走这条路, 没有"无障碍能力" Agent 装了也白装)
+- `BOOT_COMPLETED` BroadcastReceiver 开机自启
+
+**Stage 3**:
+- 规则匹配 + 拦截 (Windows 端 kill → Android 端弹对话框 + 回 launcher + 上报 block 事件)
+- Token 经济本地缓存 + server 权威 (`wallet_update` 推送对齐)
+- 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议)
+- 责任清单 / 任务申报 UI
+
+**Stage 4**:
+- 国内 ROM 适配引导页 (MIUI/华为/OPPO/vivo 自启 + 后台权限 + 电池白名单 — 没法纯代码搞定, 必须用户主动操作, 给出清晰的"我做"指引)
+- Agent 自升级 (复用 server `/artifacts/` 机制, 但 Android 安装 APK 需要 `REQUEST_INSTALL_PACKAGES` 权限)
+- 报告类 UI (孩子端 Dashboard / Forecast)
+
+**已知约束**:
+- AccessibilityService **必须用户手动启用一次** (家长配对完后引导孩子点开)
+- 国内 ROM **杀后台**: 默认情况下 Agent 会被系统清理. Stage 4 引导页帮家长设置, 但仍需用户主动操作
+- **Play Store 政策**: 拦截类 App 不让上 Play Store 常见. 走 sideload — admin 后台 `/releases` 已有 APK 分发框架, Android 装时配 `REQUEST_INSTALL_PACKAGES`
+
+详见 `android/README.md`.
+
 ### 17.5.6 P1 推进顺序
 
 ```
@@ -1860,8 +1904,8 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App**
-- [ ] 跨端钱包同步 + Path 1 跨端聚合
+- [ ] **Android NinoGame App** — Stage 1 已起 (v0.5.0, 见 §17.6 + `android/`): Kotlin 2.0 + Compose + minSdk 24 (老平板友好) + Material 3 + WindowSizeClass 平板自适应. 当前能配对 + 持久化 token, WS 长连 / 拦截 / token 经济在 Stage 2+ 推进.
+- [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。
 
