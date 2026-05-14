@@ -51,6 +51,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       LOG_PRETTY: "false"
       TZ: ${TZ:-Asia/Shanghai}
+      # 无感更新 (v0.3.0+): Agent 拼下载 URL + 包存盘目录
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      ARTIFACTS_DIR: /var/lib/ninogame/artifacts
+    volumes:
+      # Agent 升级包外挂卷 (镜像重建不丢)
+      - artifacts:/var/lib/ninogame/artifacts
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8088/health || exit 1"]
       interval: 30s
@@ -58,6 +64,10 @@ services:
       retries: 3
       start_period: 15s
     # 不开 host port 映射; 走 1Panel 反代
+
+volumes:
+  artifacts:
+    name: ninogame-artifacts
 
 networks:
   default:

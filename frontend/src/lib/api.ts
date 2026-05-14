@@ -1,6 +1,17 @@
 /** 封装 fetch: 自动带 Bearer, 统一错误处理。 */
 import { clearAuth, getToken } from "./auth";
 
+export interface AgentRelease {
+  id: string;
+  version: string;
+  filename: string;
+  size_bytes: number;
+  sha256: string;
+  is_target: boolean;
+  notes: string | null;
+  uploaded_at: string;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -159,6 +170,37 @@ export const api = {
     request<{ apps: TopAppRow[] }>(
       `/api/children/${child_id}/reports/top-apps?days=${days}&limit=${limit}`,
     ),
+
+  // ── Agent releases (v0.3.0+ 无感更新) ──────────────────────
+  listReleases: () =>
+    request<{ releases: AgentRelease[] }>("/api/admin/releases"),
+  /** 上传 zip — 不走 request() (它强行设 Content-Type: application/json),
+   *  直接走 fetch 走 multipart. */
+  async uploadRelease(file: File, version: string, notes: string = ""): Promise<{ release: AgentRelease }> {
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("version", version);
+    if (notes) fd.append("notes", notes);
+    const token = getToken();
+    const resp = await fetch("/api/admin/releases", {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (resp.status === 401) { clearAuth(); throw new ApiError(401, "未登录或登录已过期"); }
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { const d = await resp.json(); if (d?.message) msg = d.message; } catch { /* ignore */ }
+      throw new ApiError(resp.status, msg);
+    }
+    return resp.json();
+  },
+  promoteRelease: (id: string) =>
+    request<{ ok: boolean; version: string }>(`/api/admin/releases/${id}/promote`, {
+      method: "POST",
+    }),
+  deleteRelease: (id: string) =>
+    request<{ ok: boolean }>(`/api/admin/releases/${id}`, { method: "DELETE" }),
 
   // ── LLM 配置 (P3) ─────────────────────────────────────────
   getLlmConfig: () =>

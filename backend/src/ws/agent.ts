@@ -25,6 +25,10 @@ import { createUnlockRequestFromAgent } from "../routes/unlock_requests.js";
 import { setAgentDecision, clearAgentDecision } from "../services/agent_state.js";
 import { getMergedSettings } from "../services/child_settings.js";
 import { classifyBatch, type AppToClassify } from "../services/llm_app_classifier.js";
+import {
+  maybeQueueUpdateForDevice,
+  persistAgentVersion,
+} from "../services/agent_release.js";
 import { ensureTodayGrant } from "../services/wallet.js";
 import { publishToParent } from "./event_bus.js";
 
@@ -227,8 +231,16 @@ async function onHello(
   app: FastifyInstance,
   socket: import("@fastify/websocket").WebSocket,
   meta: AgentConnection,
-  _msg: WsMessage,
+  msg: WsMessage,
 ): Promise<void> {
+  // 持久化 agent_version + 比对 target release: 落后则入队 update_self.
+  // 不 await 也行 (升级是异步推送, hello_ack 不依赖), 但失败的话日志要看得到.
+  const helloPayload = (msg.payload || {}) as { agent_version?: string };
+  const agent_version = helloPayload.agent_version;
+  await persistAgentVersion(meta.device_id, agent_version);
+  void maybeQueueUpdateForDevice(app, meta.device_id, agent_version || null)
+    .catch((err) => app.log.warn({ err, device_id: meta.device_id }, "maybe queue update failed"));
+
   // 0) 服务端先幂等发今日基础 token (Agent 上线触发, 跨午夜也会自动补发)
   if (meta.child_id) {
     try {

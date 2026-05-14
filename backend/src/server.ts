@@ -2,8 +2,13 @@ import Fastify from "fastify";
 import sensible from "@fastify/sensible";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
+import multipart from "@fastify/multipart";
 import websocket from "@fastify/websocket";
+import fastifyStatic from "@fastify/static";
+import path from "node:path";
+import fs from "node:fs";
 import { config } from "./config.js";
+import { verifyArtifactToken } from "./services/agent_release.js";
 import { pool, ping } from "./db.js";
 import { registerParentAuth } from "./auth/middleware.js";
 import { registerAuthRoutes } from "./routes/auth.js";
@@ -12,6 +17,7 @@ import { registerChildSettingsRoutes } from "./routes/child_settings.js";
 import { registerCommandRoutes } from "./routes/commands.js";
 import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerFreePassRoutes } from "./routes/free_pass.js";
+import { registerAdminReleaseRoutes } from "./routes/admin_releases.js";
 import { registerLlmRoutes } from "./routes/llm.js";
 import { registerReportRoutes } from "./routes/reports.js";
 import { registerRuleRoutes } from "./routes/rules.js";
@@ -50,7 +56,44 @@ export async function buildServer() {
     secret: config.jwtSecret,
     sign: { expiresIn: config.jwtExpiresIn },
   });
+  await app.register(multipart, {
+    limits: {
+      // 单文件 ≤ 300MB (够 PyInstaller onedir 130MB + buffer)
+      fileSize: 300 * 1024 * 1024,
+      files: 1,
+    },
+  });
   await app.register(websocket);
+
+  // 静态文件 (Agent 升级包): /artifacts/<filename>?token=<jwt>
+  // - 路径外挂卷 (Docker volume), 即便镜像重建包也不丢
+  // - token 是 server 签发的 30 分钟 jwt, 内含 device_id + version
+  try {
+    fs.mkdirSync(config.artifactsDir, { recursive: true });
+  } catch (err) {
+    app.log.warn({ err, dir: config.artifactsDir }, "artifacts dir create failed");
+  }
+  // 鉴权: onRequest hook 在 static plugin 之前跑
+  app.addHook("onRequest", async (req, reply) => {
+    if (!req.url.startsWith("/artifacts/")) return;
+    const token = (req.query as { token?: string } | undefined)?.token;
+    if (!token) {
+      return reply.code(401).send({ message: "missing token" });
+    }
+    try {
+      verifyArtifactToken(app, token);
+    } catch (err) {
+      app.log.warn({ err }, "artifact token verification failed");
+      return reply.code(401).send({ message: "invalid or expired token" });
+    }
+  });
+  await app.register(fastifyStatic, {
+    root: path.resolve(config.artifactsDir),
+    prefix: "/artifacts/",
+    decorateReply: false,
+    serve: true,
+    index: false,
+  });
 
   // ── 业务路由 ────────────────────────────────────────────
   await registerParentAuth(app);
@@ -65,6 +108,7 @@ export async function buildServer() {
   await registerFreePassRoutes(app);
   await registerReportRoutes(app);
   await registerLlmRoutes(app);
+  await registerAdminReleaseRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);
 
@@ -132,6 +176,11 @@ export async function buildServer() {
       "POST /api/llm/config          (Bearer)",
       "POST /api/llm/test            (Bearer)",
       "DEL  /api/llm/config          (Bearer)",
+      "GET  /api/admin/releases                (Bearer)  Agent 包列表",
+      "POST /api/admin/releases                (Bearer)  multipart 上传 zip",
+      "POST /api/admin/releases/:id/promote    (Bearer)  设为目标版本",
+      "DEL  /api/admin/releases/:id            (Bearer)  删除",
+      "GET  /artifacts/<filename>?token=<jwt>            Agent 下载升级包",
       "WS   /ws/agent?token=<agent_token>",
       "WS   /ws/parent?token=<jwt>",
     ],
