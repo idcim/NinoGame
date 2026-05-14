@@ -1,13 +1,18 @@
-"""StatusPanel: 托盘双击弹出的状态总览面板 (CLAUDE.md §15.4 雏形)。
+"""StatusPanel: 托盘双击弹出的状态总览面板 (CLAUDE.md §15.4 + §15.5)。
 
 展示:
-  - 当前余额 (大号)
-  - 当前模式 (Lock 模式徽章隐藏, 闲置自动 / 远程锁不打扰孩子)
-  - 今日消费分钟 / 赚到 token / 完成任务
-  - 关闭按钮
+  - 当前余额 (大号数字, 颜色按比例)
+  - 当前模式徽章 (使用中 / 已锁定 / 限免中 / 家长)
+  - 限免横幅 (free_pass > 0 时醒目展示倒计时)
+  - Forecast: "按当前速度还能用 X 分钟" (§15.5)
+  - 今日花费 / 挣到 / 游戏分钟 / 责任清单
+  - 活跃放行 (临时 unlock 剩余分钟)
+  - 「申请游戏时间」按钮 (复用 RequestDialog)
 
-孩子端无需主动 "锁定 / 解锁": 闲置 10 分钟自动 Lock, 动键鼠 30s 内
-自动恢复 Child。所以面板上没有手动入口。
+UX:
+  - 面板可见时每 1s 自动刷新 (QTimer), 数字"活起来", 限免/forecast 倒数
+  - 关闭/隐藏时 timer 停, 不浪费 CPU
+  - 拖动 header 移动窗口; × 关闭 (不 destroy, 下次复用)
 """
 from __future__ import annotations
 
@@ -44,6 +49,7 @@ COLOR_BORDER = "#dbe5eb"
 COLOR_CLOSE_HOVER = "#d63b3b"
 COLOR_WARN = "#d96a3c"
 COLOR_OK = "#5cb85c"
+COLOR_GIFT = "#e6a23c"   # 限免横幅
 
 
 def _color_for_balance(balance: int, cap: int) -> str:
@@ -60,10 +66,19 @@ def _color_for_balance(balance: int, cap: int) -> str:
 def _mode_label_cn(mode: str) -> str:
     return {
         "child": "使用中",
-        "lock": "已锁定",
+        "lock": "未在使用",
         "parent": "家长模式",
         "limited_free": "限免中",
     }.get(mode, mode)
+
+
+def _fmt_mmss(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
 
 
 _QSS = """
@@ -102,6 +117,28 @@ QLabel#mode_badge {{
     font-size: 9pt;
     font-weight: bold;
 }}
+QFrame#free_pass_banner {{
+    background-color: {gift_bg};
+    border: 1px solid {gift_border};
+    border-radius: 8px;
+}}
+QLabel#free_pass_text {{
+    color: {gift};
+    font-family: "Microsoft YaHei UI";
+    font-size: 10pt;
+    font-weight: bold;
+}}
+QLabel#forecast {{
+    color: {text_dim};
+    font-family: "Microsoft YaHei UI";
+    font-size: 10pt;
+}}
+QLabel#forecast_value {{
+    color: {text};
+    font-family: "Microsoft YaHei UI";
+    font-size: 10pt;
+    font-weight: bold;
+}}
 QLabel#stat_value {{
     color: {text};
     font-family: "Microsoft YaHei UI";
@@ -117,27 +154,18 @@ QPushButton#primary {{
     background-color: {primary};
     color: white;
     border: 0;
-    border-radius: 6px;
-    padding: 8px 18px;
+    border-radius: 8px;
+    padding: 10px 20px;
     font-family: "Microsoft YaHei UI";
-    font-size: 10pt;
+    font-size: 11pt;
     font-weight: bold;
 }}
 QPushButton#primary:hover {{
     background-color: {primary_hover};
 }}
-QPushButton#ghost {{
-    background-color: transparent;
+QPushButton#primary:disabled {{
+    background-color: {border};
     color: {text_dim};
-    border: 1px solid {border};
-    border-radius: 6px;
-    padding: 8px 18px;
-    font-family: "Microsoft YaHei UI";
-    font-size: 10pt;
-}}
-QPushButton#ghost:hover {{
-    color: {text};
-    border-color: {primary};
 }}
 QPushButton#close {{
     background-color: transparent;
@@ -154,9 +182,9 @@ QPushButton#close:hover {{
 
 
 class StatusPanel(QWidget):
-    """模态-less 状态面板。
+    """状态面板。
 
-    数据通过 callable 注入, 每次 show() 时刷新一遍。
+    数据通过 callable 注入, 面板可见时每 1s 调一遍 refresh()。
     再次点托盘 / 关闭按钮 → hide (不 destroy, 复用)。
     """
 
@@ -170,6 +198,9 @@ class StatusPanel(QWidget):
         get_today_consumption_minutes: Callable[[], int],
         get_checklist_progress: Callable[[], tuple[int, int]],
         get_active_unlocks: Callable[[], list[tuple[str, str, int]]] | None = None,
+        get_free_pass_seconds: Callable[[], int] | None = None,
+        get_consumption_rate_per_minute: Callable[[], float] | None = None,
+        on_request_unlock: Callable[[], None] | None = None,
         daily_credit_cap: int = 120,
     ) -> None:
         super().__init__()
@@ -181,16 +212,24 @@ class StatusPanel(QWidget):
         self._get_today_minutes = get_today_consumption_minutes
         self._get_checklist = get_checklist_progress
         self._get_active_unlocks = get_active_unlocks
+        self._get_free_pass_seconds = get_free_pass_seconds
+        self._get_rate = get_consumption_rate_per_minute
+        self._on_request_unlock = on_request_unlock
         self._cap = daily_credit_cap
 
         self.setWindowFlags(
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.resize(380, 400)
+        self.resize(400, 540)
 
         if self._logo_path and Path(self._logo_path).exists():
             self.setWindowIcon(QIcon(self._logo_path))
+
+        # 可见时每秒 refresh; hide 时停。避免后台空跑。
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setInterval(1000)
+        self._refresh_timer.timeout.connect(self.refresh)
 
         self._drag_pos: QPoint | None = None
         self._build_ui()
@@ -214,7 +253,7 @@ class StatusPanel(QWidget):
         card_layout.setContentsMargins(0, 0, 0, 0)
         card_layout.setSpacing(0)
 
-        # Header
+        # ── Header ─────────────────────────────────────────
         header = QFrame(self._card)
         header.setObjectName("header")
         header.setFixedHeight(44)
@@ -244,13 +283,14 @@ class StatusPanel(QWidget):
 
         header.mousePressEvent = self._header_press
         header.mouseMoveEvent = self._header_move
+        header.setCursor(Qt.SizeAllCursor)
         card_layout.addWidget(header)
 
-        # Body
+        # ── Body ───────────────────────────────────────────
         body = QWidget(self._card)
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(28, 22, 28, 22)
-        body_layout.setSpacing(18)
+        body_layout.setContentsMargins(24, 20, 24, 20)
+        body_layout.setSpacing(14)
 
         # 大余额数字行
         balance_row = QHBoxLayout()
@@ -273,6 +313,37 @@ class StatusPanel(QWidget):
         balance_row.addWidget(self._mode_badge)
         body_layout.addLayout(balance_row)
 
+        # 限免横幅 (默认隐藏)
+        self._free_pass_banner = QFrame(body)
+        self._free_pass_banner.setObjectName("free_pass_banner")
+        fp_l = QHBoxLayout(self._free_pass_banner)
+        fp_l.setContentsMargins(12, 8, 12, 8)
+        fp_l.setSpacing(8)
+        self._fp_icon = QLabel(self._free_pass_banner)
+        self._fp_icon.setPixmap(qta.icon("fa5s.gift", color=COLOR_GIFT).pixmap(QSize(18, 18)))
+        fp_l.addWidget(self._fp_icon)
+        self._fp_text = QLabel("", self._free_pass_banner)
+        self._fp_text.setObjectName("free_pass_text")
+        fp_l.addWidget(self._fp_text)
+        fp_l.addStretch(1)
+        self._free_pass_banner.setVisible(False)
+        body_layout.addWidget(self._free_pass_banner)
+
+        # Forecast 行
+        fc_row = QHBoxLayout()
+        fc_row.setSpacing(6)
+        self._fc_icon = QLabel(body)
+        self._fc_icon.setPixmap(qta.icon("fa5s.hourglass-half", color=COLOR_TEXT_DIM).pixmap(QSize(14, 14)))
+        fc_row.addWidget(self._fc_icon)
+        self._fc_label = QLabel("按当前速度", body)
+        self._fc_label.setObjectName("forecast")
+        fc_row.addWidget(self._fc_label)
+        self._fc_value = QLabel("--", body)
+        self._fc_value.setObjectName("forecast_value")
+        fc_row.addWidget(self._fc_value)
+        fc_row.addStretch(1)
+        body_layout.addLayout(fc_row)
+
         # 分隔线
         line = QFrame(body)
         line.setFrameShape(QFrame.HLine)
@@ -280,9 +351,10 @@ class StatusPanel(QWidget):
         line.setFixedHeight(1)
         body_layout.addWidget(line)
 
-        # 今日 stats 三列
+        # 今日 stats 2x2
         stats = QGridLayout()
         stats.setHorizontalSpacing(20)
+        stats.setVerticalSpacing(10)
 
         def _cell(icon_name: str, color: str, label: str):
             cell = QVBoxLayout()
@@ -304,8 +376,8 @@ class StatusPanel(QWidget):
             cell.addWidget(lbl)
             return cell, val
 
-        col1, self._stat_consumed = _cell("fa5s.minus-circle", COLOR_WARN, "今日花费")
-        col2, self._stat_earned = _cell("fa5s.plus-circle", COLOR_OK, "今日挣到")
+        col1, self._stat_consumed = _cell("fa5s.minus-circle", COLOR_WARN, "今日花费 token")
+        col2, self._stat_earned = _cell("fa5s.plus-circle", COLOR_OK, "今日挣到 token")
         col3, self._stat_minutes = _cell("fa5s.clock", COLOR_PRIMARY, "今日游戏 (分钟)")
         col4, self._stat_tasks = _cell("fa5s.tasks", COLOR_PRIMARY, "责任清单")
 
@@ -315,12 +387,23 @@ class StatusPanel(QWidget):
         stats.addLayout(col4, 1, 1)
         body_layout.addLayout(stats)
 
-        # 活跃解锁区 (放行中的应用)
+        # 活跃放行区
         self._unlocks_container = QVBoxLayout()
         self._unlocks_container.setSpacing(4)
         body_layout.addLayout(self._unlocks_container)
 
         body_layout.addStretch(1)
+
+        # 申请游戏时间按钮 (没注入 callback 就不显示)
+        if self._on_request_unlock is not None:
+            self._request_btn = QPushButton("申请游戏时间…", body)
+            self._request_btn.setObjectName("primary")
+            self._request_btn.setCursor(Qt.PointingHandCursor)
+            self._request_btn.clicked.connect(self._handle_request_click)
+            body_layout.addWidget(self._request_btn)
+        else:
+            self._request_btn = None
+
         card_layout.addWidget(body, 1)
 
         self._apply_qss(COLOR_OK, COLOR_PRIMARY)
@@ -336,6 +419,9 @@ class StatusPanel(QWidget):
             border=COLOR_BORDER,
             close_hover=COLOR_CLOSE_HOVER,
             mode_color=mode_color,
+            gift=COLOR_GIFT,
+            gift_bg="#fdf5e6",
+            gift_border="#f4d8a1",
         )
         self.setStyleSheet(qss)
 
@@ -358,6 +444,26 @@ class StatusPanel(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
             event.accept()
 
+    def _handle_request_click(self) -> None:
+        if self._on_request_unlock is None:
+            return
+        # 申请对话框打开后, 状态面板可以一直留着 (孩子可能想边看额度边申请),
+        # 不主动 hide。
+        try:
+            self._on_request_unlock()
+        except Exception:
+            _log.exception("on_request_unlock 触发失败")
+
+    # ── 显示/隐藏: 控制 timer ─────────────────────────────
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._refresh_timer.isActive():
+            self._refresh_timer.start()
+
+    def hideEvent(self, event) -> None:
+        self._refresh_timer.stop()
+        super().hideEvent(event)
+
     @Slot()
     def show_panel(self) -> None:
         """主线程调用; 也可被 QMetaObject.invokeMethod 跨线程触发。"""
@@ -374,6 +480,8 @@ class StatusPanel(QWidget):
             credited = int(self._get_daily_credited())
             minutes = int(self._get_today_minutes())
             done, total = self._get_checklist()
+            free_pass_secs = int(self._get_free_pass_seconds()) if self._get_free_pass_seconds else 0
+            rate = float(self._get_rate()) if self._get_rate else 1.0
         except Exception:
             _log.exception("StatusPanel refresh failed")
             return
@@ -384,22 +492,43 @@ class StatusPanel(QWidget):
 
         mode_color = {
             "child": COLOR_OK,
-            "lock": "#888",
+            "lock": "#9aa9b1",
             "parent": COLOR_PRIMARY,
-            "limited_free": COLOR_WARN,
+            "limited_free": COLOR_GIFT,
         }.get(mode, COLOR_PRIMARY)
         self._mode_badge.setText(_mode_label_cn(mode))
-        # Lock 模式 (闲置自动 / 远程锁) 下隐藏徽章, 避免给孩子展示无意义的状态;
-        # 关键信号 (托盘灰色顶条 / tooltip / 远程锁的 warn 弹窗) 已经覆盖。
-        self._mode_badge.setVisible(mode != "lock")
+        # lock 也展示徽章 ("未在使用" 比完全隐藏更让孩子看明白当前状态)
+        self._mode_badge.setVisible(True)
         self._apply_qss(accent, mode_color)
+
+        # 限免横幅
+        if free_pass_secs > 0:
+            self._fp_text.setText(f"🎁 限免中 · 剩 {_fmt_mmss(free_pass_secs)}, 这段时间不扣 token")
+            self._free_pass_banner.setVisible(True)
+        else:
+            self._free_pass_banner.setVisible(False)
+
+        # Forecast (§15.5)
+        self._update_forecast(balance, mode, rate, free_pass_secs)
 
         self._stat_consumed.setText(str(consumed))
         self._stat_earned.setText(str(credited))
         self._stat_minutes.setText(str(minutes))
         self._stat_tasks.setText(f"{done}/{total}")
 
-        # 清空 + 重建活跃解锁列表
+        # 申请按钮: 限免 / 已锁定 / 余额 0 时给不同提示
+        if self._request_btn is not None:
+            if free_pass_secs > 0:
+                self._request_btn.setEnabled(False)
+                self._request_btn.setText("限免中, 无需申请")
+            elif mode == "parent":
+                self._request_btn.setEnabled(False)
+                self._request_btn.setText("家长模式中")
+            else:
+                self._request_btn.setEnabled(True)
+                self._request_btn.setText("申请游戏时间…")
+
+        # 清空 + 重建活跃放行列表
         self._clear_layout(self._unlocks_container)
         unlocks = []
         if self._get_active_unlocks is not None:
@@ -409,6 +538,40 @@ class StatusPanel(QWidget):
                 _log.exception("get_active_unlocks 失败")
         for _rid, name, secs in unlocks:
             self._unlocks_container.addLayout(self._build_unlock_row(name, secs))
+
+    def _update_forecast(self, balance: int, mode: str, rate: float, free_pass_secs: int) -> None:
+        """§15.5 Forecast: 按当前速度还能用 X 分钟。
+
+        - 限免中 → "限免期间不扣 token"
+        - lock / parent → "暂未在使用"
+        - child + 余额 > 0 + rate > 0 → "还能用 X 分钟" / "还能用 Y 小时"
+        - 余额 ≤ 0 → "余额已用完, 去申请或赚分"
+        """
+        if free_pass_secs > 0:
+            self._fc_label.setText("限免期间不扣 token, 等 ")
+            self._fc_value.setText(_fmt_mmss(free_pass_secs) + " 后恢复")
+            return
+        if mode != "child":
+            self._fc_label.setText("当前")
+            self._fc_value.setText("暂未在使用")
+            return
+        if balance <= 0:
+            self._fc_label.setText("余额")
+            self._fc_value.setText("已用完, 去申请或赚分")
+            return
+        if rate <= 0:
+            self._fc_label.setText("当前")
+            self._fc_value.setText("不扣 token")
+            return
+        minutes_left = int(balance / rate)
+        if minutes_left >= 60:
+            hours = minutes_left // 60
+            rem = minutes_left % 60
+            txt = f"{hours} 小时 {rem} 分钟" if rem > 0 else f"{hours} 小时"
+        else:
+            txt = f"{minutes_left} 分钟"
+        self._fc_label.setText("按当前速度还能用")
+        self._fc_value.setText(txt)
 
     def _clear_layout(self, layout) -> None:
         while layout.count():
@@ -426,12 +589,11 @@ class StatusPanel(QWidget):
         row = QHBoxLayout()
         row.setContentsMargins(0, 4, 0, 0)
         ic = QLabel(self)
-        ic.setPixmap(qta.icon("fa5s.gift", color=COLOR_OK).pixmap(QSize(16, 16)))
+        ic.setPixmap(qta.icon("fa5s.unlock", color=COLOR_OK).pixmap(QSize(16, 16)))
         row.addWidget(ic)
         mins = max(1, seconds // 60)
-        text = QLabel(f"放行中: {rule_name} · {mins} 分钟剩余", self)
+        text = QLabel(f"放行中: {rule_name} · 剩 {mins} 分钟", self)
         text.setStyleSheet(f"color: {COLOR_OK}; font-size: 9pt; font-weight: bold;")
         row.addWidget(text)
         row.addStretch(1)
         return row
-

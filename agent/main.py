@@ -514,6 +514,9 @@ class Agent:
             get_today_consumption_minutes=lambda: self.sessions_repo.today_consumption_seconds() // 60,
             get_checklist_progress=self._checklist_progress,
             get_active_unlocks=self._active_unlock_info,
+            get_free_pass_seconds=self._free_pass_remaining_seconds,
+            get_consumption_rate_per_minute=lambda: float(self.settings.get("token_to_minute_ratio", 1.0)),
+            on_request_unlock=self._request_show_request_dialog,
             daily_credit_cap=self._daily_credit_cap,
         )
 
