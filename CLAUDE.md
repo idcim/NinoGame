@@ -1371,11 +1371,16 @@ CREATE INDEX idx_segments_synced ON app_segments(synced_to_server, period_start)
 - 接收 `hello_ack` (写 walletBalance + rulesCount 到 `AgentState` singleton + DataStore 持久化 balance), `wallet_update` (实时更新), `rules_update` (实时更新). 其它消息类型 Stage 2b+ 加.
 - Dashboard 顶部实时连接徽章 + 余额卡 (实时优先, 离线显示 DataStore 缓存) + 规则数卡.
 
-**Stage 2b (下一站)**:
-- AccessibilityService 监前台 app (Android 6.0+ 必须走这条路, 跟 Windows EnumWindows 等价)
-- 引导孩子在系统设置启用"无障碍能力" (一次性手动操作)
-- UsageReporter 5min 间隔上报 `usage_report` (跟 Windows agent 同协议)
-- `BOOT_COMPLETED` BroadcastReceiver 开机自启
+**Stage 2b (v0.5.2, 已落)**:
+- `NinoAccessibilityService` — 监 `TYPE_WINDOW_STATE_CHANGED`, 抓前台 `event.packageName`. AOSP/各家 ROM 通用. 跟 Windows agent EnumWindows 等价 (Windows 6.0+ 监前台 app 唯一合规途径).
+- `ForegroundAppMonitor` singleton — `@Synchronized` 聚合 segments. 切 app 时 finalize 上个 segment (≥2 秒才记), drainSegments 给当前 open app 切一刀返回. 自家 app + 系统 launcher 进黑名单不记.
+- `UsageReporter` — AgentService 在 WS Open 时启, 每 5min `drainSegments` → 打包 `usage_report` (跟 Windows agent 协议同源: `child_id` / `device_id` / `period_start` / `period_end` / `foreground_segments[]` / `segment_count_raw`) → `wsClient.sendJson`. Stage 2b 全填 `category="neutral"`, server LATERAL JOIN `app_categories` 自己分类. WS 断时停, segments 留下次 batch.
+- `AccessibilityPermission.isEnabled()` — `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` + `ACCESSIBILITY_ENABLED` master switch 双重判定. Dashboard 顶部加权限引导卡 (未启用 → 黄色警告 + "去启用"按钮跳 `ACTION_ACCESSIBILITY_SETTINGS`), DisposableEffect 监 lifecycle ON_RESUME 让用户跳系统设置回来自动刷新.
+- Manifest 注册 service + intent-filter + meta-data → `res/xml/accessibility_service_config.xml`.
+
+**Stage 2c (下一站)**:
+- `unknown_apps` 上报 (新见 package 推 server, LLM 分类后推回 `app_categories_update`, Android 缓存 category 让 usage_report 不再全 neutral)
+- `BOOT_COMPLETED` BroadcastReceiver 开机自启 (孩子重启平板后 Agent 自动回来)
 
 **Stage 3**:
 - 规则匹配 + 拦截 (Windows 端 kill → Android 端弹对话框 + 回 launcher + 上报 block 事件)
@@ -1912,7 +1917,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [x] ~~临时解锁命令~~ — 已实现 (P2)
 - [x] ~~企业微信机器人推送~~ (v0.4.1 完成): admin 后台 `/push` 页配企微 webhook + SMTP, 关键事件 (Agent 升级失败 / PIN 多次错 / 设备掉线 >10min / 行为基线异常) 自动推; 5min dedupe 防爆 + 每 channel "测试发送" 按钮; SMTP 用 nodemailer 收件人默认 SMTP user 自己. 详见 `backend/src/services/notifier/`
 - [x] 使用时长统计/报表 (家长后台 /reports 页: 14 天柱状图 + Top 应用)
-- [ ] **Android NinoGame App** — Stage 1 + 2a 已落 (v0.5.0 / v0.5.1, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + 心跳 + 退避重连 + 实时余额/规则数同步. AccessibilityService 监前台 / 拦截 / token 经济 / 申请审批 在 Stage 2b+ 推进.
+- [ ] **Android NinoGame App** — Stage 1+2a+2b 已落 (v0.5.0 / v0.5.1 / v0.5.2, 见 §17.6 + `android/`): 配对联机 + Foreground Service + WS 长连接 + AccessibilityService 监前台 + 5min usage_report 上报 (跟 Windows agent 同协议). 拦截 / token 经济 / 申请审批 在 Stage 3 推进.
 - [ ] 跨端钱包同步 + Path 1 跨端聚合 (Path 1 已下线 §22 #33, 跨端钱包靠 wallet_update 推送, 已经在 server 侧就绪, Android 端 Stage 2 接入 WS 即生效)
 
 **验收：** Nino 自然语言申请 → 家长收结构化卡片；新游戏自动分类待审；PC + Android 钱包余额一致；Android Kindle 阅读自动赚分跨端聚合。

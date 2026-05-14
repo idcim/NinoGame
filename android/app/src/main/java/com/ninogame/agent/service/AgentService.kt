@@ -59,6 +59,7 @@ class AgentService : Service() {
     private var wsClient: WsClient? = null
     private var connectJob: Job? = null
     private var heartbeatJob: Job? = null
+    private var usageReporter: UsageReporter? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -66,6 +67,7 @@ class AgentService : Service() {
         super.onCreate()
         startForeground(NOTIF_ID, buildNotification())
         wsClient = WsClient(Api.client, scope)
+        usageReporter = UsageReporter(scope, wsClient!!, Settings.from(this))
 
         // 把 ws state mirror 到 AgentState, UI 一行 collectAsState 拿
         scope.launch {
@@ -130,18 +132,20 @@ class AgentService : Service() {
             return
         }
 
-        // 3) Open → 发 hello + 启动 heartbeat 30s
+        // 3) Open → 发 hello + 启 heartbeat 30s + 启 UsageReporter 5min
         Log.i(TAG, "WS open, sending hello")
         sendHello(agentToken)
         heartbeatJob = scope.launch { heartbeatLoop() }
+        usageReporter?.start()
 
         // 4) 阻塞等到 state 离开 Open (Disconnected 或 Failed)
         ws.state.first {
             it is WsClient.ConnectionState.Disconnected ||
             it is WsClient.ConnectionState.Failed
         }
-        Log.i(TAG, "WS closed; cancel heartbeat, return for retry")
+        Log.i(TAG, "WS closed; cancel heartbeat + usage reporter, return for retry")
         heartbeatJob?.cancel()
+        usageReporter?.stop()
     }
 
     private suspend fun heartbeatLoop() {
@@ -219,6 +223,8 @@ class AgentService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "AgentService onDestroy")
+        usageReporter?.stop()
+        ForegroundAppMonitor.reset()
         AgentState.reset()
         scope.cancel()
         wsClient?.close()

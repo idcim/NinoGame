@@ -22,25 +22,37 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ninogame.agent.R
 import com.ninogame.agent.net.WsClient
 import com.ninogame.agent.ninoSettings
+import com.ninogame.agent.service.AccessibilityPermission
 import com.ninogame.agent.service.AgentState
+import com.ninogame.agent.service.ForegroundAppMonitor
 import kotlinx.coroutines.launch
 
 /** 主面板 — Stage 1 仅显示"已配对"状态 + agent_token / device_id / child_id 摘要.
@@ -64,9 +76,26 @@ fun DashboardScreen(
     val connState by AgentState.connection.collectAsState()
     val liveBalance by AgentState.walletBalance.collectAsState()
     val rulesCount by AgentState.rulesCount.collectAsState()
+    val foregroundApp by ForegroundAppMonitor.foregroundApp.collectAsState()
+    val pendingSegments by ForegroundAppMonitor.pendingSegmentCount.collectAsState()
 
     // 优先实时余额, 没收到就用 DataStore 缓存
     val displayBalance = liveBalance ?: cachedBalance
+
+    // v0.5.2+ 无障碍权限实时检测 — 用户跳系统设置回来后状态自动刷新.
+    // Settings.Secure 没 listener API, 老套路: onResume 重查一次.
+    val ctx = LocalContext.current
+    var a11yEnabled by remember { mutableStateOf(AccessibilityPermission.isEnabled(ctx)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                a11yEnabled = AccessibilityPermission.isEnabled(ctx)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val maxWidth = when (windowSize.widthSizeClass) {
         WindowWidthSizeClass.Compact -> Int.MAX_VALUE.dp
@@ -85,6 +114,12 @@ fun DashboardScreen(
             Text(
                 stringResource(R.string.dash_title),
                 style = MaterialTheme.typography.headlineMedium,
+            )
+
+            // v0.5.2+ 无障碍权限状态 — 没启用时高优先级提醒
+            AccessibilityCard(
+                enabled = a11yEnabled,
+                onOpenSettings = { AccessibilityPermission.openSettings(ctx) },
             )
 
             // 实时连接状态 + 后端 + IDs
@@ -172,11 +207,34 @@ fun DashboardScreen(
                 }
             }
 
+            // v0.5.2+ 监控调试卡 — 当前前台 + 缓冲 segments (5min 后上报)
+            if (a11yEnabled) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            stringResource(R.string.dash_foreground_now),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            foregroundApp ?: "—",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "${stringResource(R.string.dash_segments_pending)}: $pendingSegments",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
             // Stage 路线提示
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        "Stage 2a 已联机 · 监控拦截在 Stage 2b+",
+                        "Stage 2b 监前台已上线 · 拦截在 Stage 3",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -201,6 +259,54 @@ fun DashboardScreen(
             ) {
                 Icon(Icons.Filled.Refresh, contentDescription = null)
                 Text("  " + stringResource(R.string.dash_reset_pair))
+            }
+        }
+    }
+}
+
+/** 无障碍权限状态卡 — 未启用时显示警告 + 跳系统设置按钮. */
+@Composable
+private fun AccessibilityCard(enabled: Boolean, onOpenSettings: () -> Unit) {
+    val (icon, color, msg) = if (enabled) {
+        Triple(
+            Icons.Filled.Accessibility,
+            Color(0xFF16A34A),
+            stringResource(R.string.a11y_status_enabled),
+        )
+    } else {
+        Triple(
+            Icons.Filled.Warning,
+            Color(0xFFF59E0B),
+            stringResource(R.string.a11y_status_disabled),
+        )
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (enabled) MaterialTheme.colorScheme.surface
+            else Color(0xFFFEF3C7),
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, contentDescription = null, tint = color)
+                Spacer(Modifier.height(0.dp))
+                Text(
+                    text = "  $msg",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (enabled) MaterialTheme.colorScheme.onSurface else Color(0xFF78350F),
+                )
+            }
+            if (!enabled) {
+                Text(
+                    stringResource(R.string.a11y_explain),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF78350F),
+                )
+                OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.a11y_open_settings))
+                }
             }
         }
     }

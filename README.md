@@ -46,6 +46,14 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### Android Agent Stage 2b (v0.5.2+, 监前台 + 5min usage_report)
+- **AccessibilityService** (`NinoAccessibilityService`): 监 `TYPE_WINDOW_STATE_CHANGED`, 抓前台 `packageName`. 用户首次需在系统设置 → 无障碍 启用一次. Dashboard 顶部检测未启用时显示黄色警告 + "去启用"按钮跳 `ACTION_ACCESSIBILITY_SETTINGS`. **不读屏 / 不取内容**, AccessibilityServiceInfo 配置 `canRetrieveWindowContent="false"`
+- **ForegroundAppMonitor** singleton (synchronized): app 持续前台 ≥ 2 秒才记 segment; 自家 app + 系统 launcher 黑名单跳过 (`com.miui.home`, `com.android.launcher3`, ...)
+- **UsageReporter** 协程在 AgentService scope 跑, WS Open 时启 / Disconnected 时停; 每 5min `drainSegments` + 打包 `usage_report` (跟 Windows agent comms/usage_reporter.py 协议同源: `child_id` / `device_id` / `period_start` / `period_end` / `foreground_segments[]` / `segment_count_raw`) → `wsClient.sendJson`. 离线时跳过, segments 留下次 batch
+- **server 端零改动**: 现有 `onUsageReport` (backend/src/ws/agent.ts) 直接吃 Android 数据, /reports 页立刻能看到 Android 使用记录, Top 应用 / 每日柱状图无缝兼容
+- Stage 2b 简化: 全填 `category="neutral"`, Stage 2c 加 unknown_apps 让 server LLM 分类
+- **见**: `android/app/src/main/java/com/ninogame/agent/service/` 下 `NinoAccessibilityService.kt` / `ForegroundAppMonitor.kt` / `UsageReporter.kt` / `AccessibilityPermission.kt`
+
 ### Android Agent Stage 2a (v0.5.1+, 联机闭环)
 - **Foreground Service** (`AgentService`): 配对后 MainActivity 自动启, 解配对自动停; 通知栏常驻 IMPORTANCE_LOW; `foregroundServiceType=dataSync` 满足 Android 14+ 类型声明
 - **WS 长连接**: OkHttp WebSocket, `?token=AGENT_TOKEN` query 鉴权 (跟 server `/ws/agent` 约定一致), 不走 Authorization header

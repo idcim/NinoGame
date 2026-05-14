@@ -48,5 +48,20 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
+        <!-- v0.5.2+ Stage 2b: AccessibilityService 监前台 app.
+             用户必须在系统设置 → 无障碍 → 已安装的服务 中手动启用一次.
+             权限 BIND_ACCESSIBILITY_SERVICE 系统级保护, 防止其它 App 调起. -->
+        <service
+            android:name=".service.NinoAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
     </application>
 </manifest>

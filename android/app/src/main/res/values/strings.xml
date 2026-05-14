@@ -39,4 +39,16 @@
     <string name="conn_failed">连接失败</string>
     <string name="dash_rules_count">已同步规则</string>
     <string name="dash_rules_count_value">%1$d 条</string>
+
+    <!-- v0.5.2+ AccessibilityService -->
+    <string name="accessibility_service_description">NinoGame 需要"无障碍能力"才能监听孩子在用哪个 app。仅记录前台 package 名上报给家长后台 — 不读屏、不取内容、不录密码。家长在后台审阅使用记录。</string>
+    <string name="accessibility_service_summary">监听前台 app, 上报家长后台使用记录</string>
+
+    <!-- Dashboard 权限引导 -->
+    <string name="a11y_status_enabled">无障碍已启用</string>
+    <string name="a11y_status_disabled">无障碍未启用 — 监控不会工作</string>
+    <string name="a11y_open_settings">去启用</string>
+    <string name="a11y_explain">在系统设置 → 无障碍 → 已安装的服务 中找到 NinoGame Agent, 开启开关.</string>
+    <string name="dash_foreground_now">当前前台</string>
+    <string name="dash_segments_pending">缓冲 segments</string>
 </resources>

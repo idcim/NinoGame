@@ -2,7 +2,7 @@
 
 跨端 (Windows + Android) 家长控制 Agent 的 **Android 端骨架**。当前进度: **Stage 1 — 仅配对联机**。
 
-> **当前状态 (v0.5.1)**: 配对联机 ✅ + Foreground Service + WebSocket 长连接 + 心跳 + 实时余额/规则数同步 ✅. AccessibilityService 监前台 / 拦截 / token 经济 / 申请审批 在 **Stage 2b+** 实施.
+> **当前状态 (v0.5.2)**: 配对联机 ✅ + Foreground Service + WS 长连接 + 心跳 + 实时余额/规则数同步 ✅ + AccessibilityService 监前台 + 5min usage_report 上报 ✅. 拦截 / token 经济 / 申请审批 在 **Stage 3** 实施.
 
 ## 兼容范围
 
@@ -121,13 +121,22 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - WebSocket 长连接 + 心跳 30s/次 + 断线指数退避重连 (1s→2s→4s→...→60s 封顶)
 - 服务端推送 `wallet_update` / `rules_update` 等消息即时分发到 `AgentState` 单例, UI 自动刷新
 
+**前台 app 监控** (Stage 2b, v0.5.2+):
+- 首次需要去系统设置 → 无障碍 → 已安装的服务 → **NinoGame Agent → 开启**. Dashboard 检测到未启用时顶部黄色横幅 + "去启用"按钮一键跳转
+- 启用后 `NinoAccessibilityService` 监听 `TYPE_WINDOW_STATE_CHANGED`, 抓 `event.packageName` 喂 `ForegroundAppMonitor` singleton
+- 同一 app 持续前台 ≥ 2 秒才记入 segment; 自家 app + 系统 launcher (`com.miui.home` / `com.android.launcher3` 等) 自动跳过, 不污染数据
+- `UsageReporter` 每 5 分钟把已 close 的 segments + 当前 open 切一片 一起打包成 `usage_report` 发 server (协议跟 Windows agent 同源, CLAUDE.md §10.4)
+- Server `onUsageReport` 写 `app_sessions` 表; /reports 页 Top 应用 / 每日时长会立刻看到 Android 端使用记录
+- **不读屏 / 不取内容 / 不录密码** — 只取 packageName. AccessibilityServiceInfo 配置 `canRetrieveWindowContent="false"`, 系统不会给 view 树访问权.
+
 ## 还没做 (Stage 2+ 路线图)
 
 | Stage | 内容 | 状态 |
 |---|---|---|
 | 2a | Foreground Service + WebSocket 长连接 (hello / heartbeat / wallet_update / rules_update) | ✅ v0.5.1 |
-| 2b | AccessibilityService 监前台 app (替代 Windows 端 EnumWindows) | 待 |
-| 2b | UsageReporter 上报 app_session (5min 间隔, 用法同 Windows agent) | 待 |
+| 2b | AccessibilityService 监前台 app (替代 Windows 端 EnumWindows) | ✅ v0.5.2 |
+| 2b | UsageReporter 上报 app_session (5min 间隔, 用法同 Windows agent) | ✅ v0.5.2 |
+| 2c | unknown_apps 上报让 server LLM 分类 → 本地 category cache (告别全 neutral) | 待 |
 | 3 | 规则匹配 + 拦截 (PvZ 等 → 弹对话框 + 回到 launcher) | 待 |
 | 3 | Token 经济本地版 (server 权威, 本地缓存 + wallet_update 推送对齐) | 待 |
 | 3 | 申请游戏时间 UI (跟 Windows 端 RequestDialog 同协议) | 待 |
