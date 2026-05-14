@@ -81,7 +81,7 @@ from services.updater_kick import (  # noqa: E402
 
 # agent/__init__.py 在 PyInstaller --onefile 模式下不一定能 import 到包名,
 # 此处直接持有与 __init__.py 同步的字符串; 升版时改两处。
-AGENT_VERSION = "0.3.0"
+AGENT_VERSION = "0.4.0"
 
 _log = logging.getLogger(__name__)
 

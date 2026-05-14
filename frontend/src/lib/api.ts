@@ -1,17 +1,6 @@
 /** 封装 fetch: 自动带 Bearer, 统一错误处理。 */
 import { clearAuth, getToken } from "./auth";
 
-export interface AgentRelease {
-  id: string;
-  version: string;
-  filename: string;
-  size_bytes: number;
-  sha256: string;
-  is_target: boolean;
-  notes: string | null;
-  uploaded_at: string;
-}
-
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -171,64 +160,8 @@ export const api = {
       `/api/children/${child_id}/reports/top-apps?days=${days}&limit=${limit}`,
     ),
 
-  // ── Agent releases (v0.3.0+ 无感更新) ──────────────────────
-  listReleases: () =>
-    request<{ releases: AgentRelease[] }>("/api/admin/releases"),
-  /** 上传 zip — 不走 request() (它强行设 Content-Type: application/json),
-   *  直接走 fetch 走 multipart. */
-  async uploadRelease(file: File, version: string, notes: string = ""): Promise<{ release: AgentRelease }> {
-    const fd = new FormData();
-    fd.append("file", file, file.name);
-    fd.append("version", version);
-    if (notes) fd.append("notes", notes);
-    const token = getToken();
-    const resp = await fetch("/api/admin/releases", {
-      method: "POST",
-      body: fd,
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (resp.status === 401) { clearAuth(); throw new ApiError(401, "未登录或登录已过期"); }
-    if (!resp.ok) {
-      let msg = `HTTP ${resp.status}`;
-      try { const d = await resp.json(); if (d?.message) msg = d.message; } catch { /* ignore */ }
-      throw new ApiError(resp.status, msg);
-    }
-    return resp.json();
-  },
-  promoteRelease: (id: string) =>
-    request<{ ok: boolean; version: string }>(`/api/admin/releases/${id}/promote`, {
-      method: "POST",
-    }),
-  deleteRelease: (id: string) =>
-    request<{ ok: boolean }>(`/api/admin/releases/${id}`, { method: "DELETE" }),
-
-  // ── LLM 配置 (P3) ─────────────────────────────────────────
-  getLlmConfig: () =>
-    request<{ config: LlmConfigMasked | null }>("/api/llm/config"),
-  saveLlmConfig: (data: {
-    provider: "openai_compatible" | "anthropic";
-    api_key: string;
-    base_url: string;
-    model: string;
-    enabled?: boolean;
-  }) =>
-    request<{ config: LlmConfigMasked }>("/api/llm/config", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
-  testLlm: (prompt?: string) =>
-    request<{
-      ok: boolean;
-      reply: string;
-      ms: number;
-      error?: string;
-      status?: number | null;
-    }>("/api/llm/test", {
-      method: "POST",
-      body: JSON.stringify(prompt ? { prompt } : {}),
-    }),
-  deleteLlmConfig: () =>
-    request<{ ok: boolean }>("/api/llm/config", { method: "DELETE" }),
+  // (v0.4.0+: LLM 配置 + Agent 升级包都搬到独立的 admin 后台,
+  //  parent frontend 不再有这些 API; 见 admin/ 项目)
 
   // ── commands ──────────────────────────────────────────────
   pushCommand: (data: {
@@ -608,16 +541,7 @@ export interface ChildSettingsForm {
   request_quick_options: string[];
 }
 
-// ── llm ───────────────────────────────────────────────────────
-export interface LlmConfigMasked {
-  provider: string;
-  base_url: string;
-  model: string;
-  enabled: boolean;
-  api_key_masked: string;
-  has_key: boolean;
-  updated_at: string;
-}
+// LLM 配置类型 / Agent 升级包类型 已经搬到 admin/src/lib/api.ts
 
 // ── reports ───────────────────────────────────────────────────
 export interface DailyReportRow {

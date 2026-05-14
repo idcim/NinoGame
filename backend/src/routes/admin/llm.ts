@@ -87,16 +87,19 @@ export async function registerAdminLlmRoutes(app: FastifyInstance) {
   app.post("/api/admin/llm/test", { preHandler: app.adminAuth }, async (req, reply) => {
     const parsed = TestBody.safeParse(req.body || {});
     if (!parsed.success) return reply.badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+    const t0 = Date.now();
     try {
       const r = await chat([
         { role: "user", content: parsed.data.prompt },
       ], { max_tokens: 50, timeout_ms: 15_000 });
-      return { ok: true, reply: r.slice(0, 200) };
+      return { ok: true, reply: r.slice(0, 200), ms: Date.now() - t0 };
     } catch (err) {
       const status = err instanceof LlmRequestError ? err.status : undefined;
       return reply.code(400).send({
         ok: false,
-        message: err instanceof Error ? err.message : "未知错误",
+        reply: "",
+        ms: Date.now() - t0,
+        error: err instanceof Error ? err.message : "未知错误",
         status,
       });
     }

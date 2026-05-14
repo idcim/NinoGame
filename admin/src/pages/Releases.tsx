@@ -9,14 +9,14 @@ import {
 } from "lucide-react";
 import { api, ApiError, type AgentRelease } from "../lib/api";
 
-/** Agent 升级包管理 (CLAUDE.md §17 无感更新).
+/** Agent 升级包管理 (CLAUDE.md §17 无感更新). v0.4.0+ 归 admin 后台.
  *
  * 流程:
- *   1. 家长把 zip (PyInstaller 打包好的 onedir 全部文件压缩成 zip) + version 填进表单
- *   2. 上传后落 agent_releases 表, 但不立刻发布
+ *   1. Admin 把 zip (PyInstaller 打包好的 onedir 压缩) + version 填进表单
+ *   2. 上传后落 agent_releases 表 (+ storage 驱动落地: local/S3/OSS), 但不立刻发布
  *   3. 检查 sha256 / 大小 OK 后, 点 "设为目标" → 所有落后 Agent hello 时
  *      会拿到 update_self 命令, 等孩子 lock 态自动升级
- *   4. 旧 release 可以删 (除了当前 target)
+ *   4. 旧 release 可以删 (除了当前 target; 同步删除存储后端的文件)
  */
 export default function Releases() {
   const [list, setList] = useState<AgentRelease[]>([]);

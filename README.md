@@ -8,6 +8,35 @@
 
 ------
 
+## 独立管理后台 (v0.4.0+)
+
+家长后台 (`ninogame.{domain}`) 跟运营/超管后台 (`admin.{domain}`) 现在是两个 Docker 服务,
+独立 frontend, 独立 JWT (admin token 调不到 parent API, 反之亦然)。
+
+**运营/超管管的事:**
+- LLM 配置 (全 server 一份共享, parent 端无入口) — admin 拿 key, 所有家庭自动用
+- Agent 升级包上传 / 设为目标 / 删除 — 走 storage 抽象 (local FS / S3 / 阿里云 OSS)
+- 全局应用分类 (`app_categories` child_id IS NULL 那批) — admin 修正 LLM 分类 / 加新应用
+- 新建 child 默认值 — maturity / quota / 默认拦截规则 seed
+- 系统限额 + 当前存储驱动状态
+- 推送通道配置 (企微 webhook / SMTP) — v0.4.0 只落库, 实际发送 P5
+- 家长账号列表 + 重置密码 + 删除 (CASCADE 谨慎)
+
+**部署 (1Panel 生产):**
+- 现 `ninogame-frontend` (家长) 继续反代到 `ninogame.{domain}`
+- 新 `ninogame-admin-frontend` 反代到 `admin.{domain}` (1Panel 新建反代站)
+- Backend 不变 (一个 Node 进程), 走 `/auth/admin/*` + `/api/admin/*` 给 admin
+- **首次启动 bootstrap**: 设 ENV `ADMIN_BOOTSTRAP_USERNAME` + `ADMIN_BOOTSTRAP_PASSWORD`,
+  `admin_accounts` 表空时自动写一行 admin; 创建完成后日志会强提醒清空环境变量
+
+**存储驱动 (Storage):**
+- 默认 `STORAGE_DRIVER=local` (现状, Docker 卷 `ninogame-artifacts`)
+- 切 S3 (`STORAGE_DRIVER=s3` + `S3_BUCKET / S3_ACCESS_KEY / S3_SECRET_KEY` 等) — 同时吃 AWS S3 / MinIO / B2 / R2 / 腾讯 COS / 七牛 (S3 兼容模式)
+- 切阿里云 OSS (`STORAGE_DRIVER=aliyun_oss` + `OSS_BUCKET / OSS_REGION / OSS_ACCESS_KEY / OSS_SECRET_KEY`)
+- 缺必要 env 时 server 启动告警 + 回退 local; admin /system 页面会显示当前驱动状态
+
+**多租户接缝:** `parents.tenant_id` 列已加, 现在所有 parent 视为 default tenant (`NULL`); 未来切多租户时 backfill 一个固定 UUID 即可。
+
 ## 后台运维操作 (新增)
 
 ### 设备管理 (设备详情页)

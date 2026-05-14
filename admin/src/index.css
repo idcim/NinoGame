@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-bg text-ink antialiased min-h-screen;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand text-white font-semibold rounded-lg px-5 py-2.5
+           hover:bg-brand-600 active:bg-brand-700
+           disabled:bg-ink-light disabled:cursor-not-allowed
+           transition-colors flex items-center gap-2;
+  }
+  .btn-ghost {
+    @apply text-ink-dim rounded-lg px-4 py-2 border border-border
+           hover:text-ink hover:border-brand transition-colors
+           flex items-center gap-2;
+  }
+  .btn-warn {
+    @apply bg-warn text-white font-semibold rounded-lg px-5 py-2.5
+           hover:bg-warn-500/90 transition-colors flex items-center gap-2;
+  }
+  .input {
+    @apply w-full border-2 border-border rounded-lg px-4 py-2.5
+           focus:border-brand focus:outline-none transition-colors
+           bg-white text-ink placeholder:text-ink-light;
+  }
+  .label {
+    @apply block text-sm font-medium text-ink-dim mb-1.5;
+  }
+  .card {
+    @apply bg-bg-card rounded-card shadow-card border border-border/50;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-success { @apply bg-accent/15 text-accent-600; }
+  .badge-warn    { @apply bg-warn/15 text-warn-500; }
+  .badge-info    { @apply bg-brand-50 text-brand-600; }
+  .badge-muted   { @apply bg-ink-light/15 text-ink-dim; }
+}
+
+/* Toast 飞入动画 */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 200ms ease-out; }

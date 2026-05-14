@@ -1,6 +1,6 @@
 [
   {
-    "id": "rule_pvz_all",
+    "id": "7bff531e-4b38-4708-a724-d63bc0f5226a",
     "name": "PvZ 全家桶",
     "enabled": true,
     "matchers": [
@@ -10,11 +10,6 @@
         "value": "plantsvszombies"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "plantsvszombies"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "plantsvszombies"
@@ -25,11 +20,6 @@
         "value": "plants vs zombies"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "plants vs zombies"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "plants vs zombies"
@@ -40,11 +30,6 @@
         "value": "plants_vs_zombies"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "plants_vs_zombies"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "plants_vs_zombies"
@@ -55,11 +40,6 @@
         "value": "pvz"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "pvz"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "pvz"
@@ -70,11 +50,6 @@
         "value": "popcapgame1"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "popcapgame1"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "popcapgame1"
@@ -85,11 +60,6 @@
         "value": "植物大战僵尸"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "植物大战僵尸"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "植物大战僵尸"
@@ -100,11 +70,6 @@
         "value": "pvzhe"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "pvzhe"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "pvzhe"
@@ -115,11 +80,6 @@
         "value": "pvzrh"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "pvzrh"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "pvzrh"
@@ -130,11 +90,6 @@
         "value": "pvzcz"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "pvzcz"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "pvzcz"
@@ -145,22 +100,12 @@
         "value": "zwdzjs"
       },
       {
-        "field": "exe_path",
-        "op": "icontains",
-        "value": "zwdzjs"
-      },
-      {
         "field": "window_title",
         "op": "icontains",
         "value": "zwdzjs"
       },
       {
         "field": "process_name",
-        "op": "icontains",
-        "value": "zhiwudazhanjiangshi"
-      },
-      {
-        "field": "exe_path",
         "op": "icontains",
         "value": "zhiwudazhanjiangshi"
       },
@@ -171,28 +116,262 @@
       }
     ],
     "matcher_logic": "OR",
-    "exclude_processes": [
-      "obs64.exe",
-      "obs32.exe",
-      "obs.exe",
-      "bandicam.exe",
-      "ocam.exe",
-      "chrome.exe",
-      "msedge.exe",
-      "firefox.exe",
-      "code.exe",
-      "notepad.exe",
-      "explorer.exe"
-    ],
+    "exclude_processes": [],
     "schedule": {
       "mode": "always",
       "windows": []
     },
     "action": {
       "type": "kill_and_warn",
-      "message": "不要想着玩不在我授权的游戏!"
+      "message": "找你爸爸申请玩这个游戏！"
     },
-    "category_link": "consumption_game_pvz",
+    "category_link": "",
+    "notify_parent": true
+  },
+  {
+    "id": "9ee307a1-2501-4899-b133-d5a993008e28",
+    "name": "原神",
+    "enabled": true,
+    "matchers": [
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "原神"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "原神"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "genshin"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "genshin"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "genshinimpact"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "genshinimpact"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "yuanshen"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "yuanshen"
+      }
+    ],
+    "matcher_logic": "OR",
+    "exclude_processes": [],
+    "schedule": {
+      "mode": "always",
+      "windows": []
+    },
+    "action": {
+      "type": "kill_and_warn",
+      "message": ""
+    },
+    "category_link": "",
+    "notify_parent": true
+  },
+  {
+    "id": "f3bd6a0b-ca94-4eed-93ad-a82ac54b654f",
+    "name": "吃鸡战场",
+    "enabled": true,
+    "matchers": [
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "吃鸡战场"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "吃鸡战场"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "pubg"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "pubg"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "pubgmobile"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "pubgmobile"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "刺激战场"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "刺激战场"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "和平精英"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "和平精英"
+      }
+    ],
+    "matcher_logic": "OR",
+    "exclude_processes": [],
+    "schedule": {
+      "mode": "always",
+      "windows": []
+    },
+    "action": {
+      "type": "kill_and_warn",
+      "message": ""
+    },
+    "category_link": "",
+    "notify_parent": true
+  },
+  {
+    "id": "39541208-150f-42c1-9269-6af874c1771d",
+    "name": "WEGAME 游戏",
+    "enabled": true,
+    "matchers": [
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "wegame"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "wegame"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "wegame.exe"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "wegame.exe"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "tgp"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "tgp"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "tencent game platform"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "tencent game platform"
+      }
+    ],
+    "matcher_logic": "OR",
+    "exclude_processes": [],
+    "schedule": {
+      "mode": "always",
+      "windows": []
+    },
+    "action": {
+      "type": "kill_and_warn",
+      "message": ""
+    },
+    "category_link": "",
+    "notify_parent": true
+  },
+  {
+    "id": "9d7f506c-37f1-4702-8db4-7589d53ce9af",
+    "name": "Steam游戏",
+    "enabled": true,
+    "matchers": [
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "steam"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "steam"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "steam游戏"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "steam游戏"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "steamapp"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "steamapp"
+      },
+      {
+        "field": "process_name",
+        "op": "icontains",
+        "value": "steamwebhelper"
+      },
+      {
+        "field": "window_title",
+        "op": "icontains",
+        "value": "steamwebhelper"
+      }
+    ],
+    "matcher_logic": "OR",
+    "exclude_processes": [],
+    "schedule": {
+      "mode": "always",
+      "windows": []
+    },
+    "action": {
+      "type": "kill_and_warn",
+      "message": ""
+    },
+    "category_link": "",
     "notify_parent": true
   }
 ]

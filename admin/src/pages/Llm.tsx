@@ -77,7 +77,7 @@ const PRESETS: ProviderPreset[] = [
   },
 ];
 
-export default function LlmConfig() {
+export default function Llm() {
   const [cfg, setCfg] = useState<LlmConfigMasked | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -102,7 +102,7 @@ export default function LlmConfig() {
     setLoading(true);
     setErr(null);
     try {
-      const r = await api.getLlmConfig();
+      const r = await api.getLlm();
       setCfg(r.config);
       if (r.config) {
         setProviderKind(r.config.provider as "openai_compatible" | "anthropic");
@@ -154,7 +154,7 @@ export default function LlmConfig() {
     }
     setSaving(true);
     try {
-      const r = await api.saveLlmConfig({
+      const r = await api.saveLlm({
         provider: providerKind,
         api_key: apiKey,
         base_url: baseUrl,
@@ -192,7 +192,7 @@ export default function LlmConfig() {
   async function del() {
     if (!confirm("删除当前 LLM 配置? 删了后所有依赖 LLM 的功能会自动降级。")) return;
     try {
-      await api.deleteLlmConfig();
+      await api.deleteLlm();
       setCfg(null);
       setApiKey("");
       setMsg("已删除");
@@ -251,7 +251,7 @@ export default function LlmConfig() {
                   )
                 }
               />
-              <Row label="最近更新" value={new Date(cfg.updated_at).toLocaleString()} />
+              <Row label="最近更新" value={cfg.updated_at ? new Date(cfg.updated_at).toLocaleString() : "—"} />
               <div className="pt-3 flex gap-2">
                 <button onClick={del} className="btn-ghost text-warn">
                   <Trash2 size={14} />

@@ -7,10 +7,8 @@ import {
   LayoutGrid,
   Menu,
   MessageSquare,
-  Package,
   Settings,
   Shield,
-  Sparkles,
   X,
 } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -114,8 +112,6 @@ export default function Layout() {
     { to: "/rules", label: "规则", Icon: Shield },
     { to: "/tasks", label: "任务", Icon: ClipboardList, badge: pendingTasks },
     { to: "/reports", label: "报表", Icon: BarChart3 },
-    { to: "/llm-config", label: "LLM", Icon: Sparkles },
-    { to: "/releases", label: "升级包", Icon: Package },
     { to: "/child-settings", label: "设置", Icon: Settings },
     { to: "/about", label: "关于", Icon: Info },
   ];
