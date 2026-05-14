@@ -49,9 +49,20 @@ object RuleEngine {
     }
 
     private fun matcherHits(pkg: String, m: RulesCache.Matcher): Boolean {
-        // Android 端: 不管 field 是什么 (process_name / exe_path / window_title),
-        // 全用 packageName 当唯一候选字符串
-        return singleMatch(pkg, m.value, m.op)
+        // Android 端: matcher.field 在协议里是 process_name / exe_path /
+        // window_title, 但 Android 不存在 exe 文件; package name 跟 Windows
+        // 进程名也不通用 (Windows "WeChat.exe" vs Android "com.tencent.mm",
+        // 字面零交集). 解法: 同时对两个候选字符串做 op 匹配:
+        //   1. packageName 本身         — 跟 Windows 用 ASCII 关键词 "pvz"
+        //                                  / "douyin" 凑巧能命中部分 app
+        //   2. CategoryCache display_name — server LLM 把 pkg 分类时给的中文/
+        //                                  英文应用标签 (例 "com.tencent.mm" →
+        //                                  "微信"), 让规则关键词写"微信"两端
+        //                                  通用
+        // 任一命中即返回 true. 没分类完的 app display_name=null 就只匹配 pkg.
+        if (singleMatch(pkg, m.value, m.op)) return true
+        val displayName = CategoryCache.getDisplayName(pkg) ?: return false
+        return singleMatch(displayName, m.value, m.op)
     }
 
     private fun singleMatch(text: String, value: String, op: String): Boolean {
