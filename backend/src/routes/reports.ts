@@ -35,12 +35,14 @@ export async function registerReportRoutes(app: FastifyInstance) {
         return reply.forbidden("孩子不属于当前家长");
       }
       // active_seconds: 每天聚合 (app_sessions 已经是 5min 上报后的历史)
+      // 注意 ::date::text — node-pg 把裸 PG date 反序列化为 JS Date 对象, 用 Date 当 Map key
+      // 会让 sessions/ledger 同日合并失败 + 后续 .localeCompare 报 TypeError, 强制 text。
       const sessions = await pool.query<{
         date: string;
         active_seconds: string;
         session_count: string;
       }>(
-        `SELECT started_at::date AS date,
+        `SELECT (started_at::date)::text AS date,
                 COALESCE(SUM(active_seconds), 0)::text AS active_seconds,
                 COUNT(*)::text AS session_count
            FROM "NinoGame".app_sessions
@@ -52,7 +54,7 @@ export async function registerReportRoutes(app: FastifyInstance) {
       );
       // tokens_consumed: 每天 app_consumption 累计 (server 单一权威 ledger)
       const ledger = await pool.query<{ date: string; tokens_consumed: string }>(
-        `SELECT l.occurred_at::date AS date,
+        `SELECT (l.occurred_at::date)::text AS date,
                 COALESCE(SUM(-l.delta), 0)::text AS tokens_consumed
            FROM "NinoGame".token_ledger l
            JOIN "NinoGame".wallets w ON w.id = l.wallet_id
