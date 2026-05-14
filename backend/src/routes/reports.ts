@@ -22,15 +22,18 @@ type Granularity = "day" | "week" | "month";
 
 interface GranularityConfig {
   trunc: string;       // PG date_trunc 单位
-  step: string;        // PG interval 步长
+  step: string;        // PG interval 单位 (singular, 不含数字 — SQL 里跟 N 拼)
   max_periods: number; // 上限
   label_format: string;
 }
 
+// 注: step 必须是裸单位 ('day' / 'week' / 'month'), SQL 里跟 (periods-1)
+// 拼成 'N day' 这种 PG interval 字面量. 早期版本错把 step 写成 '1 day' 导致
+// 拼出 '27 1 day' 这种无效 interval. PG 接受单复数 ('27 day' / '27 days' 都行).
 const GRANULARITY_CONFIG: Record<Granularity, GranularityConfig> = {
-  day:   { trunc: "day",   step: "1 day",   max_periods: 90, label_format: "YYYY-MM-DD" },
-  week:  { trunc: "week",  step: "1 week",  max_periods: 26, label_format: "YYYY-WW" },
-  month: { trunc: "month", step: "1 month", max_periods: 24, label_format: "YYYY-MM" },
+  day:   { trunc: "day",   step: "day",   max_periods: 90, label_format: "YYYY-MM-DD" },
+  week:  { trunc: "week",  step: "week",  max_periods: 26, label_format: "YYYY-WW" },
+  month: { trunc: "month", step: "month", max_periods: 24, label_format: "YYYY-MM" },
 };
 
 async function ensureOwnership(parent_id: string, child_id: string): Promise<boolean> {
