@@ -46,6 +46,15 @@
 - **在线状态 + 在线历史**: 设备卡片实时显示绿/灰圆点 (WS 连接状态), 设备详情页有「在线历史」表 (今日总在线时长 + 每段连/断时间), 数据由 backend `device_online_sessions` 表自动写入 (Agent WS 连/断时触发)
 - **后台文案中文化**: maturity_mode / device_type / platform / command_type / action.type / status 等全部走 `frontend/src/lib/labels.ts` 统一映射, 不再出现 "negotiable" / "child_primary" 等英文枚举值
 
+### 数据导出 (v0.4.3+, P4 完成)
+- **位置**: 家长后台 /reports 页底部"数据导出"区
+- **5 类 × 2 格式**: 每日聚合 / Token 账本 / 应用使用时段 / 事件日志 / 任务申报, 每类有 [CSV] [JSON] 两个下载按钮
+- **CSV**: 带 UTF-8 BOM, Excel/WPS/Numbers 直接打开不乱码; JSON 自带 metadata (导出范围 + 行数 + 字段顺序), 脱机分析无需回查 schema
+- **时间范围**: 默认跟 /reports 顶部 days (7/14/30) 联动; 支持 `?from=YYYY-MM-DD&to=YYYY-MM-DD` 精确范围; 上限 365 天
+- **权限**: 仅家长能拉自家孩子数据 (`ensureOwnership` 校验); 浏览器走 fetch + Bearer + Blob URL + `<a download>` 触发下载, 失败显式弹错不下载乱码文件
+- **用途**: 备份 (服务器或硬盘崩了能恢复) / 外部分析 (Excel 透视表 / Python pandas) / 给孩子看具体数字 (CLAUDE.md §1.1 透明可见, §15.6 周回顾的原料)
+- **见**: `backend/src/routes/exports.ts`, `frontend/src/pages/Reports.tsx` `ExportSection`
+
 ### 自动成熟度升级建议 (v0.4.2+, P4 完成)
 - **触发链路**: 每次家长 approve/reject 申请后 server 重算 `trust_level`; 信任值升到 Lv4/Lv5 时根据 §8.7 决策表自动发"建议升档"事件 (Lv4 + strict/negotiable → 建议 `advisory`; Lv5 + advisory → 建议 `self_regulated`)
 - **展示**: 浏览器 Dashboard 孩子卡片下方出现🎓"系统建议升级档位"横幅 (信任值徽章 + 升级目标 + 一键应用 / 暂不升级按钮); EventFeed 实时浮出一条"成熟度升级建议"; 配置了企微/SMTP 时 notifier 也同步推 info 级通知

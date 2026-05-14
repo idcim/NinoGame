@@ -22,6 +22,7 @@ import { registerDeviceRoutes } from "./routes/devices.js";
 import { registerFreePassRoutes } from "./routes/free_pass.js";
 import { registerAdminRoutes } from "./routes/admin/index.js";
 import { registerReportRoutes } from "./routes/reports.js";
+import { registerExportRoutes } from "./routes/exports.js";
 import { registerRuleRoutes } from "./routes/rules.js";
 import { registerTaskRoutes } from "./routes/tasks.js";
 import { registerUnlockRequestRoutes } from "./routes/unlock_requests.js";
@@ -125,6 +126,7 @@ export async function buildServer() {
   await registerUnlockRequestRoutes(app);
   await registerFreePassRoutes(app);
   await registerReportRoutes(app);
+  await registerExportRoutes(app);
   await registerAdminRoutes(app);
   await registerAgentWebSocket(app);
   await registerParentWebSocket(app);

@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Gem, Loader2, RefreshCw } from "lucide-react";
+import {
+  BarChart3,
+  Calendar,
+  ClipboardList,
+  Download,
+  FileJson,
+  FileSpreadsheet,
+  Gem,
+  Loader2,
+  Megaphone,
+  Monitor,
+  RefreshCw,
+} from "lucide-react";
 import { api, ApiError, type Child, type DailyReportRow, type TopAppRow } from "../lib/api";
+import { getToken } from "../lib/auth";
 import { categoryLabel, formatDuration } from "../lib/labels";
 
 export default function Reports() {
@@ -181,6 +194,9 @@ export default function Reports() {
             </div>
           </section>
 
+          {/* 数据导出 */}
+          <ExportSection child_id={activeChild} days={days} />
+
           {/* Top 应用 */}
           <section>
             <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3">
@@ -241,6 +257,136 @@ export default function Reports() {
         </>
       )}
     </div>
+  );
+}
+
+/** 数据导出区: 5 类 × 2 格式 = 10 个下载入口 (v0.4.3).
+ *  CLAUDE.md §1.1 透明可见 — 让家长能把自家数据下下来备份 / 外部分析.
+ *
+ *  实现细节: fetch 带 Bearer (api 包装吃 JSON, 这里要原始 body 自己 fetch),
+ *  Blob URL + 临时 <a download> 触发浏览器下载. 失败时把后端错误消息展示出来,
+ *  不直接打开下载的乱码文件.
+ */
+type ExportKind =
+  | "daily"
+  | "ledger"
+  | "app-sessions"
+  | "events"
+  | "task-completions";
+
+const EXPORT_KINDS: Array<{
+  kind: ExportKind;
+  title: string;
+  desc: string;
+  icon: typeof Gem;
+}> = [
+  { kind: "daily", title: "每日聚合", desc: "每天 active 时长 + 扣 token + 会话段数", icon: Calendar },
+  { kind: "ledger", title: "Token 账本", desc: "完整 ledger (含每分钟玩耍扣费)", icon: Gem },
+  { kind: "app-sessions", title: "应用使用时段", desc: "每次前台时段 + 时长", icon: Monitor },
+  { kind: "events", title: "事件日志", desc: "拦截/PIN/行为异常等审计事件", icon: Megaphone },
+  { kind: "task-completions", title: "任务申报", desc: "孩子申报 + 家长批/拒历史", icon: ClipboardList },
+];
+
+function ExportSection({ child_id, days }: { child_id: string; days: number }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function download(kind: ExportKind, format: "json" | "csv") {
+    setBusy(`${kind}:${format}`);
+    setErr(null);
+    try {
+      const url = `/api/children/${child_id}/export/${kind}?format=${format}&days=${days}`;
+      const token = getToken();
+      const resp = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try {
+          const d = await resp.json();
+          if (d?.message) msg = d.message;
+        } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await resp.blob();
+      // 从 Content-Disposition 拿文件名, 拿不到就拼一个
+      const cd = resp.headers.get("Content-Disposition") || "";
+      const m = /filename="?([^"]+)"?/.exec(cd);
+      const filename = m?.[1] || `nino_${kind}_${new Date().toISOString().slice(0, 10)}.${format}`;
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "导出失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="text-sm font-bold text-ink uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Download size={16} className="text-brand" />
+        数据导出 ({days} 天范围)
+        <span className="text-xs font-normal text-ink-light">
+          · 备份 / 外部分析 / 给孩子看数字
+        </span>
+      </h2>
+      {err && (
+        <div className="card p-3 mb-3 text-warn bg-warn/5 border-warn/30 text-sm">
+          {err}
+        </div>
+      )}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {EXPORT_KINDS.map(({ kind, title, desc, icon: Icon }) => (
+          <div key={kind} className="card p-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center shrink-0">
+              <Icon size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-ink text-sm">{title}</div>
+              <div className="text-xs text-ink-dim mt-0.5 truncate">{desc}</div>
+            </div>
+            <div className="flex gap-1 shrink-0">
+              <button
+                onClick={() => download(kind, "csv")}
+                disabled={busy !== null}
+                className="text-xs px-2.5 py-1.5 rounded border border-border text-ink-dim hover:text-brand hover:border-brand disabled:opacity-50 inline-flex items-center gap-1"
+                title="CSV (Excel 可直接打开)"
+              >
+                {busy === `${kind}:csv` ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <FileSpreadsheet size={12} />
+                )}
+                CSV
+              </button>
+              <button
+                onClick={() => download(kind, "json")}
+                disabled={busy !== null}
+                className="text-xs px-2.5 py-1.5 rounded border border-border text-ink-dim hover:text-brand hover:border-brand disabled:opacity-50 inline-flex items-center gap-1"
+                title="JSON (脚本/程序可直接吃)"
+              >
+                {busy === `${kind}:json` ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <FileJson size={12} />
+                )}
+                JSON
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="text-xs text-ink-light mt-2">
+        CSV 带 UTF-8 BOM, Excel 直接打开不乱码 · JSON 含 metadata (导出范围 + 字段顺序 + 行数)
+      </div>
+    </section>
   );
 }
 

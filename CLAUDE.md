@@ -1872,7 +1872,7 @@ nssm install NinoGameWatchdogSvc "C:\Program Files\NinoGame\Watchdog.exe"
 - [ ] 卸载密码保护流程
 - [ ] 应用特定信号检测（防刷 ③）
 - [x] ~~自动 maturity_mode 升级建议~~ (v0.4.2 完成): trust_level 升到 4/5 时 server 自动发"建议升档"事件 (Lv4 + strict/negotiable → 建议 advisory; Lv5 + advisory → 建议 self_regulated). 写 `events(maturity_upgrade_suggestion)` + 推家长浏览器 EventFeed + notifier (企微 + SMTP, info 级) + Dashboard ChildCard 横幅"一键应用 / 暂不升级". 30 天 cooldown (`children.last_maturity_suggestion_at`), 暂不升级用 `dismissed_maturity_target` 标记 (新 target 自动清). 详见 §22 决策 #43 + `backend/src/services/maturity_upgrade_suggester.ts`.
-- [ ] 数据导出（CSV / JSON）
+- [x] ~~数据导出（CSV / JSON）~~ (v0.4.3 完成): 家长后台 /reports 页底部"数据导出"区, 5 类数据 (每日聚合 / token 账本 / 应用使用时段 / 事件日志 / 任务申报) × 2 格式 (CSV 带 UTF-8 BOM Excel 友好 / JSON 带 metadata). 时间范围跟 /reports 顶部 days (7/14/30) 联动; 路径 `GET /api/children/:id/export/:kind?format=csv|json&days=N` 或 `&from=YYYY-MM-DD&to=YYYY-MM-DD` 精确范围; 365 天上限防滥用. CLAUDE.md §1.1 透明可见的落地. 详见 `backend/src/routes/exports.ts`, `frontend/src/pages/Reports.tsx` ExportSection.
 - [ ] 周回顾 / 月回顾报表
 - [ ] 屏幕使用时长统计（不是截屏，仅前台时间）
 
