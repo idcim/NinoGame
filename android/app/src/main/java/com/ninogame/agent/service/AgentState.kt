@@ -43,15 +43,34 @@ object AgentState {
     private val _freePassUntilMs = MutableStateFlow<Long?>(null)
     val freePassUntilMs: StateFlow<Long?> = _freePassUntilMs.asStateFlow()
 
-    fun onWalletBalance(value: Int) { _walletBalance.value = value }
+    /** v0.5.16+ Token 耗尽锁屏触发位 — 跟 Windows agent main._on_out_of_token 等价.
+     *  派生条件:
+     *    1. walletBalance != null && walletBalance <= 0   (服务端确认了余额; null = 还没拿到不算)
+     *    2. mode == Child                                  (Lock / Parent 不锁屏)
+     *    3. !isFreePassActive()                            (限免期内不锁)
+     *  任一 State 变更后 recomputeOutOfToken() 重新计算并写这个 flow.
+     *  UI 顶层 collectAsState; AccessibilityService 调 .value 同步读. */
+    private val _outOfToken = MutableStateFlow(false)
+    val outOfToken: StateFlow<Boolean> = _outOfToken.asStateFlow()
+
+    fun onWalletBalance(value: Int) { _walletBalance.value = value; recomputeOutOfToken() }
     fun onRulesCount(value: Int) { _rulesCount.value = value }
     fun onHelloAck() { _lastHelloAckMs.value = System.currentTimeMillis() }
-    fun setMode(m: Mode) { _mode.value = m }
-    fun setFreePassUntil(ms: Long?) { _freePassUntilMs.value = ms }
+    fun setMode(m: Mode) { _mode.value = m; recomputeOutOfToken() }
+    fun setFreePassUntil(ms: Long?) { _freePassUntilMs.value = ms; recomputeOutOfToken() }
     fun isFreePassActive(): Boolean {
         val t = _freePassUntilMs.value ?: return false
         return t > System.currentTimeMillis()
     }
+
+    private fun recomputeOutOfToken() {
+        val b = _walletBalance.value
+        val v = b != null && b <= 0 &&
+            _mode.value == Mode.Child &&
+            !isFreePassActive()
+        _outOfToken.value = v
+    }
+
     fun reset() {
         connection.value = WsClient.ConnectionState.Disconnected
         _walletBalance.value = null
@@ -59,5 +78,6 @@ object AgentState {
         _lastHelloAckMs.value = null
         _mode.value = Mode.Child
         _freePassUntilMs.value = null
+        _outOfToken.value = false
     }
 }

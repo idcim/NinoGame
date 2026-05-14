@@ -114,6 +114,16 @@
     <string name="vendor_oneplus">OnePlus</string>
     <string name="vendor_meizu">魅族</string>
 
+    <!-- v0.5.16+ Token 耗尽锁屏 -->
+    <string name="oot_header">NinoGame · Token 用光了</string>
+    <string name="oot_title">你的 token 已经用完了</string>
+    <string name="oot_hint">现在不能继续玩了。选下面一个:</string>
+    <string name="oot_btn_request">申请游戏时间</string>
+    <string name="oot_btn_parent_unlock">家长 PIN 解锁</string>
+    <string name="oot_btn_rest">锁屏休息</string>
+    <string name="oot_notif_title">Token 用完了 — 现在不能玩了</string>
+    <string name="oot_notif_body">余额 0, 已自动回到桌面。在 NinoGame 里可以申请游戏时间或让家长 PIN 解锁。</string>
+
     <!-- v0.5.15+ 设置页 -->
     <string name="settings_title">设置</string>
     <string name="settings_version_label">应用版本</string>

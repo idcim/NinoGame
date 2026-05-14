@@ -34,6 +34,20 @@ class NinoAccessibilityService : AccessibilityService() {
         if (pkg.isNullOrBlank()) return
         ForegroundAppMonitor.setForeground(pkg)
 
+        // v0.5.16+ Token 耗尽 + 当前不是自家 App + 是 consumption 类 →
+        // 把孩子从游戏赶回桌面 + 短促通知 (跟 Windows agent OOT focus reclaim 等价).
+        // 非 consumption (笔记 / 浏览器 / 学习类 / 系统 launcher) 不打扰.
+        // 我们 App 自己的 pkg 不拦 — 孩子在 OOT overlay 上选三按钮要能动.
+        if (AgentState.outOfToken.value && pkg != packageName) {
+            val category = CategoryCache.getCategory(pkg)
+            if (category == "consumption") {
+                Log.i(TAG, "out-of-token + foreground=$pkg (consumption) → home")
+                BlockNotifier.notifyOutOfToken(this, pkg)
+                performGlobalAction(GLOBAL_ACTION_HOME)
+                return  // 不再跑规则匹配, 已经赶回 home 了
+            }
+        }
+
         // v0.5.4+ Stage 3a: 跑规则引擎 — 命中就执行 action + 上报 block 事件
         val hits = RuleEngine.match(pkg)
         if (hits.isEmpty()) return

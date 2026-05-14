@@ -61,6 +61,39 @@ object BlockNotifier {
         nm.notify(NOTIF_ID_BASE + (packageName.hashCode() and 0x0FFF), n)
     }
 
+    /** v0.5.16+ Token 耗尽时孩子还在消费类前台 → 跟普通规则拦截共用通知通道,
+     *  但文案不同 (强调"没 token 不是规则违反"). 同 pkg 5 秒去重. */
+    fun notifyOutOfToken(ctx: Context, packageName: String) {
+        val now = System.currentTimeMillis()
+        synchronized(this) {
+            val last = lastNotifMs["__oot__:$packageName"]
+            if (last != null && now - last < DEDUPE_WINDOW_MS) return
+            lastNotifMs["__oot__:$packageName"] = now
+        }
+        ensureChannel(ctx)
+        val pendingFlags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            else PendingIntent.FLAG_UPDATE_CURRENT
+        val openApp = PendingIntent.getActivity(
+            ctx, 0,
+            Intent(ctx, MainActivity::class.java),
+            pendingFlags,
+        )
+        val n = NotificationCompat.Builder(ctx, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle(ctx.getString(R.string.oot_notif_title))
+            .setContentText(ctx.getString(R.string.oot_notif_body))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(ctx.getString(R.string.oot_notif_body)))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(openApp)
+            .build()
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(NOTIF_ID_BASE + 0xFFF, n)  // 固定 id 让 OOT 通知聚合一条, 不刷屏
+    }
+
     private fun ensureChannel(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

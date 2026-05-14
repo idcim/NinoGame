@@ -3,22 +3,28 @@ package com.ninogame.agent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.ninogame.agent.service.AgentService
+import com.ninogame.agent.service.AgentState
 import com.ninogame.agent.ui.DashboardScreen
 import com.ninogame.agent.ui.NinoTheme
+import com.ninogame.agent.ui.OutOfTokenScreen
 import com.ninogame.agent.ui.PairScreen
 import com.ninogame.agent.ui.SettingsScreen
 import com.ninogame.agent.ui.TasksScreen
@@ -45,44 +51,62 @@ class MainActivity : ComponentActivity() {
                         else AgentService.stop(ctx)
                     }
 
-                    NavHost(navController = nav, startDestination = start) {
-                        composable(Route.Pair) {
-                            PairScreen(
-                                windowSize = windowSize,
-                                onPaired = {
-                                    nav.navigate(Route.Dashboard) {
-                                        popUpTo(Route.Pair) { inclusive = true }
-                                    }
-                                },
-                            )
-                        }
-                        composable(Route.Dashboard) {
-                            DashboardScreen(
-                                windowSize = windowSize,
-                                onOpenTasks = { nav.navigate(Route.Tasks) },
-                                onOpenSettings = { nav.navigate(Route.Settings) },
-                            )
-                        }
-                        composable(Route.Tasks) {
-                            TasksScreen(
-                                windowSize = windowSize,
-                                onBack = { nav.popBackStack() },
-                            )
-                        }
-                        composable(Route.Settings) {
-                            SettingsScreen(
-                                windowSize = windowSize,
-                                onBack = { nav.popBackStack() },
-                                onResetPair = {
-                                    nav.navigate(Route.Pair) {
-                                        popUpTo(Route.Dashboard) { inclusive = true }
-                                    }
-                                },
-                            )
+                    // v0.5.16: outOfToken overlay 叠在所有 Screen 顶层. balance≤0 + Child +
+                    // 非限免 时, NavHost 内容仍渲染但被半透蒙层 + 卡片盖住, 触摸被拦.
+                    val outOfToken by AgentState.outOfToken.collectAsState()
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AppNavHost(nav = nav, windowSize = windowSize, start = start)
+                        if (outOfToken) {
+                            OutOfTokenScreen()
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AppNavHost(
+    nav: NavHostController,
+    windowSize: WindowSizeClass,
+    start: String,
+) {
+    NavHost(navController = nav, startDestination = start) {
+        composable(Route.Pair) {
+            PairScreen(
+                windowSize = windowSize,
+                onPaired = {
+                    nav.navigate(Route.Dashboard) {
+                        popUpTo(Route.Pair) { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable(Route.Dashboard) {
+            DashboardScreen(
+                windowSize = windowSize,
+                onOpenTasks = { nav.navigate(Route.Tasks) },
+                onOpenSettings = { nav.navigate(Route.Settings) },
+            )
+        }
+        composable(Route.Tasks) {
+            TasksScreen(
+                windowSize = windowSize,
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(Route.Settings) {
+            SettingsScreen(
+                windowSize = windowSize,
+                onBack = { nav.popBackStack() },
+                onResetPair = {
+                    nav.navigate(Route.Pair) {
+                        popUpTo(Route.Dashboard) { inclusive = true }
+                    }
+                },
+            )
         }
     }
 }
