@@ -681,28 +681,33 @@ async function onUnknownApps(
 
   // 写 server 端 app_categories (child_id NULL 表全局; LLM 推断的全局可用)
   // 同时按 child_id 写一份个人 override 也可, 这里先走全局, 简单。
+  // 已有 system seed 时只补 display_name, 不覆盖 category (避免 LLM 误判替掉手工预置)
   const updates: Array<{
     app_identifier: string;
     category: string;
     sub_type: string;
     rate_multiplier: number;
+    display_name: string | null;
   }> = [];
   for (const r of successful) {
     if (!r.result) continue;
     const rate = 1.0;  // 决策 #33 后 rate_multiplier 不参与扣分; 仅元数据
+    const displayName = r.result.display_name || null;
     try {
       await pool.query(
         `INSERT INTO "NinoGame".app_categories
-           (app_identifier, category, sub_type, rate_multiplier, classification_source, child_id)
-         VALUES ($1, $2, $3, $4, 'llm', NULL)
-         ON CONFLICT DO NOTHING`,
-        [r.app_identifier, r.result.category, r.result.sub_type, rate],
+           (app_identifier, category, sub_type, rate_multiplier, classification_source, child_id, display_name)
+         VALUES ($1, $2, $3, $4, 'llm', NULL, $5)
+         ON CONFLICT (app_identifier) WHERE child_id IS NULL DO UPDATE
+           SET display_name = COALESCE("NinoGame".app_categories.display_name, EXCLUDED.display_name)`,
+        [r.app_identifier, r.result.category, r.result.sub_type, rate, displayName],
       );
       updates.push({
         app_identifier: r.app_identifier,
         category: r.result.category,
         sub_type: r.result.sub_type,
         rate_multiplier: rate,
+        display_name: displayName,
       });
     } catch (err) {
       app.log.warn({ err, app: r.app_identifier }, "app_categories upsert failed");

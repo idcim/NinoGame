@@ -568,6 +568,8 @@ export interface DailyReportRow {
 export interface TopAppRow {
   app_identifier: string;
   category: string;
+  display_name: string | null;
+  sub_type: string | null;
   total_active_seconds: number;
   total_tokens: number;
   session_count: number;

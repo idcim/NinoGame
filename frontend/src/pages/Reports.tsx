@@ -194,17 +194,31 @@ export default function Reports() {
                   const minutes = Math.round(a.total_active_seconds / 60);
                   const maxTotal = Math.max(1, ...topApps.map((x) => x.total_active_seconds));
                   const pct = (a.total_active_seconds / maxTotal) * 100;
+                  const friendly = a.display_name && a.display_name.trim().length > 0
+                    ? a.display_name
+                    : a.app_identifier;
+                  const showProcess =
+                    a.display_name && a.display_name.trim().length > 0 &&
+                    a.display_name !== a.app_identifier;
                   return (
                     <div key={a.app_identifier + a.category} className="p-3 flex items-center gap-3">
                       <span className="text-xs text-ink-light w-6 shrink-0">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono font-semibold text-ink truncate">
-                            {a.app_identifier}
+                          <span className="font-semibold text-ink truncate" title={a.app_identifier}>
+                            {friendly}
                           </span>
                           <span className="badge badge-muted">{categoryLabel(a.category)}</span>
+                          {a.sub_type && (
+                            <span className="text-xs text-ink-light">{a.sub_type}</span>
+                          )}
                           <span className="text-xs text-ink-light">{a.session_count} 段</span>
                         </div>
+                        {showProcess && (
+                          <div className="text-[11px] font-mono text-ink-light truncate mt-0.5">
+                            {a.app_identifier}
+                          </div>
+                        )}
                         <div className="mt-1 h-1.5 bg-brand-50 rounded overflow-hidden">
                           <div
                             className="h-full bg-brand"

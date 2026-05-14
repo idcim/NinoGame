@@ -107,23 +107,37 @@ export async function registerReportRoutes(app: FastifyInstance) {
       if (!(await ensureOwnership(req.parent!.sub, child_id))) {
         return reply.forbidden("孩子不属于当前家长");
       }
+      // app_categories LATERAL: 优先取该孩子的 override (child_id=$1), 退到全局
+      // (child_id IS NULL); LOWER 比对让 "Chrome.exe" 也能命中 "chrome.exe"
       const r = await pool.query<{
         app_identifier: string;
         category: string;
+        display_name: string | null;
+        sub_type: string | null;
         total_active_seconds: string;
         total_tokens: string;
         session_count: string;
       }>(
-        `SELECT app_identifier,
-                category,
-                COALESCE(SUM(active_seconds), 0)::text AS total_active_seconds,
-                COALESCE(SUM(tokens_consumed), 0)::text AS total_tokens,
+        `SELECT s.app_identifier,
+                s.category,
+                ac.display_name,
+                ac.sub_type,
+                COALESCE(SUM(s.active_seconds), 0)::text AS total_active_seconds,
+                COALESCE(SUM(s.tokens_consumed), 0)::text AS total_tokens,
                 COUNT(*)::text AS session_count
-           FROM "NinoGame".app_sessions
-          WHERE child_id = $1
-            AND started_at >= CURRENT_DATE - ($2::int - 1 || ' days')::interval
-          GROUP BY app_identifier, category
-          ORDER BY SUM(active_seconds) DESC
+           FROM "NinoGame".app_sessions s
+           LEFT JOIN LATERAL (
+             SELECT display_name, sub_type
+               FROM "NinoGame".app_categories
+              WHERE LOWER(app_identifier) = LOWER(s.app_identifier)
+                AND (child_id = $1 OR child_id IS NULL)
+              ORDER BY (child_id = $1) DESC NULLS LAST
+              LIMIT 1
+           ) ac ON TRUE
+          WHERE s.child_id = $1
+            AND s.started_at >= CURRENT_DATE - ($2::int - 1 || ' days')::interval
+          GROUP BY s.app_identifier, s.category, ac.display_name, ac.sub_type
+          ORDER BY SUM(s.active_seconds) DESC
           LIMIT $3`,
         [child_id, days, limit],
       );
@@ -131,6 +145,8 @@ export async function registerReportRoutes(app: FastifyInstance) {
         apps: r.rows.map((row) => ({
           app_identifier: row.app_identifier,
           category: row.category,
+          display_name: row.display_name,
+          sub_type: row.sub_type,
           total_active_seconds: Number(row.total_active_seconds),
           total_tokens: Number(row.total_tokens),
           session_count: Number(row.session_count),

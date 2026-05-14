@@ -30,6 +30,12 @@
 - **Agent 同步**: 模板增删改后 server 立刻全量推 `tasks_update`; Agent 收到后覆写本地 `config/tasks.json` + 重载 `ResponsibilityChecklist` (responsibility 类立即在托盘菜单刷新)
 - **审批拒绝**: 不扣已有余额, 仅标 status=rejected, reward_granted=0; 孩子端目前只在浏览器可见家长意见
 
+### 使用报表应用友好名 (`/reports` → Top 应用)
+- **预置 80+ 常见 Windows 进程**: 浏览器/办公/游戏/视频/IDE 等开箱即有中文/英文友好名 (`chrome.exe` → "Google Chrome", `bilibili.exe` → "哔哩哔哩", `code.exe` → "Visual Studio Code"), 见 `backend/sql/1747095500000_app_display_name.sql`
+- **LLM 自动补齐**: 未知 exe 进 `unknown_apps_queue` → server `classifyApp` 同时让 LLM 出 `display_name` + category, 写回 `app_categories.display_name`, 推 Agent (`app_categories_update`); LLM 未配置时退回 seed/裸进程名
+- **家长可覆写** (未来): `app_categories.classification_source='parent'` 优先级最高 (LATERAL JOIN 选孩子 override > 全局)
+- **顺手修了老坑**: `UNIQUE(app_identifier, child_id)` 对 `child_id IS NULL` 不生效 (PG NULL ≠ NULL), 老代码 `ON CONFLICT DO NOTHING` 静默插入全局重复行; 迁移先清重再加 `idx_app_categories_global_unique` partial unique index
+
 ### Agent 端任务申报 (孩子端 UX)
 - **入口**: 托盘菜单 (child 模式) 看到「申报任务完成…」, 点开弹 TaskClaimDialog
 - **列表**: 读本地 `config/tasks.json` 中所有 `category=incentive` 且 `active=true` 的任务, 每行显示 任务名 + verification 提示 + `+N token` 徽章 + 「申报完成」按钮
