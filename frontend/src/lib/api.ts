@@ -263,6 +263,13 @@ export const api = {
       method: "DELETE",
     }),
 
+  /** LLM 一句话 → 规则 draft (不落库; 前端预填编辑器后家长再保存). */
+  draftRuleFromText: (child_id: string, text: string) =>
+    request<{ draft: RuleDraft }>("/api/rules/draft-from-text", {
+      method: "POST",
+      body: JSON.stringify({ child_id, text }),
+    }),
+
   // ── unlock_requests ────────────────────────────────────────
   listRequests: (status: "pending" | "approved" | "rejected" | "all" = "pending") =>
     request<{ requests: UnlockRequest[] }>(
@@ -455,6 +462,19 @@ export interface Rule {
   enabled: boolean;
   spec: RuleSpec;
   updated_at: string;
+}
+
+/** LLM 一句话生成的规则草稿 (尚未落库, 家长可在编辑器里再调). */
+export interface RuleDraft {
+  name: string;
+  keywords: string[];
+  action: "kill_and_warn" | "warn_only" | "kill_silent";
+  message: string;
+  schedule: {
+    mode: "always" | "windowed" | "disabled";
+    windows: Array<{ days: number[]; from: string; to: string }>;
+  };
+  reasoning: string;
 }
 
 // ── tasks ─────────────────────────────────────────────────────

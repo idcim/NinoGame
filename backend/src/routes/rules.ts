@@ -17,6 +17,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { pool } from "../db.js";
 import { pushToDevice } from "../ws/agent.js";
+import { draftRuleFromText } from "../services/llm_rule_translator.js";
 
 const MatcherSchema = z.object({
   field: z.enum(["process_name", "exe_path", "window_title", "command_line"]),
@@ -192,6 +193,36 @@ export async function registerRuleRoutes(app: FastifyInstance) {
       const pushed = await pushRulesUpdate(child_id);
       app.log.info({ rule_id: id, child_id, pushed }, "rule updated");
       return { rule: r.rows[0], pushed };
+    },
+  );
+
+  // ── LLM 一句话 → 规则 draft (CLAUDE.md §13) ────────────
+  // 不落库, 返回 draft 让前端预填编辑器, 家长再点保存才真正 INSERT。
+  // LLM 未配置 / 失败 → 422 + 提示, 前端温和降级到手动填写。
+  app.post(
+    "/api/rules/draft-from-text",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const body = (req.body ?? {}) as { child_id?: string; text?: string };
+      const child_id = body.child_id;
+      const text = (body.text || "").trim();
+      if (!child_id) return reply.badRequest("child_id required");
+      if (!text) return reply.badRequest("text required");
+      if (text.length > 500) return reply.badRequest("一句话太长, 不超过 500 字");
+      if (!(await ensureOwnership(req.parent!.sub, child_id))) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      const draft = await draftRuleFromText(req.parent!.sub, text);
+      if (!draft) {
+        return reply
+          .code(422)
+          .send({ message: "LLM 未配置或调用失败, 请去 /llm-config 配置, 或手动新建规则" });
+      }
+      app.log.info(
+        { parent_id: req.parent!.sub, text_len: text.length, kw_count: draft.keywords.length },
+        "rule draft generated",
+      );
+      return { draft };
     },
   );
 

@@ -113,6 +113,7 @@ export async function buildServer() {
       "POST /api/rules               (Bearer)",
       "PUT  /api/rules/:id           (Bearer)",
       "DEL  /api/rules/:id           (Bearer)",
+      "POST /api/rules/draft-from-text (Bearer)  LLM 一句话生成规则草稿",
       "GET  /api/tasks?child_id      (Bearer)",
       "POST /api/tasks               (Bearer)",
       "PUT  /api/tasks/:id           (Bearer)",

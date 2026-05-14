@@ -8,10 +8,19 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
-import { api, ApiError, type Child, type Matcher, type Rule, type RuleSpec } from "../lib/api";
+import {
+  api,
+  ApiError,
+  type Child,
+  type Matcher,
+  type Rule,
+  type RuleDraft,
+  type RuleSpec,
+} from "../lib/api";
 import { actionLabel } from "../lib/labels";
 
 // 时间窗类型 (CLAUDE.md §9.1 schedule.windows): days 用 JS 习惯
@@ -89,7 +98,30 @@ export default function Rules() {
     }
   }
 
-  const [editing, setEditing] = useState<Rule | "new" | null>(null);
+  // editing: Rule = 编辑已有, "new" = 空白新建, RuleDraft = LLM 草稿预填新建
+  const [editing, setEditing] = useState<Rule | "new" | RuleDraft | null>(null);
+
+  // LLM 一句话生成
+  const [llmText, setLlmText] = useState("");
+  const [llmBusy, setLlmBusy] = useState(false);
+  const [llmHint, setLlmHint] = useState<string | null>(null);
+
+  async function generateFromText() {
+    if (!llmText.trim() || !activeChild) return;
+    setLlmBusy(true);
+    setLlmHint(null);
+    try {
+      const { draft } = await api.draftRuleFromText(activeChild, llmText.trim());
+      setEditing(draft);
+      setLlmText("");
+      if (draft.reasoning) setLlmHint(`LLM: ${draft.reasoning}`);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "生成失败";
+      setLlmHint(msg);
+    } finally {
+      setLlmBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -137,6 +169,46 @@ export default function Rules() {
         </div>
       ) : (
         <>
+          {/* LLM 一句话生成 */}
+          <div className="card p-4 bg-brand/5 border-brand/30">
+            <div className="flex items-center gap-1.5 mb-2 text-sm font-semibold text-brand">
+              <Sparkles size={14} />
+              一句话生成规则
+            </div>
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+              <input
+                className="input flex-1 min-w-0"
+                value={llmText}
+                onChange={(e) => setLlmText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !llmBusy) {
+                    e.preventDefault();
+                    generateFromText();
+                  }
+                }}
+                disabled={llmBusy || !activeChild}
+                placeholder="例: 禁止玩原神 / 晚上 9 点后不让玩王者荣耀 / 工作日不能玩 Minecraft"
+                maxLength={500}
+              />
+              <button
+                type="button"
+                onClick={generateFromText}
+                disabled={llmBusy || !llmText.trim() || !activeChild}
+                className="btn-primary shrink-0"
+              >
+                {llmBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                生成
+              </button>
+            </div>
+            {llmHint && (
+              <div className="text-xs text-ink-dim mt-2">{llmHint}</div>
+            )}
+            <p className="text-xs text-ink-light mt-1">
+              生成完会打开编辑器, 关键词/动作/时段都可以再改, 点保存才真正生效。
+              没配置 LLM? 去 <a className="text-brand underline" href="/llm-config">LLM 配置</a>。
+            </p>
+          </div>
+
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-sm font-bold text-ink uppercase tracking-wide">
               当前规则 ({rules.length})
@@ -171,7 +243,8 @@ export default function Rules() {
 
       {editing && (
         <RuleEditor
-          rule={editing === "new" ? null : editing}
+          rule={editing === "new" || isDraft(editing) ? null : editing}
+          draft={isDraft(editing) ? editing : null}
           childId={activeChild}
           onClose={() => setEditing(null)}
           onSaved={() => {
@@ -182,6 +255,10 @@ export default function Rules() {
       )}
     </div>
   );
+}
+
+function isDraft(x: Rule | "new" | RuleDraft): x is RuleDraft {
+  return typeof x === "object" && x !== null && "keywords" in x && Array.isArray((x as RuleDraft).keywords);
 }
 
 function RuleRow({
@@ -281,34 +358,42 @@ function RuleRow({
 
 function RuleEditor({
   rule,
+  draft,
   childId,
   onClose,
   onSaved,
 }: {
   rule: Rule | null;
+  draft?: RuleDraft | null;
   childId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const isNew = rule === null;
-  const [name, setName] = useState(rule?.name || "");
+  const [name, setName] = useState(rule?.name || draft?.name || "");
   const [keywords, setKeywords] = useState(
     rule
       ? Array.from(
           new Set(rule.spec.matchers.map((m) => m.value.toLowerCase())),
         ).join(", ")
+      : draft
+      ? draft.keywords.join(", ")
       : "",
   );
   const [actionType, setActionType] = useState<RuleSpec["action"]["type"]>(
-    rule?.spec.action.type || "kill_and_warn",
+    rule?.spec.action.type || draft?.action || "kill_and_warn",
   );
-  const [message, setMessage] = useState(rule?.spec.action.message || "");
+  const [message, setMessage] = useState(
+    rule?.spec.action.message || draft?.message || "",
+  );
   const [enabled, setEnabled] = useState(rule?.enabled ?? true);
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(
-    (rule?.spec.schedule.mode as ScheduleMode) || "always",
+    (rule?.spec.schedule.mode as ScheduleMode) || draft?.schedule.mode || "always",
   );
   const [windows, setWindows] = useState<Window[]>(
-    (rule?.spec.schedule.windows as Window[]) || [],
+    (rule?.spec.schedule.windows as Window[]) ||
+      (draft?.schedule.windows as Window[]) ||
+      [],
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

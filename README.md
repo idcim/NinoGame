@@ -30,6 +30,13 @@
 - **Agent 同步**: 模板增删改后 server 立刻全量推 `tasks_update`; Agent 收到后覆写本地 `config/tasks.json` + 重载 `ResponsibilityChecklist` (responsibility 类立即在托盘菜单刷新)
 - **审批拒绝**: 不扣已有余额, 仅标 status=rejected, reward_granted=0; 孩子端目前只在浏览器可见家长意见
 
+### 规则一句话生成 (`/rules` 顶部)
+- **输入框**: 家长打一句话 ("禁止玩原神" / "晚上 9 点后不让玩王者荣耀" / "工作日不能玩 Minecraft") → 调 `POST /api/rules/draft-from-text` → LLM 翻译成 `RuleDraft` (name + 关键词列表 + action + schedule)
+- **不直接落库**: 后端返 draft, 前端打开 RuleEditor 预填字段, 家长再调 (改关键词/动作/时段) 后点保存才真正 INSERT — 保留人工兜底, LLM 不当裁判 (§12.5)
+- **降级**: LLM 未配置 / 调用失败 → 422 + "请去 /llm-config 配置, 或手动新建规则"
+- **关键词去重**: LLM 提示词强制全小写 + 中英文别名; 后端 normalize 屏蔽 chrome.exe/explorer 等通用进程, 防误拦
+- **见**: `backend/src/services/llm_rule_translator.ts`, `frontend/src/pages/Rules.tsx`
+
 ### 使用报表应用友好名 (`/reports` → Top 应用)
 - **预置 80+ 常见 Windows 进程**: 浏览器/办公/游戏/视频/IDE 等开箱即有中文/英文友好名 (`chrome.exe` → "Google Chrome", `bilibili.exe` → "哔哩哔哩", `code.exe` → "Visual Studio Code"), 见 `backend/sql/1747095500000_app_display_name.sql`
 - **LLM 自动补齐**: 未知 exe 进 `unknown_apps_queue` → server `classifyApp` 同时让 LLM 出 `display_name` + category, 写回 `app_categories.display_name`, 推 Agent (`app_categories_update`); LLM 未配置时退回 seed/裸进程名
