@@ -1,8 +1,14 @@
 # NinoGame 更新日志
 
 > 跨端 (Backend / Admin / Parent Frontend / Windows Agent / Android Agent) 的版本历史。
-> Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.3.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
+> Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
+
+## Windows Agent v0.4.1 · 2026-05-15
+
+- **About 对话框接入更新日志** — 「关于 NinoGame」加 "查看更新日志" 按钮 → 新 `ChangelogDialog` 拉 backend `/api/changelog` 用 QTextBrowser.setMarkdown() 原生渲染. 三端 (admin / Android / Win agent) 共享同一份变更记录, 跟 v0.4.9 backend / v0.5.17 Android 同源.
+- 后台线程 fetch (urllib + Qt 信号回主线程), 不阻塞 UI; 失败时显示"加载失败 + 刷新"按钮可重试.
+- 未配对时提示"请先完成设备配对", 不崩.
 
 ## Android v0.5.16 · 2026-05-15
 

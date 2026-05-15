@@ -5,4 +5,5 @@
 #   0.2.0 - 状态面板/浮层 UX 大改, "余额" 概念统一为 Token, AboutDialog
 #   0.3.0 - 无感软件更新 (server 推 update_self → Lock 态 → Updater.exe 接管 + 自动回滚)
 #   0.4.0 - 独立管理后台 (admin.{domain}) + 存储驱动抽象 (local/S3/OSS) + 多租户接缝
-__version__ = "0.4.0"
+#   0.4.1 - About 对话框接入 /api/changelog 跨端更新日志 (跟 admin / Android 同源)
+__version__ = "0.4.1"

@@ -81,7 +81,7 @@ from services.updater_kick import (  # noqa: E402
 
 # agent/__init__.py 在 PyInstaller --onefile 模式下不一定能 import 到包名,
 # 此处直接持有与 __init__.py 同步的字符串; 升版时改两处。
-AGENT_VERSION = "0.4.0"
+AGENT_VERSION = "0.4.1"
 
 _log = logging.getLogger(__name__)
 
@@ -1940,9 +1940,17 @@ class Agent:
     def _show_about_dialog_on_main(self) -> None:
         try:
             from ui.assets import dialog_image_path
+            backend_url = str(self.settings.get("backend_url", "")).strip()
             if self.about_dialog is None:
                 logo = str(dialog_image_path()) if dialog_image_path().exists() else None
-                self.about_dialog = AboutDialog(logo_path=logo, version=AGENT_VERSION)
+                self.about_dialog = AboutDialog(
+                    logo_path=logo,
+                    version=AGENT_VERSION,
+                    backend_url=backend_url,
+                )
+            else:
+                # 重新配对后 backend_url 可能更新, 每次拉起对话框时同步最新
+                self.about_dialog.update_backend_url(backend_url)
             self.about_dialog.show_dialog()
         except Exception:
             _log.exception("AboutDialog 显示失败")
