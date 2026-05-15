@@ -35,6 +35,16 @@ object BlockNotifier {
             lastNotifMs.entries.removeAll { now - it.value > 60_000L }
         }
 
+        // v0.5.25+ 进通知历史
+        val histMsg = rule.spec.action.message.ifBlank {
+            ctx.getString(R.string.block_default_message, rule.name)
+        }
+        NotifLog.add(
+            NotifLog.Kind.BLOCK,
+            ctx.getString(R.string.block_notif_title, rule.name),
+            histMsg,
+        )
+
         ensureChannel(ctx)
         val pendingFlags =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -67,11 +77,19 @@ object BlockNotifier {
      *  但文案不同 (强调"没 token 不是规则违反"). 同 pkg 5 秒去重. */
     fun notifyOutOfToken(ctx: Context, packageName: String) {
         val now = System.currentTimeMillis()
+        val firstThisWindow: Boolean
         synchronized(this) {
             val last = lastNotifMs["__oot__:$packageName"]
-            if (last != null && now - last < DEDUPE_WINDOW_MS) return
+            firstThisWindow = last == null || now - last >= DEDUPE_WINDOW_MS
+            if (!firstThisWindow) return
             lastNotifMs["__oot__:$packageName"] = now
         }
+        // 进通知历史 — 跟 dedupe 一致, 5 秒内同 pkg 不重复入
+        NotifLog.add(
+            NotifLog.Kind.OUT_OF_TOKEN,
+            ctx.getString(R.string.oot_notif_title),
+            ctx.getString(R.string.oot_notif_body),
+        )
         ensureChannel(ctx)
         val pendingFlags =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
@@ -101,6 +119,12 @@ object BlockNotifier {
      *  比 OOT 的 "block" HIGH 温和一档, 用户可以单独关. AgentService 判断
      *  flag (lowBalanceWarned) 不在这里重复 dedupe. */
     fun notifyLowBalance(ctx: Context, balance: Int) {
+        // v0.5.25+ 进通知历史
+        NotifLog.add(
+            NotifLog.Kind.LOW_BALANCE,
+            ctx.getString(R.string.low_balance_notif_title),
+            ctx.getString(R.string.low_balance_notif_body, balance),
+        )
         ensureWarnChannel(ctx)
         val pendingFlags =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)

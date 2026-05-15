@@ -4,6 +4,12 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.25 · 2026-05-15
+
+- **我的消息 (通知历史)** — 跟 Win agent `MessagesWindow` 等价. `NotifLog` singleton 环形 buffer 存最近 100 条通知, BlockNotifier 三方法 (blocked/oot/lowBalance) + CommandHandler 五命令 (unlock/lock/free_pass/pin set/pin clear) 都 push 一条进 log. `MessagesScreen` (Settings → 我的消息) LazyColumn 渲染, 按时间倒序, 显示标题/正文/时间戳/类别图标.
+- **Token 变动 (ledger 历史)** — 跟 Win agent `LedgerWindow` 等价. `LedgerLog` singleton 存最近 100 条 wallet 变动, AgentService.onWalletUpdate 解析 server 推的 reason+delta 入 log. 过滤 `app_consumption` (每分钟扣 1) / `server_sync` (强同步) 这些吵闹条目, 只看家长操作 / 任务奖励 / 限免预扣等. `LedgerScreen` (Settings → Token 变动) LazyColumn 渲染, 绿色 +N / 红色 -N delta + 当前 balance.
+- 两个 Screen 都是内存版 (进程重启清零), Stage 4 再上 Room DB 跨进程持久化. 入口在 Settings, Dashboard 暂不加避免 UI 复杂.
+
 ## Android v0.5.24 · 2026-05-15
 
 - **修短信 (SMS) 切到后立刻被拉回** — v0.5.21 isSystemPassthrough 只硬编码 dialer/phone/contacts/inputmethod 关键词, 漏 SMS 包 (Pixel `com.google.android.apps.messaging` / 三星 / MIUI 各 OEM 包名都不同). 改成 PackageManager 运行时发现: IME (`android.view.InputMethod`) / SMS (`Telephony.getDefaultSmsPackage` + `ACTION_SENDTO smsto:` handlers) / Dialer (`TelecomManager.defaultDialerPackage` + `ACTION_DIAL` handlers) / Contacts (`ACTION_VIEW + ContactsContract.Contacts.CONTENT_URI`) 一次性全发现, NinoAccessibilityService.onServiceConnected 时缓存到 `passthroughPackages`. 原硬编码关键词保留作 fallback.

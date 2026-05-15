@@ -71,6 +71,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onResetPair: () -> Unit,
     onOpenChangelog: () -> Unit,
+    onOpenMessages: () -> Unit = {},
+    onOpenLedger: () -> Unit = {},
 ) {
     val settings = ninoSettings
     val scope = rememberCoroutineScope()
@@ -171,6 +173,24 @@ fun SettingsScreen(
                         )
                     }
                 }
+            }
+
+            // v0.5.25+ 我的消息 (通知历史)
+            OutlinedButton(
+                onClick = onOpenMessages,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null)
+                Text("  我的消息")
+            }
+
+            // v0.5.25+ Token 变动 (ledger 历史)
+            OutlinedButton(
+                onClick = onOpenLedger,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null)
+                Text("  Token 变动")
             }
 
             // 更新日志

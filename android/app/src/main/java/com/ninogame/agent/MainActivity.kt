@@ -24,6 +24,8 @@ import com.ninogame.agent.service.AgentService
 import com.ninogame.agent.service.AgentState
 import com.ninogame.agent.ui.ChangelogScreen
 import com.ninogame.agent.ui.DashboardScreen
+import com.ninogame.agent.ui.LedgerScreen
+import com.ninogame.agent.ui.MessagesScreen
 import com.ninogame.agent.ui.NinoTheme
 import com.ninogame.agent.ui.OutOfTokenScreen
 import com.ninogame.agent.ui.PairScreen
@@ -108,10 +110,24 @@ private fun AppNavHost(
                     }
                 },
                 onOpenChangelog = { nav.navigate(Route.Changelog) },
+                onOpenMessages = { nav.navigate(Route.Messages) },
+                onOpenLedger = { nav.navigate(Route.Ledger) },
             )
         }
         composable(Route.Changelog) {
             ChangelogScreen(
+                windowSize = windowSize,
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(Route.Messages) {
+            MessagesScreen(
+                windowSize = windowSize,
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(Route.Ledger) {
+            LedgerScreen(
                 windowSize = windowSize,
                 onBack = { nav.popBackStack() },
             )
@@ -125,4 +141,6 @@ private object Route {
     const val Tasks = "tasks"
     const val Settings = "settings"
     const val Changelog = "changelog"
+    const val Messages = "messages"
+    const val Ledger = "ledger"
 }

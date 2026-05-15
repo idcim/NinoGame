@@ -121,6 +121,7 @@ class CommandHandler(
             title = context.getString(R.string.cmd_unlock_title),
             body = context.getString(R.string.cmd_unlock_body, ruleIds.size, minDisplay),
             id = NID_UNLOCK,
+            logKind = NotifLog.Kind.UNLOCK,
         )
     }
 
@@ -134,6 +135,7 @@ class CommandHandler(
             title = context.getString(R.string.cmd_lock_title),
             body = context.getString(R.string.cmd_lock_body),
             id = NID_LOCK,
+            logKind = NotifLog.Kind.LOCK,
         )
     }
 
@@ -161,6 +163,7 @@ class CommandHandler(
                     title = context.getString(R.string.cmd_free_pass_end_title),
                     body = context.getString(R.string.cmd_free_pass_end_body),
                     id = NID_FREE_PASS,
+                    logKind = NotifLog.Kind.FREE_PASS,
                 )
             }
         }
@@ -169,6 +172,7 @@ class CommandHandler(
             title = context.getString(R.string.cmd_free_pass_start_title),
             body = context.getString(R.string.cmd_free_pass_start_body, mins),
             id = NID_FREE_PASS,
+            logKind = NotifLog.Kind.FREE_PASS,
         )
     }
 
@@ -204,6 +208,7 @@ class CommandHandler(
                     title = context.getString(R.string.cmd_pin_set_title),
                     body = context.getString(R.string.cmd_pin_set_body),
                     id = NID_PIN,
+                    logKind = NotifLog.Kind.PIN,
                 )
             }
         }
@@ -217,6 +222,7 @@ class CommandHandler(
                 title = context.getString(R.string.cmd_pin_clear_title),
                 body = context.getString(R.string.cmd_pin_clear_body),
                 id = NID_PIN,
+                logKind = NotifLog.Kind.PIN,
             )
         }
     }
@@ -232,7 +238,16 @@ class CommandHandler(
 
     // ── notification helper ──────────────────────────────────────
 
-    private fun notifyAgent(channel: String, title: String, body: String, id: Int) {
+    private fun notifyAgent(
+        channel: String,
+        title: String,
+        body: String,
+        id: Int,
+        logKind: NotifLog.Kind = NotifLog.Kind.INFO,
+    ) {
+        // v0.5.25+ 进通知历史
+        NotifLog.add(logKind, title, body)
+
         ensureChannel(channel)
         val n = NotificationCompat.Builder(context, channel)
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)

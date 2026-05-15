@@ -330,9 +330,18 @@ class AgentService : Service() {
         val obj = payload as? JsonObject ?: return
         val balance = obj["balance"]?.jsonPrimitive?.intOrNull ?: return
         val oldBalance = AgentState.walletBalance.value
-        Log.i(TAG, "wallet_update: balance=$balance (was=$oldBalance)")
+        val reason = obj["reason"]?.jsonPrimitive?.contentOrNull ?: ""
+        val deltaFromPayload = obj["delta"]?.jsonPrimitive?.intOrNull
+        Log.i(TAG, "wallet_update: balance=$balance (was=$oldBalance) reason=$reason delta=$deltaFromPayload")
         AgentState.onWalletBalance(balance)
         persistBalance(balance)
+
+        // v0.5.25+ Token 变动历史 — server 推时带 reason + delta (token_tick / wallet_adjust 都有),
+        // LedgerLog 自己按 reason 过滤掉 app_consumption 那些, 只留家长操作 + 任务 + unlock 等
+        val delta = deltaFromPayload ?: ((oldBalance ?: 0).let { balance - it })
+        if (reason.isNotBlank()) {
+            LedgerLog.add(delta = delta, balanceAfter = balance, reason = reason)
+        }
 
         // v0.5.21+ 余额从 ≤0 跌到 >0 + 当前 Lock 模式 → 自动切回 Child.
         // 场景: 孩子按"锁屏休息"或 OOT 锁屏中 → 家长后台 +token / 批 unlock →
