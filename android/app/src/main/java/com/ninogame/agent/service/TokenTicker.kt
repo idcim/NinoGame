@@ -18,14 +18,16 @@ import kotlinx.serialization.json.put
  *  只发"扣多少"的意图给 server, server 写 ledger + UPDATE wallets + 推 wallet_update
  *  回 Agent (AgentService.onWalletUpdate 同步 AgentState).
  *
- *  发送条件 (全部要满足才扣):
- *    1. AgentState.mode == Child (lock 模式不扣, 决策 #36 "在跑就扣")
+ *  发送条件 (CLAUDE.md 决策 #36 "在跑就扣", 跟 Win agent token_engine 对齐):
+ *    1. AgentState.mode == Child (Lock / Parent 不扣)
  *    2. !AgentState.isFreePassActive (限免期间消费不扣, §7.5)
  *    3. WS Open (离线不扣, §7.6)
- *    4. ForegroundAppMonitor.foregroundApp 非 null (屏幕在用; ForegroundAppMonitor
- *       已经把 IGNORED launcher/自家 app expose 成 null, 不会扣)
- *    5. PowerManager.isInteractive (屏幕亮; 屏幕灭说明孩子没在看, 不扣 — Android 没
- *       Windows 那种 GetLastInputInfo, 这是最实用的"在用" 信号)
+ *    4. PowerManager.isInteractive (屏幕亮; 屏幕灭 = 没在看, 不扣)
+ *
+ *  v0.5.23 修: 去掉了 "foregroundApp != null" 检查 — 用户反馈"开着就该扣".
+ *  之前桌面 (launcher 进 IGNORED → foregroundApp=null) / 自家 App 前台都不扣,
+ *  孩子能在桌面停着不扣分. 现在 mode=Child + 屏幕亮 + WS Open 就扣, 没前台
+ *  signal 时 pkg 走 "(idle)" 占位, server 仍记 ledger.
  *
  *  amount: v0.5.6 hard-code 1.0 (每分钟 1 token, 跟 Windows agent
  *  settings.token_to_minute_ratio 默认一致). Stage 3c 监听 server 推 settings_update
@@ -64,7 +66,7 @@ class TokenTicker(
     }
 
     private fun tickOnce() {
-        // ── 5 个条件依次短路 — 任一不满足跳过, 配 logcat 排查问题方便
+        // ── 4 个条件依次短路 — 任一不满足跳过, 配 logcat 排查问题方便
         if (AgentState.mode.value != AgentState.Mode.Child) {
             Log.d(TAG, "skip: mode=${AgentState.mode.value}")
             return
@@ -81,11 +83,9 @@ class TokenTicker(
             Log.d(TAG, "skip: screen off / non-interactive")
             return
         }
-        val pkg = ForegroundAppMonitor.foregroundApp.value
-        if (pkg.isNullOrBlank()) {
-            Log.d(TAG, "skip: no foreground app")
-            return
-        }
+        // 注: 不再检查 foregroundApp != null — 桌面/IME/自家 App 一律照扣 (决策 #36).
+        // 没前台 signal 时用 "(idle)" 占位让 server ledger 看得出来源.
+        val pkg = ForegroundAppMonitor.foregroundApp.value?.takeIf { it.isNotBlank() } ?: "(idle)"
 
         // 满足全部条件 — 发 tick. amount + tick_seconds 都从 AgentSettings 拿,
         // 跟 Windows agent settings.token_to_minute_ratio 同一源

@@ -4,6 +4,12 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.23 · 2026-05-15
+
+- **修扣 token 不工作 (关键回归)** — v0.5.18 ForegroundAppMonitor 把 launcher 加进 IGNORED 后, 桌面/IME 时 `foregroundApp=null` → TokenTicker 第 4 个短路条件触发 → 一直跳过. 跟 CLAUDE.md 决策 #36 "在跑就扣" 矛盾 (Win agent token_engine 不看前台 app). TokenTicker 删掉 `foregroundApp != null` 检查, 改成 `mode=Child + WS Open + 屏幕亮 + 非 free_pass` 就扣, pkg null 时占位 "(idle)" 让 server ledger 看得出来源.
+- **修发短信白屏** — OutOfTokenScreen.openSms 用 `Intent.ACTION_VIEW + smsto:`, 某些 OEM 不被默认 SMS app 处理弹白屏. 改成 `Telephony.Sms.getDefaultSmsPackage(ctx) + packageManager.getLaunchIntentForPackage()` 走系统级默认, fallback `Intent.ACTION_SENDTO + smsto:` (Android 标准发送动作).
+- **无障碍被关 + 切出去乱玩** — Android 平台限制无法完全阻止用户关 a11y. 已有 v0.5.12 onUnbind 上报家长 + WorkManager 15min Watchdog 兜底. 实际防御要靠 Stage 4 国内 ROM 引导 (自启动白名单 + 后台耗电 + 锁屏白名单) + 教育家长用 Family Link / 校园模式. 本次未动.
+
 ## Android v0.5.22 · 2026-05-15
 
 - **低水位提醒 (10 token)** — 跟 Win agent `main._on_wallet_update` 行为对齐, 文案同款. `0 < balance ≤ 10 + 未提醒过` → 弹通知 (标题"NinoGame · token 快用完", 正文"还剩 N token, 快用完了。想继续可以申请游戏时间, 或者休息一下做点别的。"). `balance > 10` 重置 flag, 下次再到阈值时再提醒. `balance ≤ 0` 走 OOT 链路, 不重复提醒.

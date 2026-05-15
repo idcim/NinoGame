@@ -276,11 +276,24 @@ private fun openDialer(ctx: Context) {
     runCatching { ctx.startActivity(intent) }
 }
 
-/** 打开短信 App. */
+/** 打开短信 App. v0.5.23: ACTION_VIEW + smsto: 在部分 OEM 上启动白屏,
+ *  改成 Telephony.getDefaultSmsPackage + getLaunchIntentForPackage 走系统级默认.
+ *  fallback 到 ACTION_SENDTO (比 ACTION_VIEW 更标准的"发送到"语义). */
 private fun openSms(ctx: Context) {
-    val intent = Intent(Intent.ACTION_VIEW).apply {
-        data = Uri.parse("smsto:")
+    // 1. 先用系统级默认 SMS app
+    val defaultSms = runCatching {
+        android.provider.Telephony.Sms.getDefaultSmsPackage(ctx)
+    }.getOrNull()
+    if (defaultSms != null) {
+        val launch = ctx.packageManager.getLaunchIntentForPackage(defaultSms)
+        if (launch != null) {
+            launch.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            if (runCatching { ctx.startActivity(launch) }.isSuccess) return
+        }
+    }
+    // 2. fallback: ACTION_SENDTO + smsto: (Android 标准, 比 ACTION_VIEW 兼容性好)
+    val sendto = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK
     }
-    runCatching { ctx.startActivity(intent) }
+    runCatching { ctx.startActivity(sendto) }
 }
