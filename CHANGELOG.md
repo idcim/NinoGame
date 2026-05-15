@@ -4,6 +4,13 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.20 · 2026-05-15
+
+- **OOT 锁屏主动触发 — 不打开 App 也能锁** — 用户反馈"0 token 时也可以在外面乱玩, 不打开本 APP 就没事". v0.5.19 OOT 强拉只在 AccessibilityService.onAccessibilityEvent (窗口切换) 时检查, 用户已经在 Chrome 玩 + balance 刚跌到 0 时窗口没切 → 锁屏不触发, 孩子能继续玩到自己主动换 app.
+- AgentService onCreate 加协程 `AgentState.outOfToken.collectLatest { ... }`: 派生从 false→true 的瞬间 (balance 跌到 0 / free_pass 到期 / mode 切回 Child 等场景) 主动 `launchMainActivity()` 强拉自家到前台. AccessibilityService 接力执行后续反弹.
+- launchMainActivity: Intent(MainActivity) FLAG_ACTIVITY_NEW_TASK | REORDER_TO_FRONT | SINGLE_TOP. Foreground Service 是 Android 10+ 后台启 Activity 的合法路径之一.
+- 现在三个触发点全覆盖: a) AgentState 派生 OOT 变 true (主动); b) AccessibilityService onAccessibilityEvent OOT (用户切窗口被动); c) OutOfTokenScreen 内 Compose overlay 渲染.
+
 ## Android v0.5.19 · 2026-05-15
 
 - **OOT 全屏锁强化 — 不可跳过** — 用户反馈"安卓 token 用完显示不完美, 应该是全屏锁无法跳过". v0.5.16 NinoAccessibilityService 只在前台是 consumption 类时 GLOBAL_ACTION_HOME, 桌面/浏览器/学习类全能跳过. 改成: outOfToken=true + 前台非自家 + 非系统 passthrough → 用 `Intent(MainActivity, FLAG_ACTIVITY_NEW_TASK | REORDER_TO_FRONT | SINGLE_TOP)` 强拉 NinoGame 回前台.

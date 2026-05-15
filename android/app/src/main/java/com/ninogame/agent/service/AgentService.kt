@@ -105,6 +105,23 @@ class AgentService : Service() {
             }
         }
 
+        // v0.5.20+ 监听 outOfToken 变化 — 派生 false→true 的瞬间 (balance 跌到 0,
+        // 或 free_pass 到期, 或 mode 切回 Child) 主动 launch MainActivity 强拉到前台.
+        //
+        // 为什么需要: AccessibilityService 只在 TYPE_WINDOW_STATE_CHANGED 时检查 OOT,
+        // 用户已经在 Chrome / 游戏里 + 余额刚跌到 0 时窗口没切换 → 锁屏不触发, 孩子能
+        // 继续玩到自己手动切 app. 这里直接监听 state, balance 跌到 0 的瞬间立刻反弹.
+        scope.launch {
+            var wasOutOfToken = false
+            AgentState.outOfToken.collectLatest { now ->
+                if (now && !wasOutOfToken) {
+                    Log.i(TAG, "outOfToken false→true, launch MainActivity 锁屏")
+                    launchMainActivity()
+                }
+                wasOutOfToken = now
+            }
+        }
+
         // 监听 (backendUrl, agentToken) 任一变 → 重启连接
         val settings = Settings.from(this)
         scope.launch {
@@ -347,6 +364,19 @@ class AgentService : Service() {
         scope.cancel()
         wsClient?.close()
         super.onDestroy()
+    }
+
+    /** 把 MainActivity 强拉到前台 — outOfToken 变 true 时主动锁屏 (跟
+     *  NinoAccessibilityService 的 launchSelfToFront 同语义, 但从 Service 触发).
+     *  Android 10+ 后台启 Activity 受限, Foreground Service 是合法路径. */
+    private fun launchMainActivity() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { Log.w(TAG, "launchMainActivity failed", it) }
     }
 
     private fun buildNotification(): Notification {
