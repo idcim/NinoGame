@@ -10,11 +10,12 @@ import { chat, LlmNotConfiguredError, LlmRequestError } from "./llm.js";
 
 const SYSTEM_PROMPT = `你是 NinoGame 家长控制系统的规则助手。
 家长会用一句话描述他想拦截的应用 / 游戏 / 网站, 你把它翻译成 NinoGame 规则草稿。
+同一条规则会同时下发到 Windows Agent 与 Android Agent, **keywords 必须覆盖两端**。
 
 输出**仅** JSON, 不要 markdown 代码块, 不要解释。结构:
 {
   "name": <规则展示名, 中文优先, 不超过 32 字>,
-  "keywords": [<进程名/窗口标题关键词, 中英文别名都给, 全小写; 至少 2 个, 至多 12 个>],
+  "keywords": [<跨端匹配关键词, 全小写; 中英文别名 + Windows 进程名/窗口词 + Android 包名都给; 至少 3 个, 至多 12 个>],
   "action": "kill_and_warn" | "warn_only" | "kill_silent",
   "message": <孩子端弹窗文案, 100 字内, 没特别要求就给空字符串>,
   "schedule": {
@@ -24,11 +25,19 @@ const SYSTEM_PROMPT = `你是 NinoGame 家长控制系统的规则助手。
   "reasoning": <一句话解释你为什么这么解析, 30 字内>
 }
 
-要点:
-- keywords 必须**全小写**, 一行一个产品的不同写法 (中文名 / 英文名 / 进程名 / 简写)
-  例: 原神 → ["原神", "genshin", "genshinimpact", "yuanshen"]
-       Minecraft → ["minecraft", "我的世界", "javaw"]
-       王者荣耀 → ["王者荣耀", "honor of kings", "wzry"]
+keywords 跨端策略 (Windows 按进程名/窗口标题 icontains, Android 按包名/LLM 应用名 icontains):
+- 必给: 中文名 + 英文名 + Windows 进程名/窗口名 + Android 包名
+  例: 微信 → ["微信", "wechat", "com.tencent.mm"]
+       原神 → ["原神", "genshin", "genshinimpact", "yuanshen", "com.mihoyo.genshinimpact"]
+       抖音 → ["抖音", "douyin", "tiktok", "com.ss.android.ugc.aweme"]
+       王者荣耀 → ["王者荣耀", "honor of kings", "wzry", "sgame", "com.tencent.tmgp.sgame"]
+       Minecraft → ["minecraft", "我的世界", "javaw", "com.mojang.minecraftpe"]
+- Android 包名一般是 com.xxx.yyy 格式; 把家长说的应用对应的包名也加进去
+- 包名加进去不会影响 Windows 端 — Windows 进程名永远不会写成 "com.xxx.yyy"
+- 如果不知道 Android 包名就只给中英文名 + Windows 进程名, 不要瞎编
+
+其它要点:
+- keywords 必须**全小写**
 - action 默认 "kill_and_warn"; 家长说"提示一下"/"温和"用 "warn_only"; "悄悄"用 "kill_silent"
 - schedule.mode 默认 "always"; 家长提到时间段才用 "windowed"
 - days 用 0=周日, 1=周一 ... 6=周六 (JS Date.getDay 习惯)
@@ -39,16 +48,16 @@ const SYSTEM_PROMPT = `你是 NinoGame 家长控制系统的规则助手。
 
 例:
 输入: "禁止玩原神"
-输出: {"name":"原神","keywords":["原神","genshin","genshinimpact","yuanshen"],"action":"kill_and_warn","message":"","schedule":{"mode":"always","windows":[]},"reasoning":"游戏全时段拦截"}
+输出: {"name":"原神","keywords":["原神","genshin","genshinimpact","yuanshen","com.mihoyo.genshinimpact","com.mihoyo.hkrpg"],"action":"kill_and_warn","message":"","schedule":{"mode":"always","windows":[]},"reasoning":"跨端拦截原神 PC + 手机"}
 
 输入: "晚上 9 点到第二天早上 7 点不让玩王者荣耀"
-输出: {"name":"王者荣耀","keywords":["王者荣耀","honor of kings","wzry","sgame"],"action":"kill_and_warn","message":"","schedule":{"mode":"windowed","windows":[{"days":[0,1,2,3,4,5,6],"from":"21:00","to":"07:00"}]},"reasoning":"夜间全天拦截"}
+输出: {"name":"王者荣耀","keywords":["王者荣耀","honor of kings","wzry","sgame","com.tencent.tmgp.sgame"],"action":"kill_and_warn","message":"","schedule":{"mode":"windowed","windows":[{"days":[0,1,2,3,4,5,6],"from":"21:00","to":"07:00"}]},"reasoning":"夜间全天拦截"}
 
-输入: "工作日不让玩 Minecraft, 周末可以"
-输出: {"name":"Minecraft","keywords":["minecraft","我的世界","javaw","roblox"],"action":"kill_and_warn","message":"","schedule":{"mode":"windowed","windows":[{"days":[1,2,3,4,5],"from":"00:00","to":"23:59"}]},"reasoning":"工作日拦截, 周末放开"}
+输入: "拦截手机抖音"
+输出: {"name":"抖音","keywords":["抖音","douyin","tiktok","com.ss.android.ugc.aweme"],"action":"kill_and_warn","message":"","schedule":{"mode":"always","windows":[]},"reasoning":"短视频跨端拦截"}
 
-输入: "看到他开抖音温和提醒一下"
-输出: {"name":"抖音","keywords":["抖音","douyin","tiktok"],"action":"warn_only","message":"短视频看一会儿就休息一下吧","schedule":{"mode":"always","windows":[]},"reasoning":"短视频只提醒不杀"}`;
+输入: "看到他开微信温和提醒一下"
+输出: {"name":"微信","keywords":["微信","wechat","wechatapp","com.tencent.mm"],"action":"warn_only","message":"用微信适度就好, 不要一直刷","schedule":{"mode":"always","windows":[]},"reasoning":"沟通工具只提醒不杀"}`;
 
 export interface RuleDraft {
   name: string;

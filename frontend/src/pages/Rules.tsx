@@ -115,7 +115,7 @@ export default function Rules() {
             规则
           </h1>
           <p className="text-sm text-ink-dim mt-1">
-            添加新游戏关键词 → 保存即生效 → Agent 立即更新本地 rules.json
+            添加新游戏关键词 → 保存即生效 → PC + Android Agent 同时同步
           </p>
         </div>
         <button onClick={loadRules} className="btn-ghost" disabled={loading}>
@@ -150,7 +150,7 @@ export default function Rules() {
                   }
                 }}
                 disabled={llmBusy || !activeChildId}
-                placeholder="例: 禁止玩原神 / 晚上 9 点后不让玩王者荣耀 / 工作日不能玩 Minecraft"
+                placeholder="例: 禁止玩原神 / 拦截手机抖音 / 工作日不能玩 Minecraft"
                 maxLength={500}
               />
               <button
@@ -480,17 +480,17 @@ function RuleEditor({
           </div>
 
           <div>
-            <label className="label">关键词 (逗号分隔; 任一命中即生效)</label>
+            <label className="label">关键词 (逗号分隔; 任一命中即生效, 跨端通用)</label>
             <textarea
               className="input min-h-[64px] font-mono text-sm"
               value={keywords}
               onChange={(e) => setKeywords(e.target.value)}
-              placeholder="例: 原神, genshin, yuanshen"
+              placeholder="例: 微信, wechat, com.tencent.mm"
               required
             />
             <p className="text-xs text-ink-light mt-1">
-              每个关键词自动生成 2 个 matcher (进程名 + 窗口标题, icontains)。
-              想精细控制 matchers 后续会加高级编辑器。
+              中文名 / 英文名 / 进程名 / Android 包名都接受 — 同一条规则同时对 PC 与 Android 生效。
+              PC 端按"进程名 + 窗口标题"模糊匹配; Android 端按"包名 + LLM 给的应用中文名"匹配。
             </p>
           </div>
 

@@ -4,6 +4,12 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Backend v0.4.10 · 2026-05-15
+
+- **规则 UI + LLM 兼容 Android 端** — 规则页文案 / 提示 / 占位符全改成"跨端通用"语言, LLM 一句话生成规则时 keywords 同时给中文名 + 英文别名 + Windows 进程名 + Android 包名. 数据模型不动 (matchers 仍是 process_name/window_title 字段), Agent 端早已兼容: Android RuleEngine v0.5.4 把所有 matcher 对 packageName 匹配, v0.5.13 又加了 CategoryCache.display_name 匹配, PC 关键词在 Android 端早就能命中, 只是 UI 没引导.
+- 例: 输入"禁止玩原神" → LLM 现在生成 `["原神","genshin","yuanshen","com.mihoyo.genshinimpact"]` 包含手机包名, 让 Android 端识别更稳.
+- 家长前端规则页 (/rules) 副标题改"PC + Android Agent 同时同步"; 关键词 hint 写清"中文名/英文名/进程名/Android 包名都接受"; 关键词 placeholder 换成 `微信, wechat, com.tencent.mm`.
+
 ## Windows Agent v0.4.1 · 2026-05-15
 
 - **About 对话框接入更新日志** — 「关于 NinoGame」加 "查看更新日志" 按钮 → 新 `ChangelogDialog` 拉 backend `/api/changelog` 用 QTextBrowser.setMarkdown() 原生渲染. 三端 (admin / Android / Win agent) 共享同一份变更记录, 跟 v0.4.9 backend / v0.5.17 Android 同源.

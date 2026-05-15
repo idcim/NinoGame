@@ -1,6 +1,6 @@
 {
   "name": "ninogame-backend",
-  "version": "0.4.1",
+  "version": "0.4.10",
   "description": "NinoGame Backend (P2) — Fastify + Postgres + WebSocket",
   "private": true,
   "type": "module",
