@@ -41,6 +41,8 @@ infra/postgres-data/
 # 生产 env (含 DATABASE_URL / JWT_SECRET) 不进库
 infra/.env.prod
 infra/.env.prod.local
+# 本地开发 compose override (真机测试时把 backend 暴露到局域网, 不进库)
+infra/docker-compose.override.yml
 
 # 用户本地配置（含 PIN / 孩子个人信息 / 自定义文案）
 # 首次启动 seed_data 会按默认模板生成
