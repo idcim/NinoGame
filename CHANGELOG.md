@@ -4,6 +4,13 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.19 · 2026-05-15
+
+- **OOT 全屏锁强化 — 不可跳过** — 用户反馈"安卓 token 用完显示不完美, 应该是全屏锁无法跳过". v0.5.16 NinoAccessibilityService 只在前台是 consumption 类时 GLOBAL_ACTION_HOME, 桌面/浏览器/学习类全能跳过. 改成: outOfToken=true + 前台非自家 + 非系统 passthrough → 用 `Intent(MainActivity, FLAG_ACTIVITY_NEW_TASK | REORDER_TO_FRONT | SINGLE_TOP)` 强拉 NinoGame 回前台.
+- 桌面 launcher 也拦 (跟"全屏锁"语义一致). 孩子只能走三按钮: 申请游戏时间 / 家长 PIN 解锁 / 锁屏休息 — 没有"等一等就过"的逃逸.
+- 系统级 passthrough 保留: `android` / `com.android.systemui` (通知栏可用) / IME (PIN 输入要键盘) / 拨号 + 通讯录 (紧急通话不被锁拦; 家长真想拦可远程加规则).
+- BlockNotifier.notifyOutOfToken 自带 5s dedupe 防通知爆.
+
 ## Android v0.5.18 · 2026-05-15
 
 - **修 Android 完全不扣 token 的 bug (主因)** — Api.kt OkHttp 没设 `pingInterval`. Server `onHeartbeat` 只更新 `last_seen_at` 不回消息. 30s readTimeout 触发后 WS 频繁断 (docker logs 显示每 19-20s 一次 `/ws/agent disconnected`), connectLoop 重连后 TokenTicker 60s 间隔的 delay 永远跑不满, 实际从来不发 `token_tick`. 加 `pingInterval(20s)` 走 WS 协议级 PING/PONG 保活, server 自动响应不用改代码.

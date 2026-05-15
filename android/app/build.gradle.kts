@@ -16,8 +16,8 @@ android {
         // 都支持. AccessibilityService / Compose / OkHttp 全 OK.
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.5.18"
+        versionCode = 19
+        versionName = "0.5.19"
         // 平板 + 大屏不限制 — Android 8+ 默认全屏寸适配
         resourceConfigurations += listOf("zh", "en")
     }

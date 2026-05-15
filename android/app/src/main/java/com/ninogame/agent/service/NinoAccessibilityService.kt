@@ -1,8 +1,10 @@
 package com.ninogame.agent.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import com.ninogame.agent.MainActivity
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -34,17 +36,29 @@ class NinoAccessibilityService : AccessibilityService() {
         if (pkg.isNullOrBlank()) return
         ForegroundAppMonitor.setForeground(pkg)
 
-        // v0.5.16+ Token 耗尽 + 当前不是自家 App + 是 consumption 类 →
-        // 把孩子从游戏赶回桌面 + 短促通知 (跟 Windows agent OOT focus reclaim 等价).
-        // 非 consumption (笔记 / 浏览器 / 学习类 / 系统 launcher) 不打扰.
-        // 我们 App 自己的 pkg 不拦 — 孩子在 OOT overlay 上选三按钮要能动.
+        // v0.5.19+ Token 耗尽 = 真"全屏锁": 任何非自家 + 非系统 passthrough 的前台
+        // 都强拉 NinoGame MainActivity 回前台 (跟 Windows agent OOT WindowStaysOnTop +
+        // focus reclaim 等价). 不再按 category 区分, 桌面 / 浏览器 / 学习类一律拦。
+        //
+        // v0.5.16 只拦 consumption 是漏: 孩子能跳到桌面/浏览器/Chrome 绕过锁.
+        // 改成强拉自己回前台后, 用户每次切走 (Home / Recent / 通知点击进任何 app)
+        // 立刻被弹回 OOT 锁屏. 孩子只能:
+        //   1. 点"申请游戏时间" → server 推家长审批 → 家长批 unlock → server
+        //      推 wallet_update + balance>0 → outOfToken 派生 false → 解锁
+        //   2. 点"家长 PIN 解锁" → 切 Parent mode → outOfToken 派生 false → 解锁
+        //   3. 点"锁屏休息" → 切 Lock mode → outOfToken 派生 false → 持续 lock
+        // 没有"等一等就过"的逃逸路径.
+        //
+        // SYSTEM_PASSTHROUGH 保留:
+        //   - android: 系统事件 (TYPE_WINDOW_STATE_CHANGED 偶发用)
+        //   - com.android.systemui: 状态栏 / 通知抽屉 — 允许孩子能看通知 (不能拦)
+        //   - IME 包名 (pkg.contains("inputmethod")): 输入法弹出, PIN 输入要它
         if (AgentState.outOfToken.value && pkg != packageName) {
-            val category = CategoryCache.getCategory(pkg)
-            if (category == "consumption") {
-                Log.i(TAG, "out-of-token + foreground=$pkg (consumption) → home")
+            if (!isSystemPassthrough(pkg)) {
+                Log.i(TAG, "out-of-token + foreground=$pkg → relaunch NinoGame")
                 BlockNotifier.notifyOutOfToken(this, pkg)
-                performGlobalAction(GLOBAL_ACTION_HOME)
-                return  // 不再跑规则匹配, 已经赶回 home 了
+                launchSelfToFront()
+                return  // 不再跑规则匹配, 已经强制拉回自家了
             }
         }
 
@@ -83,6 +97,33 @@ class NinoAccessibilityService : AccessibilityService() {
             put("matched_value", hit.matchedValue)
             put("action", action)
         })
+    }
+
+    /** 把 NinoGame MainActivity 强拉到前台 — outOfToken 全屏锁的"反弹"动作. */
+    private fun launchSelfToFront() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { Log.w(TAG, "launchSelfToFront failed", it) }
+    }
+
+    /** 系统级 passthrough 包 — outOfToken 时这些前台**不**触发反弹.
+     *  保留:
+     *    - "android" / "com.android.systemui": 系统事件 / 状态栏 / 通知抽屉
+     *    - 输入法 (pkg.contains("inputmethod")): PIN 验证要用键盘
+     *    - 拨号 / 电话 / 通讯录: 紧急通话不能被锁屏拦截 (跟 OS 紧急 SOS 同思路;
+     *      家长不想这样可以远程加规则拦"com.android.dialer")
+     *  桌面 launcher **不在**这里, OOT 时也会被强拉回 (跟"全屏锁"语义一致). */
+    private fun isSystemPassthrough(pkg: String): Boolean {
+        if (pkg == "android" || pkg == "com.android.systemui") return true
+        if (pkg.contains("inputmethod", ignoreCase = true)) return true
+        if (pkg.contains("dialer", ignoreCase = true)) return true
+        if (pkg == "com.android.phone" || pkg == "com.android.contacts") return true
+        if (pkg.contains("emergency", ignoreCase = true)) return true
+        return false
     }
 
     override fun onInterrupt() {
