@@ -1,7 +1,11 @@
 package com.ninogame.agent.service
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.ContactsContract
+import android.telecom.TelecomManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.ninogame.agent.MainActivity
@@ -22,12 +26,20 @@ import kotlinx.serialization.json.put
  */
 class NinoAccessibilityService : AccessibilityService() {
 
+    /** outOfToken / Lock 时允许停留的系统级 / 应急 app 包名 — onServiceConnected
+     *  时 PackageManager 查一次缓存. v0.5.24+ 修 v0.5.21 的漏: 之前 isSystemPassthrough
+     *  只硬编码 dialer/phone/contacts/inputmethod 关键词, 漏了 SMS 包 (Pixel 的
+     *  com.google.android.apps.messaging), 切到短信立刻被拉回. */
+    @Volatile
+    private var passthroughPackages: Set<String> = emptySet()
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "NinoAccessibilityService connected")
         instance = this  // 静态引用让 UI (OutOfTokenScreen "锁屏休息") 能调 lockScreenNow
         // 启动一次 reset 防止上次进程残留状态
         ForegroundAppMonitor.reset()
+        discoverPassthroughPackages()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -106,20 +118,76 @@ class NinoAccessibilityService : AccessibilityService() {
             .onFailure { Log.w(TAG, "launchSelfToFront failed", it) }
     }
 
-    /** 系统级 passthrough 包 — outOfToken 时这些前台**不**触发反弹.
-     *  保留:
-     *    - "android" / "com.android.systemui": 系统事件 / 状态栏 / 通知抽屉
-     *    - 输入法 (pkg.contains("inputmethod")): PIN 验证要用键盘
-     *    - 拨号 / 电话 / 通讯录: 紧急通话不能被锁屏拦截 (跟 OS 紧急 SOS 同思路;
-     *      家长不想这样可以远程加规则拦"com.android.dialer")
-     *  桌面 launcher **不在**这里, OOT 时也会被强拉回 (跟"全屏锁"语义一致). */
+    /** 系统级 passthrough 包 — outOfToken / Lock 时这些前台**不**触发反弹.
+     *
+     *  组成:
+     *    1. 硬编码常量: "android" / "com.android.systemui" / emergency 关键词
+     *    2. [passthroughPackages] 运行时 PackageManager 发现的:
+     *       - 所有 IME (InputMethod service)
+     *       - 默认 SMS handler + 所有处理 smsto: 的 app
+     *       - 默认 Dialer + 所有处理 ACTION_DIAL 的 app
+     *       - 所有处理 ContactsContract.Contacts.CONTENT_URI 的 app
+     *    3. 关键词 fallback (运行时 discovery 失败 / 未跑时): inputmethod / dialer
+     *
+     *  桌面 launcher / Chrome / 游戏 **不在**这里, OOT 时强拉回 (跟"全屏锁"语义一致). */
     private fun isSystemPassthrough(pkg: String): Boolean {
         if (pkg == "android" || pkg == "com.android.systemui") return true
+        if (pkg in passthroughPackages) return true
+        // 关键词 fallback
         if (pkg.contains("inputmethod", ignoreCase = true)) return true
         if (pkg.contains("dialer", ignoreCase = true)) return true
         if (pkg == "com.android.phone" || pkg == "com.android.contacts") return true
         if (pkg.contains("emergency", ignoreCase = true)) return true
         return false
+    }
+
+    /** PackageManager 查所有 SMS / Dialer / Contacts / IME handler, 缓存到
+     *  passthroughPackages. 应急通讯类全覆盖 (跟 OS SOS 思路一致). */
+    private fun discoverPassthroughPackages() {
+        val merged = mutableSetOf<String>()
+        val pm = packageManager
+
+        // 1. IME (输入法)
+        runCatching {
+            val intent = Intent("android.view.InputMethod")
+            pm.queryIntentServices(intent, 0).forEach { info ->
+                info.serviceInfo?.packageName?.let { merged.add(it) }
+            }
+        }.onFailure { Log.w(TAG, "IME discovery failed", it) }
+
+        // 2. SMS: 默认 handler + 所有处理 smsto: 的 app (Pixel: com.google.android.apps.messaging)
+        runCatching {
+            android.provider.Telephony.Sms.getDefaultSmsPackage(this)?.let { merged.add(it) }
+        }.onFailure { Log.w(TAG, "default SMS discovery failed", it) }
+        runCatching {
+            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:"))
+            pm.queryIntentActivities(intent, 0).forEach { info ->
+                info.activityInfo?.packageName?.let { merged.add(it) }
+            }
+        }.onFailure { Log.w(TAG, "SMS handlers discovery failed", it) }
+
+        // 3. Dialer: 默认 + 所有 ACTION_DIAL handler
+        runCatching {
+            val tm = getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+            tm?.defaultDialerPackage?.let { merged.add(it) }
+        }.onFailure { Log.w(TAG, "default Dialer discovery failed", it) }
+        runCatching {
+            val intent = Intent(Intent.ACTION_DIAL)
+            pm.queryIntentActivities(intent, 0).forEach { info ->
+                info.activityInfo?.packageName?.let { merged.add(it) }
+            }
+        }.onFailure { Log.w(TAG, "Dialer handlers discovery failed", it) }
+
+        // 4. Contacts: 所有处理 ContactsContract 的 app
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.CONTENT_URI)
+            pm.queryIntentActivities(intent, 0).forEach { info ->
+                info.activityInfo?.packageName?.let { merged.add(it) }
+            }
+        }.onFailure { Log.w(TAG, "Contacts handlers discovery failed", it) }
+
+        passthroughPackages = merged
+        Log.i(TAG, "passthroughPackages (${merged.size}): $merged")
     }
 
     override fun onInterrupt() {

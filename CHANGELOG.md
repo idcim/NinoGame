@@ -4,6 +4,11 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.24 · 2026-05-15
+
+- **修短信 (SMS) 切到后立刻被拉回** — v0.5.21 isSystemPassthrough 只硬编码 dialer/phone/contacts/inputmethod 关键词, 漏 SMS 包 (Pixel `com.google.android.apps.messaging` / 三星 / MIUI 各 OEM 包名都不同). 改成 PackageManager 运行时发现: IME (`android.view.InputMethod`) / SMS (`Telephony.getDefaultSmsPackage` + `ACTION_SENDTO smsto:` handlers) / Dialer (`TelecomManager.defaultDialerPackage` + `ACTION_DIAL` handlers) / Contacts (`ACTION_VIEW + ContactsContract.Contacts.CONTENT_URI`) 一次性全发现, NinoAccessibilityService.onServiceConnected 时缓存到 `passthroughPackages`. 原硬编码关键词保留作 fallback.
+- **AndroidManifest 加 `<queries>` 元素** — Android 11+ 包可见性限制, query 其它 app 必须显式声明 intent. 加了 IME / SMS / DIAL / 通讯录 / launcher 五个 intent, 让 PackageManager API 真返回结果不被系统屏蔽.
+
 ## Android v0.5.23 · 2026-05-15
 
 - **修扣 token 不工作 (关键回归)** — v0.5.18 ForegroundAppMonitor 把 launcher 加进 IGNORED 后, 桌面/IME 时 `foregroundApp=null` → TokenTicker 第 4 个短路条件触发 → 一直跳过. 跟 CLAUDE.md 决策 #36 "在跑就扣" 矛盾 (Win agent token_engine 不看前台 app). TokenTicker 删掉 `foregroundApp != null` 检查, 改成 `mode=Child + WS Open + 屏幕亮 + 非 free_pass` 就扣, pkg null 时占位 "(idle)" 让 server ledger 看得出来源.
