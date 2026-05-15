@@ -97,6 +97,20 @@ export const api = {
       { method: "POST" },
     ),
 
+  /** v0.4.3+ 家长 PIN 主从同步 — server 存 hash + 推 pin_sync 给所有该 child 在线设备. */
+  setParentPin: (child_id: string, pin: string) =>
+    request<{ ok: boolean; devices: number; pushed: number }>(
+      `/api/children/${child_id}/parent-pin`,
+      { method: "POST", body: JSON.stringify({ pin }) },
+    ),
+
+  /** v0.4.3+ 清空家长 PIN. */
+  clearParentPin: (child_id: string) =>
+    request<{ ok: boolean; devices: number; pushed: number }>(
+      `/api/children/${child_id}/parent-pin`,
+      { method: "DELETE" },
+    ),
+
   // ── devices ────────────────────────────────────────────────
   listDevices: () =>
     request<{ devices: Array<Device> }>("/api/devices"),
@@ -441,6 +455,10 @@ export interface Device {
   created_at: string;
   paired: boolean;
   child_id: string | null;
+  /** v0.4.3+ Agent hello 上报的版本 (Win 0.4.x / Android 0.5.x) */
+  agent_version?: string | null;
+  /** v0.4.3+ Agent 上报的 PIN 设置状态; 未上报 (老 Agent) 视为未设 */
+  agent_pin_set?: boolean;
   /** 由 getConnectedDevices() 注入，仅 listDevices 才有 */
   online?: boolean;
 }

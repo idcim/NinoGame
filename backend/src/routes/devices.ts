@@ -152,9 +152,10 @@ export async function registerDeviceRoutes(app: FastifyInstance) {
         id: string; device_type: string; name: string | null;
         platform: string | null; last_seen_at: string | null;
         created_at: string; paired: boolean; child_id: string | null;
+        agent_version: string | null; agent_pin_set: boolean;
       }>(
         `SELECT d.id, d.device_type, d.name, d.platform, d.last_seen_at,
-                d.created_at,
+                d.created_at, d.agent_version, d.agent_pin_set,
                 CASE WHEN d.agent_token IS NULL THEN false ELSE true END AS paired,
                 b.child_id
            FROM "NinoGame".devices d

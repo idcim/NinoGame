@@ -4,6 +4,7 @@ import { pool } from "../db.js";
 import { seedDefaultRulesForChild } from "../services/default_rules.js";
 import { pushToDevice } from "../ws/agent.js";
 import { publishToParent } from "../ws/event_bus.js";
+import { hashNewPin } from "../services/parent_pin.js";
 
 const CreateBody = z.object({
   username: z.string().min(2).max(32).regex(/^[A-Za-z0-9_.-]+$/),
@@ -403,6 +404,97 @@ export async function registerChildrenRoutes(app: FastifyInstance) {
       );
       app.log.info({ child_id, dismissed_target: target }, "maturity suggestion dismissed");
       return { dismissed: target };
+    },
+  );
+
+  // ── v0.4.3+ 家长 PIN 主从同步 ────────────────────────
+  //
+  // PIN 设计 (CLAUDE.md §3.2): 跟 child 绑定, 多设备共享. server 持 PBKDF2
+  // hash + salt, 设/改时立刻推 pin_sync 给所有该 child 在线设备. 配对完成
+  // / Agent 重启时通过 hello_ack 自动同步, 不需要家长手动给每台设备点"设 PIN".
+
+  const SetPinBody = z.object({
+    pin: z.string().min(4).max(12).regex(/^\d+$/, "PIN 只接受 4-12 位数字"),
+  });
+
+  app.post(
+    "/api/children/:id/parent-pin",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const child_id = (req.params as { id: string }).id;
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "NinoGame".children
+          WHERE id = $1 AND parent_id = $2`,
+        [child_id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      const parsed = SetPinBody.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.badRequest(parsed.error.issues.map((i) => i.message).join("; "));
+      }
+      const { hash_hex, salt_hex } = hashNewPin(parsed.data.pin);
+      await pool.query(
+        `UPDATE "NinoGame".children
+            SET parent_pin_hash = $1, parent_pin_salt = $2
+          WHERE id = $3`,
+        [hash_hex, salt_hex, child_id],
+      );
+
+      // 推 pin_sync 给该 child 所有在线设备
+      const devs = await pool.query<{ id: string }>(
+        `SELECT d.id FROM "NinoGame".devices d
+          JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+         WHERE b.child_id = $1 AND d.agent_token IS NOT NULL`,
+        [child_id],
+      );
+      let pushed = 0;
+      for (const d of devs.rows) {
+        if (pushToDevice(d.id, {
+          type: "pin_sync",
+          payload: { hash_hex, salt_hex },
+        })) pushed++;
+      }
+      app.log.info({ child_id, devices: devs.rows.length, pushed }, "★ parent PIN set + sync");
+      return { ok: true, devices: devs.rows.length, pushed };
+    },
+  );
+
+  app.delete(
+    "/api/children/:id/parent-pin",
+    { preHandler: app.parentAuth },
+    async (req, reply) => {
+      const child_id = (req.params as { id: string }).id;
+      const own = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM "NinoGame".children
+          WHERE id = $1 AND parent_id = $2`,
+        [child_id, req.parent!.sub],
+      );
+      if (Number(own.rows[0].count) === 0) {
+        return reply.forbidden("孩子不属于当前家长");
+      }
+      await pool.query(
+        `UPDATE "NinoGame".children
+            SET parent_pin_hash = NULL, parent_pin_salt = NULL
+          WHERE id = $1`,
+        [child_id],
+      );
+      const devs = await pool.query<{ id: string }>(
+        `SELECT d.id FROM "NinoGame".devices d
+          JOIN "NinoGame".device_bindings b ON b.device_id = d.id
+         WHERE b.child_id = $1 AND d.agent_token IS NOT NULL`,
+        [child_id],
+      );
+      let pushed = 0;
+      for (const d of devs.rows) {
+        if (pushToDevice(d.id, {
+          type: "pin_clear",
+          payload: {},
+        })) pushed++;
+      }
+      app.log.info({ child_id, devices: devs.rows.length, pushed }, "★ parent PIN cleared + sync");
+      return { ok: true, devices: devs.rows.length, pushed };
     },
   );
 }

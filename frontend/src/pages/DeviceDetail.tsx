@@ -39,6 +39,26 @@ import {
   timeAgo,
 } from "../lib/labels";
 
+/** v0.4.3+ PIN 未设置警告横幅 — DeviceDetail 顶部, 醒目橙色, 提示家长立刻设.
+ *  Agent hello 上报 pin_set=false 时显示. 没 PIN 时孩子在 OOT 锁屏上按"家长 PIN
+ *  解锁" 会被拒 (Win v0.4.2 / Android v0.5.26 修), 等于孩子完全卡死 — 家长不设
+ *  PIN 整个锁屏机制就废了. */
+function PinMissingBanner() {
+  return (
+    <div className="card p-4 bg-warn/10 border-warn/40 flex items-start gap-3">
+      <KeyRound size={20} className="text-warn shrink-0 mt-0.5" />
+      <div className="flex-1 text-sm">
+        <div className="font-semibold text-warn mb-1">家长 PIN 还未设置</div>
+        <div className="text-ink-dim leading-relaxed">
+          这台设备的 Agent 没设 PIN. 当孩子余额耗尽 (锁屏) 时, 你无法在孩子面前
+          切到家长模式临时解锁 — 也无法 在 App 上设置 PIN 因为没 PIN 也没法绕开
+          (孩子不该能绕). 请用下方的"设置 / 重置 PIN"按钮立刻设一个 4-12 位 PIN.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const nav = useNavigate();
@@ -116,9 +136,13 @@ export default function DeviceDetail() {
         <div className="card p-4 text-warn bg-warn/5 border-warn/30">{err}</div>
       )}
 
+      {device && device.paired && device.agent_pin_set === false && (
+        <PinMissingBanner />
+      )}
+
       <AgentStateCard deviceId={id} online={!!device?.online} />
 
-      <QuickActions deviceId={id} onPushed={load} />
+      <QuickActions deviceId={id} childId={device?.child_id ?? null} onPushed={load} />
 
       {device?.child_id && <FreePassSection childId={device.child_id} />}
 
@@ -151,9 +175,11 @@ export default function DeviceDetail() {
 
 function QuickActions({
   deviceId,
+  childId,
   onPushed,
 }: {
   deviceId: string;
+  childId: string | null;
   onPushed: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -250,12 +276,23 @@ function QuickActions({
         <PinDialog
           onClose={() => setShowPinForm(false)}
           onSubmit={async (pin) => {
-            if (pin === "") {
-              await push("clear_pin", {}, "清空 PIN");
-            } else {
-              await push("set_pin", { pin }, "设置 PIN");
+            // v0.4.3+ 改成 child 级 REST: server 存 hash+salt + 推 pin_sync 给所有
+            // 该 child 在线设备. 不再走老 set_pin/clear_pin command (按 device 推
+            // 明文 PIN, 多设备绑同一孩子时需要逐个设, 漏设风险高).
+            if (!childId) {
+              alert("设备还没绑孩子, 无法设 PIN");
+              return;
             }
-            setShowPinForm(false);
+            try {
+              if (pin === "") {
+                await api.clearParentPin(childId);
+              } else {
+                await api.setParentPin(childId, pin);
+              }
+              setShowPinForm(false);
+            } catch (e) {
+              alert(e instanceof ApiError ? e.message : "PIN 操作失败");
+            }
           }}
         />
       )}

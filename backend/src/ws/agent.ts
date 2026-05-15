@@ -236,11 +236,24 @@ async function onHello(
 ): Promise<void> {
   // 持久化 agent_version + 比对 target release: 落后则入队 update_self.
   // 不 await 也行 (升级是异步推送, hello_ack 不依赖), 但失败的话日志要看得到.
-  const helloPayload = (msg.payload || {}) as { agent_version?: string };
+  const helloPayload = (msg.payload || {}) as {
+    agent_version?: string;
+    pin_set?: boolean;
+  };
   const agent_version = helloPayload.agent_version;
   await persistAgentVersion(meta.device_id, agent_version);
   void maybeQueueUpdateForDevice(app, meta.device_id, agent_version || null)
     .catch((err) => app.log.warn({ err, device_id: meta.device_id }, "maybe queue update failed"));
+
+  // v0.4.3+ 持久化 PIN 状态 — 让家长后台能看到"哪些设备还没设 PIN"
+  if (typeof helloPayload.pin_set === "boolean") {
+    void pool
+      .query(
+        `UPDATE "NinoGame".devices SET agent_pin_set = $1 WHERE id = $2`,
+        [helloPayload.pin_set, meta.device_id],
+      )
+      .catch((err) => app.log.warn({ err, device_id: meta.device_id }, "persist pin_set failed"));
+  }
 
   // 0) 服务端先幂等发今日基础 token (Agent 上线触发, 跨午夜也会自动补发)
   if (meta.child_id) {
@@ -317,6 +330,20 @@ async function onHello(
       )).rows.map((r) => r.task_id)
     : [];
 
+  // v0.4.3+ 家长 PIN 主从同步 — server 持有 PBKDF2 hash+salt, hello_ack 时下发,
+  // Agent 直接 set_pin_raw 跳过自己 hash. 跟 CLAUDE.md §3.2 "PIN 多设备共享" 对齐.
+  let parent_pin_sync: { hash_hex: string; salt_hex: string } | null = null;
+  if (meta.child_id) {
+    const pinRow = await pool.query<{ parent_pin_hash: string | null; parent_pin_salt: string | null }>(
+      `SELECT parent_pin_hash, parent_pin_salt FROM "NinoGame".children WHERE id = $1`,
+      [meta.child_id],
+    );
+    const row = pinRow.rows[0];
+    if (row?.parent_pin_hash && row.parent_pin_salt) {
+      parent_pin_sync = { hash_hex: row.parent_pin_hash, salt_hex: row.parent_pin_salt };
+    }
+  }
+
   socket.send(
     JSON.stringify({
       type: "hello_ack",
@@ -330,6 +357,7 @@ async function onHello(
         active_free_pass,
         settings,
         responsibility_today,
+        parent_pin_sync,
         server_time: new Date().toISOString(),
       },
     }),

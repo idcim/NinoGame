@@ -64,6 +64,30 @@ object PinManager {
         Log.i(TAG, "★ PIN 已清空")
     }
 
+    /** v0.5.27+ 查 PIN 是否已设. AgentService.sendHello 用来上报 server,
+     *  让家长后台能看到"哪些设备还没设 PIN". */
+    suspend fun isPinSet(ctx: Context): Boolean {
+        val s = Settings.from(ctx)
+        return s.pinHash.first() != null && s.pinSalt.first() != null
+    }
+
+    /** v0.5.27+ 从 server 同步 PIN — 跳过自己 hash, 直接存 server 给的
+     *  hash + salt. 跟 setPin 同算法 (PBKDF2-SHA256 32B / salt 16B / iter 240000),
+     *  server services/parent_pin.ts 对齐. 校验 hex 长度防错误 payload 写坏本地. */
+    suspend fun setPinRaw(ctx: Context, hashHex: String, saltHex: String): Boolean {
+        if (hashHex.length != 64 || !hashHex.all { it in "0123456789abcdefABCDEF" }) {
+            Log.w(TAG, "setPinRaw: hashHex 不合法 (期望 64 hex)")
+            return false
+        }
+        if (saltHex.length != SALT_BYTES * 2 || !saltHex.all { it in "0123456789abcdefABCDEF" }) {
+            Log.w(TAG, "setPinRaw: saltHex 不合法 (期望 ${SALT_BYTES * 2} hex)")
+            return false
+        }
+        Settings.from(ctx).savePin(hashHex.lowercase(), saltHex.lowercase())
+        Log.i(TAG, "★ PIN 从 server 同步 (hash=${hashHex.take(8)}..., salt=${saltHex.take(8)}...)")
+        return true
+    }
+
     /** 验证 PIN. 锁定期内直接返 NotSet 不接受验证. */
     suspend fun verify(ctx: Context, pin: String): VerifyResult {
         val s = Settings.from(ctx)

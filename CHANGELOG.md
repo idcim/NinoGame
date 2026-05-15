@@ -4,6 +4,46 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## 跨端 PIN 主从同步 · Backend v0.4.11 / Win v0.4.3 / Android v0.5.27 · 2026-05-15
+
+用户反馈: "PC agent 没有设置 PIN 才会无 PIN 跳过, 正确流程应该是后台有的话第一次通信就同步过来, 如果没有就提示设置. 后台如果添加或变更 PIN 就直接同步到各端".
+
+### 设计
+
+- **server 持 PIN 权威源** — children 表加 `parent_pin_hash` + `parent_pin_salt` (PBKDF2-SHA256 32B/16B, 跟两端 Agent 完全同算法)
+- **REST**: `POST /api/children/:id/parent-pin` 设/改, `DELETE` 清空. 写完立刻 push `pin_sync` (hash+salt) 给所有该 child 在线设备
+- **hello_ack 全量同步**: server 在 hello_ack payload 加 `parent_pin_sync: {hash_hex, salt_hex}`, Agent 配对后/重启后/重连后自动拿到 PIN (跟 CLAUDE.md §3.2 "多设备共享" 对齐)
+- **Agent 不再自己 hash**: 新增 `set_pin_raw(hash, salt)` 方法 (Win `PinManager.set_pin_raw` / Android `PinManager.setPinRaw`), server hash 直接写本地 settings.json / DataStore
+- **agent_pin_set 字段** 仍保留作可见性: Agent hello 上报本地 PIN 状态, 家长后台能看到"哪些设备同步到了 PIN" — 检测同步链路问题用 (devices.agent_pin_set 新字段)
+- **DeviceDetail 顶部 PinMissingBanner**: Agent hello 上报 pin_set=false 时显示醒目橙色横幅, 提示家长立刻设 PIN
+
+### 服务端
+
+- backend SQL migration `1747095900000_agent_pin_state.sql`: children 加 parent_pin_hash/salt, devices 加 agent_pin_set
+- backend `services/parent_pin.ts`: `hashNewPin` / `hashPinWithSalt` 跟两端 Agent PBKDF2 同款 (240000 iter / 16B salt / 32B output)
+- backend `routes/children.ts`: 新增 POST/DELETE `/api/children/:id/parent-pin`, push `pin_sync` / `pin_clear` 给所有在线设备
+- backend `ws/agent.ts` onHello: 持久化 pin_set + hello_ack 加 parent_pin_sync 字段
+- backend `routes/devices.ts` listDevices SELECT 返回 agent_version + agent_pin_set
+
+### Windows Agent v0.4.3
+
+- `protector/pin_manager.PinManager`: 加 `set_pin_raw(hash_hex, salt_hex)` (校验 hex 长度) + `clear_pin()` 方法
+- `main.py`: hello payload 加 `pin_set: self.pin.has_pin()`; hello_ack 解析 `parent_pin_sync` → `_apply_pin_sync`; 订阅独立消息 `pin_sync` / `pin_clear`
+- `_oot_on_parent_unlock` 之前修复 (没 PIN 拒绝切) 保留, 现在 server hello_ack 会主动推同步, 没 PIN 场景应该几乎不再出现
+
+### Android Agent v0.5.27
+
+- `PinManager`: 加 `isPinSet(ctx)` (sendHello 用) + `setPinRaw(ctx, hashHex, saltHex)` (hex 长度校验)
+- `AgentService.sendHello`: payload 加 `pin_set` (runBlocking 同步读 DataStore)
+- `AgentService.onHelloAck`: 解析 `parent_pin_sync` → `PinManager.setPinRaw`
+- `AgentService.handleMessage`: 加 `pin_sync` / `pin_clear` 分支
+
+### Frontend
+
+- `api.ts` Device 接口加 `agent_version` / `agent_pin_set`; 加 `setParentPin(child, pin)` / `clearParentPin(child)`
+- `DeviceDetail.tsx`: PIN 弹窗改为调新 REST (child 级, server 推 hash+salt). 顶部加 `PinMissingBanner` 警告横幅
+- 老 `set_pin` / `clear_pin` command 路径仍兼容 (老 Agent <v0.4.3 可继续用), 但 frontend 默认走新 REST
+
 ## Android v0.5.26 · 2026-05-15
 
 - **PIN 安全修 (跟 Win v0.4.2 同源)** — 用户反馈"PC Agent 0 token 锁住后点切换家长时不用输入 PIN 就成功切换了". Android PinDialog 同款 bug: `VerifyResult.NotSet` 走 `onSuccess()` "兜底直接通过", 孩子在 OOT 锁屏上按"家长 PIN 解锁"就能免验证逃逸. 修法: NotSet 时 dialog 内显示提示"家长 PIN 还未设置, 请家长在后台配置后再试" + 禁用输入 + 禁用 verify 按钮.

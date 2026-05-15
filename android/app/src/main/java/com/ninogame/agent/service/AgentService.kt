@@ -217,6 +217,12 @@ class AgentService : Service() {
     }
 
     private fun sendHello(@Suppress("UNUSED_PARAMETER") agentToken: String) {
+        // v0.5.27+ 上报 PIN 状态. PinManager.isPinSetSync 同步读 DataStore — 这里
+        // 已在协程里 (connectOnce scope), 直接 runBlocking 拿可以接受 (单次查询,
+        // <1ms; 跟整体 hello 一次性逻辑一起走).
+        val pinSet = runCatching {
+            kotlinx.coroutines.runBlocking { PinManager.isPinSet(this@AgentService) }
+        }.getOrDefault(false)
         val msg = buildJsonObject {
             put("type", "hello")
             put("payload", buildJsonObject {
@@ -225,6 +231,7 @@ class AgentService : Service() {
                 put("os_release", Build.VERSION.RELEASE)
                 put("os_sdk", Build.VERSION.SDK_INT)
                 put("model", "${Build.MANUFACTURER} ${Build.MODEL}")
+                put("pin_set", pinSet)
             })
         }
         wsClient?.sendJson(msg.toString())
@@ -235,13 +242,38 @@ class AgentService : Service() {
             "hello_ack" -> onHelloAck(msg.payload)
             "wallet_update" -> onWalletUpdate(msg.payload)
             "rules_update" -> onRulesUpdate(msg.payload)
-"app_categories_update" -> onAppCategoriesUpdate(msg.payload)
+            "app_categories_update" -> onAppCategoriesUpdate(msg.payload)
             "tasks_update" -> onTasksUpdate(msg.payload)
             "settings_update" -> AgentSettings.applyFromServer(msg.payload)
             "command" -> onCommand(msg.payload)
+            "pin_sync" -> onPinSync(msg.payload)  // v0.5.27+ server 主导 PIN 同步
+            "pin_clear" -> onPinClear()
             "error" -> Log.w(TAG, "server error: ${msg.payload}")
-            // Stage 3c+ 会加: settings_update / tasks_update / ...
-            else -> Log.d(TAG, "msg ignored (Stage 3b1): ${msg.type}")
+            else -> Log.d(TAG, "msg ignored: ${msg.type}")
+        }
+    }
+
+    /** v0.5.27+ 收到 server pin_sync (家长后台设/改 PIN 时实时推) — 直接存
+     *  本地 hash+salt, 跳过自己 hash. */
+    private fun onPinSync(payload: JsonElement?) {
+        val obj = payload as? JsonObject ?: return
+        val hashHex = obj["hash_hex"]?.jsonPrimitive?.contentOrNull
+        val saltHex = obj["salt_hex"]?.jsonPrimitive?.contentOrNull
+        if (hashHex.isNullOrBlank() || saltHex.isNullOrBlank()) {
+            Log.w(TAG, "pin_sync 缺 hash_hex/salt_hex")
+            return
+        }
+        scope.launch {
+            val ok = PinManager.setPinRaw(this@AgentService, hashHex, saltHex)
+            Log.i(TAG, "pin_sync applied: ok=$ok")
+        }
+    }
+
+    /** v0.5.27+ 收到 server pin_clear — 清空本地 PIN. */
+    private fun onPinClear() {
+        scope.launch {
+            PinManager.clearPin(this@AgentService)
+            Log.i(TAG, "★ pin_clear: 家长 PIN 已远程清空")
         }
     }
 
@@ -319,6 +351,16 @@ class AgentService : Service() {
         runCatching { obj["responsibility_today"]?.jsonArray }.getOrNull()?.let { arr ->
             val ids = arr.mapNotNull { it.jsonPrimitive.contentOrNull }.toSet()
             TasksCache.setResponsibilityToday(ids)
+        }
+        // v0.5.27+ 家长 PIN 主从同步: server 在 hello_ack 带 hash+salt, Agent 自动写本地
+        runCatching { obj["parent_pin_sync"]?.jsonObject }.getOrNull()?.let { pinObj ->
+            val hashHex = pinObj["hash_hex"]?.jsonPrimitive?.contentOrNull
+            val saltHex = pinObj["salt_hex"]?.jsonPrimitive?.contentOrNull
+            if (!hashHex.isNullOrBlank() && !saltHex.isNullOrBlank()) {
+                scope.launch {
+                    PinManager.setPinRaw(this@AgentService, hashHex, saltHex)
+                }
+            }
         }
         // v0.5.5+ 重连后回放 server 积压的命令 (温柔的: server 已经过滤掉 1 小时
         // 前的, 见 backend/src/ws/agent.ts onHello, 不会出现"半夜批准了 30min

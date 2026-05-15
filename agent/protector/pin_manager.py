@@ -102,6 +102,44 @@ class PinManager:
             self._fails = 0
             self._locked_until = None
 
+    def set_pin_raw(self, hash_hex: str, salt_hex: str) -> None:
+        """v0.4.3+ 从 server 同步 PIN — 跳过自己 hash, 直接存 server 给的
+        hash + salt. 跟 set_pin 同算法 (PBKDF2-SHA256 32B / salt 16B / iter
+        240000), server 端 services/parent_pin.ts 已对齐.
+
+        校验 hash_hex 长度 + salt_hex 长度, 防错误 payload 写坏本地.
+        """
+        if not (
+            isinstance(hash_hex, str)
+            and len(hash_hex) == _HASH_HEX_LEN
+            and _is_valid_hash_field(hash_hex)
+        ):
+            raise ValueError(f"hash_hex 不合法 (期望 {_HASH_HEX_LEN} hex)")
+        if not (
+            isinstance(salt_hex, str)
+            and len(salt_hex) == _SALT_BYTES * 2
+            and _is_valid_hash_field(salt_hex)
+        ):
+            raise ValueError(f"salt_hex 不合法 (期望 {_SALT_BYTES * 2} hex)")
+        d = self._read_settings()
+        d["pin_hash"] = hash_hex
+        d["pin_salt"] = salt_hex
+        self._write_settings(d)
+        with self._lock:
+            self._fails = 0
+            self._locked_until = None
+
+    def clear_pin(self) -> None:
+        """v0.4.3+ 清空本地 PIN — 跟 server pin_clear 同步用. 直接清字段
+        (跟 clear_pin command 老路径相同). """
+        d = self._read_settings()
+        d["pin_hash"] = ""
+        d["pin_salt"] = ""
+        self._write_settings(d)
+        with self._lock:
+            self._fails = 0
+            self._locked_until = None
+
     def verify(self, pin: str) -> bool:
         if self.is_locked():
             return False

@@ -81,7 +81,7 @@ from services.updater_kick import (  # noqa: E402
 
 # agent/__init__.py 在 PyInstaller --onefile 模式下不一定能 import 到包名,
 # 此处直接持有与 __init__.py 同步的字符串; 升版时改两处。
-AGENT_VERSION = "0.4.2"
+AGENT_VERSION = "0.4.3"
 
 _log = logging.getLogger(__name__)
 
@@ -687,6 +687,8 @@ class Agent:
                 "payload": {
                     "agent_version": AGENT_VERSION,
                     "device_info": {"platform": "windows"},
+                    # v0.4.3+ 上报 PIN 状态, 让家长后台能看到"哪些设备还没设 PIN"
+                    "pin_set": self.pin.has_pin(),
                 },
             })
 
@@ -712,6 +714,10 @@ class Agent:
             settings = payload.get("settings")
             if isinstance(settings, dict):
                 self._apply_server_settings(settings)
+            # v0.4.3+ 家长 PIN 主从同步: server 持 hash+salt, 这里下发给 Agent
+            pin_sync = payload.get("parent_pin_sync")
+            if isinstance(pin_sync, dict):
+                self._apply_pin_sync(pin_sync)
             for cmd in pending:
                 self._handle_command(cmd)
 
@@ -849,6 +855,26 @@ class Agent:
         def on_command(msg):
             self._handle_command(msg.get("payload") or {})
 
+        def on_pin_sync(msg):
+            """v0.4.3+ server 推 PIN hash+salt, 直接同步本地 (跳过自己 hash)."""
+            payload = msg.get("payload") or {}
+            self._apply_pin_sync(payload)
+
+        def on_pin_clear(_msg):
+            """v0.4.3+ server 推清空 PIN."""
+            try:
+                self.pin.clear_pin()
+                _log.info("★ 家长 PIN 已远程清空 (server pin_clear)")
+                try:
+                    self.notifier.info_async(
+                        "家长已远程清空 PIN。",
+                        title="NinoGame · PIN 已清空",
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                _log.exception("pin_clear 处理失败")
+
         self.transport.subscribe("_connected", on_connected)
         self.transport.subscribe("hello_ack", on_hello_ack)
         self.transport.subscribe("rules_update", on_rules_update)
@@ -856,6 +882,8 @@ class Agent:
         self.transport.subscribe("app_categories_update", on_app_categories_update)
         self.transport.subscribe("settings_update", on_settings_update)
         self.transport.subscribe("wallet_update", on_wallet_update)
+        self.transport.subscribe("pin_sync", on_pin_sync)
+        self.transport.subscribe("pin_clear", on_pin_clear)
         self.transport.subscribe("command", on_command)
 
     def _wire_bus_forwarders(self) -> None:
@@ -1565,6 +1593,25 @@ class Agent:
             target=_loop, name="unknown-apps-reporter", daemon=True,
         )
         self._unknown_apps_thread.start()
+
+    def _apply_pin_sync(self, payload: dict) -> None:
+        """v0.4.3+ 应用 server 推送的 PIN hash+salt — 跳过自己 hash 直接存.
+        跟 protector/pin_manager.PinManager.set_pin_raw 同款校验. 来源:
+          - hello_ack.parent_pin_sync (重连/启动时全量同步)
+          - 独立 pin_sync 消息 (家长在后台改 PIN 时立即推).
+        """
+        hash_hex = str(payload.get("hash_hex") or "").strip()
+        salt_hex = str(payload.get("salt_hex") or "").strip()
+        if not hash_hex or not salt_hex:
+            _log.warning("pin_sync payload 缺 hash_hex/salt_hex, 跳过")
+            return
+        try:
+            self.pin.set_pin_raw(hash_hex, salt_hex)
+            _log.info("★ 家长 PIN 已从 server 同步 (hash=%s..., salt=%s...)",
+                      hash_hex[:8], salt_hex[:8])
+            # 不弹通知 (太吵, 家长配的 PIN 默默同步即可)
+        except Exception:
+            _log.exception("pin_sync 应用失败")
 
     def _apply_server_settings(self, server_settings: dict) -> None:
         """server 推过来的设置 merge 到本地 self.settings + 持久化 settings.json.
