@@ -4,6 +4,12 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.18 · 2026-05-15
+
+- **修 Android 完全不扣 token 的 bug (主因)** — Api.kt OkHttp 没设 `pingInterval`. Server `onHeartbeat` 只更新 `last_seen_at` 不回消息. 30s readTimeout 触发后 WS 频繁断 (docker logs 显示每 19-20s 一次 `/ws/agent disconnected`), connectLoop 重连后 TokenTicker 60s 间隔的 delay 永远跑不满, 实际从来不发 `token_tick`. 加 `pingInterval(20s)` 走 WS 协议级 PING/PONG 保活, server 自动响应不用改代码.
+- **修桌面 launcher 仍扣 token (附带 bug)** — ForegroundAppMonitor.IGNORED_PACKAGES 硬编码列表缺 Pixel `com.google.android.apps.nexuslauncher` / 三星 / 一加 / Nova 等. 改成运行时 `discoverIgnoredPackages(context)` 查 PackageManager 的 CATEGORY_HOME + ACTION_INPUT_METHOD, 一次拉所有 launcher + IME 包名进 ignoredPackages. STATIC_IGNORED 保留作 fallback. AgentService.onCreate 调用一次.
+- versionCode 1 → 18, versionName 0.5.0 → 0.5.18 (跟齐 CHANGELOG, 之前 build.gradle 一直没跟上).
+
 ## Backend v0.4.10 · 2026-05-15
 
 - **规则 UI + LLM 兼容 Android 端** — 规则页文案 / 提示 / 占位符全改成"跨端通用"语言, LLM 一句话生成规则时 keywords 同时给中文名 + 英文别名 + Windows 进程名 + Android 包名. 数据模型不动 (matchers 仍是 process_name/window_title 字段), Agent 端早已兼容: Android RuleEngine v0.5.4 把所有 matcher 对 packageName 匹配, v0.5.13 又加了 CategoryCache.display_name 匹配, PC 关键词在 Android 端早就能命中, 只是 UI 没引导.

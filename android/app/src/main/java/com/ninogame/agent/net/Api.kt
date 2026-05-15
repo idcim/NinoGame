@@ -39,7 +39,12 @@ object Api {
             .addInterceptor(log)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            // WebSocket 不能用 pingInterval 短到几秒, 后端 hello 后会自己 heartbeat
+            // v0.5.18+ 必须设 pingInterval — 之前没设, Server `onHeartbeat` 只
+            // 更新 last_seen_at 不回任何消息, OkHttp 一直读不到 frame, 30s
+            // readTimeout 触发后 disconnect → connectLoop 1-2s 后重连 → TokenTicker
+            // 60s 间隔永远跑不满 → 实际不扣 token. 走 WS 协议级 PING/PONG, server
+            // 自动响应, 无需 server 改代码; 20s < 30s readTimeout 留一档安全余量。
+            .pingInterval(20, TimeUnit.SECONDS)
             .build()
     }
 

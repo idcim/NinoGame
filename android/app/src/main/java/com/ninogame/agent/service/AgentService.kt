@@ -91,6 +91,10 @@ class AgentService : Service() {
             registerReceiver(it, ScreenStateReceiver.intentFilter())
         }
 
+        // v0.5.18+ 运行时发现 launcher + IME 加进 IGNORED_PACKAGES
+        // 修 v0.5.6 引入的 bug: 静态硬编码漏 Pixel launcher 等, 导致桌面时也扣 token
+        ForegroundAppMonitor.discoverIgnoredPackages(applicationContext)
+
         // v0.5.3+ 启动时从 DataStore 把 CategoryCache 恢复回内存
         scope.launch { CategoryCache.load(this@AgentService) }
 
