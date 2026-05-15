@@ -45,11 +45,15 @@ fun PinDialog(
     var hint by remember { mutableStateOf<String?>(null) }
     var locked by remember { mutableStateOf(false) }
     var verifying by remember { mutableStateOf(false) }
+    /** v0.5.26+ 安全修: PIN 未设置时 dialog 内显示提示 + 禁 verify 按钮.
+     *  之前 NotSet 走 onSuccess() "兜底直接通过", 孩子在 OOT 锁屏上按"家长 PIN 解锁"
+     *  就免验证逃出. 跟 Win agent v0.4.2+ 同源修复. */
+    var pinNotSet by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
 
     fun submit() {
-        if (pin.isBlank() || verifying || locked) return
+        if (pin.isBlank() || verifying || locked || pinNotSet) return
         verifying = true
         scope.launch {
             val result = PinManager.verify(ctx, pin)
@@ -59,8 +63,10 @@ fun PinDialog(
                     onSuccess()
                 }
                 is PinManager.VerifyResult.NotSet -> {
-                    // 不该走到这条 — 调用方应该先检查 pinIsSet. 兜底直接通过.
-                    onSuccess()
+                    // v0.5.26+ 拒绝, 不再兜底通过
+                    hint = ctx.getString(R.string.pin_not_set_hint)
+                    pinNotSet = true
+                    pin = ""
                 }
                 is PinManager.VerifyResult.Fail -> {
                     hint = ctx.getString(R.string.pin_fail_remaining, result.remainingAttempts)
@@ -75,12 +81,16 @@ fun PinDialog(
         }
     }
 
-    // 进入对话框时已经锁定, 先查一次
+    // 进入对话框时先查状态: 锁定 / PIN 未设置 都立刻显示提示 + 禁用输入
     LaunchedEffect(Unit) {
         when (val r = PinManager.verify(ctx, "")) {
             is PinManager.VerifyResult.Locked -> {
                 hint = ctx.getString(R.string.pin_locked, r.remainingMinutes)
                 locked = true
+            }
+            is PinManager.VerifyResult.NotSet -> {
+                hint = ctx.getString(R.string.pin_not_set_hint)
+                pinNotSet = true
             }
             else -> Unit
         }
@@ -106,7 +116,7 @@ fun PinDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                     singleLine = true,
-                    enabled = !verifying && !locked,
+                    enabled = !verifying && !locked && !pinNotSet,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (hint != null) {
@@ -121,7 +131,7 @@ fun PinDialog(
         confirmButton = {
             Button(
                 onClick = { submit() },
-                enabled = !verifying && !locked && pin.length >= 4,
+                enabled = !verifying && !locked && !pinNotSet && pin.length >= 4,
             ) {
                 Text(stringResource(R.string.pin_dialog_verify))
             }

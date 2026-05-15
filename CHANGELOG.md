@@ -4,6 +4,16 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.26 · 2026-05-15
+
+- **PIN 安全修 (跟 Win v0.4.2 同源)** — 用户反馈"PC Agent 0 token 锁住后点切换家长时不用输入 PIN 就成功切换了". Android PinDialog 同款 bug: `VerifyResult.NotSet` 走 `onSuccess()` "兜底直接通过", 孩子在 OOT 锁屏上按"家长 PIN 解锁"就能免验证逃逸. 修法: NotSet 时 dialog 内显示提示"家长 PIN 还未设置, 请家长在后台配置后再试" + 禁用输入 + 禁用 verify 按钮.
+- LaunchedEffect 初始化时也查一次 NotSet, 进 dialog 立刻看到提示, 不用先按一次才发现.
+- 跟 Locked 状态用同一套 UI 模式 (hint + disabled), 一致性好.
+
+## Windows Agent v0.4.2 · 2026-05-15
+
+- **OOT 切家长 PIN 安全修 (关键)** — 用户反馈"PC Agent 0 token 锁住后点切换家长时不用输入 PIN 就成功切换了". `_oot_on_parent_unlock` 之前的判定 `if not self.pin.has_pin(): self._switch_to_parent_after_unlock()` (理由"家长信任本地物理在场") 实际是漏洞 — 孩子也物理在场, 在锁屏上免验证逃逸. 修法: 没设 PIN 时拒绝切 + notifier.warn 提示"家长 PIN 还未设置, 请家长在后台 (设备页 → 设置 PIN) 配置后, 重新尝试", 不再 fallthrough 到 _switch_to_parent_after_unlock.
+
 ## Android v0.5.25 · 2026-05-15
 
 - **我的消息 (通知历史)** — 跟 Win agent `MessagesWindow` 等价. `NotifLog` singleton 环形 buffer 存最近 100 条通知, BlockNotifier 三方法 (blocked/oot/lowBalance) + CommandHandler 五命令 (unlock/lock/free_pass/pin set/pin clear) 都 push 一条进 log. `MessagesScreen` (Settings → 我的消息) LazyColumn 渲染, 按时间倒序, 显示标题/正文/时间戳/类别图标.

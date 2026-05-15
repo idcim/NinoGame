@@ -81,7 +81,7 @@ from services.updater_kick import (  # noqa: E402
 
 # agent/__init__.py 在 PyInstaller --onefile 模式下不一定能 import 到包名,
 # 此处直接持有与 __init__.py 同步的字符串; 升版时改两处。
-AGENT_VERSION = "0.4.1"
+AGENT_VERSION = "0.4.2"
 
 _log = logging.getLogger(__name__)
 
@@ -1749,11 +1749,22 @@ class Agent:
         raise 到前台 → PIN 输入框失焦 → 闪烁 + 无法输入。
         ask_pin 是阻塞调用, 用 try/finally 保证无论 PIN 验过 / 取消 / 出错
         都恢复抢焦点 (锁屏若已被 hide, resume 是 no-op, 安全)。
+
+        v0.4.2+ 安全修: 之前没设 PIN 时直接切 Parent (理由"家长信任本地物理
+        在场"), 但孩子也物理在场, 等于在锁屏上免验证逃逸. 现在没设 PIN 时
+        拒绝切 + 提示家长在后台先设. 跟 Android v0.5.21 Parent→Child 切换 UI
+        的策略一致 (有 PIN 强制走, 没 PIN 走拒绝路径).
         """
         if not self.pin.has_pin():
-            # 没设 PIN → 直接切 (家长信任本地物理在场)
-            _log.warning("家长 PIN 未设置, 直接切 Parent 模式")
-            self._switch_to_parent_after_unlock()
+            _log.warning("家长 PIN 未设置, 拒绝切 Parent 模式 (防孩子绕过锁屏)")
+            try:
+                self.notifier.warn_async(
+                    "家长 PIN 还未设置, 暂无法切到家长模式。\n"
+                    "请家长在后台 (设备页 → 设置 PIN) 配置后, 重新尝试。",
+                    title="家长验证",
+                )
+            except Exception:
+                _log.exception("PIN 未设置提示通知失败")
             return
         oot = self.out_of_token_dialog
         if oot is not None:

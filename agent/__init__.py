@@ -6,4 +6,5 @@
 #   0.3.0 - 无感软件更新 (server 推 update_self → Lock 态 → Updater.exe 接管 + 自动回滚)
 #   0.4.0 - 独立管理后台 (admin.{domain}) + 存储驱动抽象 (local/S3/OSS) + 多租户接缝
 #   0.4.1 - About 对话框接入 /api/changelog 跨端更新日志 (跟 admin / Android 同源)
-__version__ = "0.4.1"
+#   0.4.2 - OOT 切家长 PIN 安全修: 没设 PIN 时拒绝切 (防孩子绕过锁屏免验证逃逸)
+__version__ = "0.4.2"

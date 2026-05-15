@@ -91,6 +91,7 @@
     <string name="pin_dialog_verify">验证</string>
     <string name="pin_fail_remaining">PIN 错误, 还剩 %1$d 次机会</string>
     <string name="pin_locked">已锁定, %1$d 分钟后再试</string>
+    <string name="pin_not_set_hint">家长 PIN 还未设置, 暂无法切换模式。请家长在后台 (设备页 → 设置 PIN) 配置后再试。</string>
 
     <!-- v0.5.5+ Dashboard mode + free_pass -->
     <string name="dash_mode_label_v2">当前模式</string>
