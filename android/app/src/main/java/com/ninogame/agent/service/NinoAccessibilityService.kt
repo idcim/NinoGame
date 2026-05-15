@@ -25,6 +25,7 @@ class NinoAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "NinoAccessibilityService connected")
+        instance = this  // 静态引用让 UI (OutOfTokenScreen "锁屏休息") 能调 lockScreenNow
         // 启动一次 reset 防止上次进程残留状态
         ForegroundAppMonitor.reset()
     }
@@ -37,25 +38,20 @@ class NinoAccessibilityService : AccessibilityService() {
         ForegroundAppMonitor.setForeground(pkg)
 
         // v0.5.19+ Token 耗尽 = 真"全屏锁": 任何非自家 + 非系统 passthrough 的前台
-        // 都强拉 NinoGame MainActivity 回前台 (跟 Windows agent OOT WindowStaysOnTop +
-        // focus reclaim 等价). 不再按 category 区分, 桌面 / 浏览器 / 学习类一律拦。
+        // 都强拉 NinoGame MainActivity 回前台 (跟 Windows agent OOT focus reclaim 等价).
+        // v0.5.21+: Lock 模式同样的强拉机制 — 孩子按"锁屏休息"后切 app 也被拉回.
         //
-        // v0.5.16 只拦 consumption 是漏: 孩子能跳到桌面/浏览器/Chrome 绕过锁.
-        // 改成强拉自己回前台后, 用户每次切走 (Home / Recent / 通知点击进任何 app)
-        // 立刻被弹回 OOT 锁屏. 孩子只能:
-        //   1. 点"申请游戏时间" → server 推家长审批 → 家长批 unlock → server
-        //      推 wallet_update + balance>0 → outOfToken 派生 false → 解锁
-        //   2. 点"家长 PIN 解锁" → 切 Parent mode → outOfToken 派生 false → 解锁
-        //   3. 点"锁屏休息" → 切 Lock mode → outOfToken 派生 false → 持续 lock
-        // 没有"等一等就过"的逃逸路径.
+        // 系统 passthrough 例外 (isSystemPassthrough): 系统 UI / IME / 拨号 / 通讯录 —
+        // 让孩子在锁屏状态下还能用紧急通话、状态栏通知, 跟 OS 紧急 SOS 同思路.
         //
-        // SYSTEM_PASSTHROUGH 保留:
-        //   - android: 系统事件 (TYPE_WINDOW_STATE_CHANGED 偶发用)
-        //   - com.android.systemui: 状态栏 / 通知抽屉 — 允许孩子能看通知 (不能拦)
-        //   - IME 包名 (pkg.contains("inputmethod")): 输入法弹出, PIN 输入要它
-        if (AgentState.outOfToken.value && pkg != packageName) {
+        // 孩子的合法出路:
+        //   1. 申请游戏时间 → server 推家长审批 → balance>0 → 解锁
+        //   2. 家长 PIN 解锁 → Parent mode → 不扣 token
+        //   3. 等家长在后台或 ModeAndFreePassCard 上把模式切回 Child
+        val isLocked = AgentState.outOfToken.value || AgentState.mode.value == AgentState.Mode.Lock
+        if (isLocked && pkg != packageName) {
             if (!isSystemPassthrough(pkg)) {
-                Log.i(TAG, "out-of-token + foreground=$pkg → relaunch NinoGame")
+                Log.i(TAG, "locked (oot=${AgentState.outOfToken.value} mode=${AgentState.mode.value}) + foreground=$pkg → relaunch NinoGame")
                 BlockNotifier.notifyOutOfToken(this, pkg)
                 launchSelfToFront()
                 return  // 不再跑规则匹配, 已经强制拉回自家了
@@ -143,7 +139,37 @@ class NinoAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
     companion object {
         private const val TAG = "NinoA11y"
+
+        /** 当前 service 实例的弱反向引用. UI 调 [lockScreenNow] 时通过这个找 service.
+         *  Service 没起或被系统杀掉时 null, 调用方应该 fallback (短期降级为 Home + 通知). */
+        @Volatile
+        private var instance: NinoAccessibilityService? = null
+
+        /** 触发系统级锁屏 — GLOBAL_ACTION_LOCK_SCREEN (API 28+).
+         *  跟孩子按手机电源键效果一致: 屏幕熄灭, 解锁要 OS PIN/指纹.
+         *  解锁后系统回到锁屏前的前台 (NinoGame). 加上 Lock 模式强拉机制,
+         *  孩子解锁系统屏幕后切到任何 app 都会被拉回 NinoGame Lock 锁屏页.
+         *
+         *  返回:
+         *    - true: 成功触发
+         *    - false: service 未启用或 OS 版本太老 (<API 28) — 调用方应 fallback */
+        fun lockScreenNow(): Boolean {
+            val svc = instance ?: return false
+            return runCatching {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    svc.performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+                } else {
+                    // API 28 以下没 LOCK_SCREEN, 用 Home 退桌面兜底 (体验差一档)
+                    svc.performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+            }.getOrDefault(false)
+        }
     }
 }

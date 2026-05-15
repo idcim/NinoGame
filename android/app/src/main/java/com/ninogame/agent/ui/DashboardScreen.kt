@@ -373,7 +373,11 @@ private fun RomGuidanceCard(
     }
 }
 
-/** 模式 + 限免活动卡 — 仅在非 Child 或限免活跃时显示, Child + 无限免时不占屏幕. */
+/** 模式 + 限免活动卡 — 仅在非 Child 或限免活跃时显示, Child + 无限免时不占屏幕.
+ *
+ *  v0.5.21+: 非 Child 模式时加"切回孩子模式"按钮.
+ *    - Parent → Child: 直接切, 不要 PIN (家长进 Parent 已经验过 PIN 了)
+ *    - Lock → Child: 走 PinDialog 验证 (防孩子瞎按) */
 @Composable
 private fun ModeAndFreePassCard(
     mode: AgentState.Mode,
@@ -384,6 +388,8 @@ private fun ModeAndFreePassCard(
         AgentState.Mode.Parent -> stringResource(R.string.mode_parent) to MaterialTheme.colorScheme.onSurfaceVariant
         AgentState.Mode.Child -> stringResource(R.string.mode_child) to MaterialTheme.colorScheme.secondary
     }
+    var showPinForUnlock by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -416,7 +422,41 @@ private fun ModeAndFreePassCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            // 非 Child 模式: 加"还给孩子"按钮
+            if (mode != AgentState.Mode.Child) {
+                Spacer(Modifier.height(8.dp))
+                val btnLabel = when (mode) {
+                    AgentState.Mode.Parent -> stringResource(R.string.mode_switch_back_from_parent)
+                    AgentState.Mode.Lock -> stringResource(R.string.mode_switch_back_from_lock)
+                    else -> stringResource(R.string.mode_switch_back_to_child)
+                }
+                Button(
+                    onClick = {
+                        if (mode == AgentState.Mode.Parent) {
+                            // Parent 模式: 家长自己点的, 直接切
+                            AgentState.setMode(AgentState.Mode.Child)
+                        } else {
+                            // Lock 模式: 走 PIN 验证 (防孩子绕开)
+                            showPinForUnlock = true
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(btnLabel)
+                }
+            }
         }
+    }
+
+    if (showPinForUnlock) {
+        PinDialog(
+            onDismiss = { showPinForUnlock = false },
+            onSuccess = {
+                showPinForUnlock = false
+                AgentState.setMode(AgentState.Mode.Child)
+            },
+        )
     }
 }
 

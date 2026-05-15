@@ -324,9 +324,21 @@ class AgentService : Service() {
     private fun onWalletUpdate(payload: JsonElement?) {
         val obj = payload as? JsonObject ?: return
         val balance = obj["balance"]?.jsonPrimitive?.intOrNull ?: return
-        Log.i(TAG, "wallet_update: balance=$balance")
+        val oldBalance = AgentState.walletBalance.value
+        Log.i(TAG, "wallet_update: balance=$balance (was=$oldBalance)")
         AgentState.onWalletBalance(balance)
         persistBalance(balance)
+
+        // v0.5.21+ 余额从 ≤0 跌到 >0 + 当前 Lock 模式 → 自动切回 Child.
+        // 场景: 孩子按"锁屏休息"或 OOT 锁屏中 → 家长后台 +token / 批 unlock →
+        // wallet_update 来了 → 自动解锁回孩子模式 (跟 Windows agent 行为一致;
+        // 之前 Android 不解锁, 家长困惑"我转了 token 怎么 App 还锁着").
+        // 注意: 只在 0→正 这条边触发, 避免本来余额就 >0 时孩子主动锁屏被立刻解.
+        val wasOut = oldBalance == null || oldBalance <= 0
+        if (balance > 0 && wasOut && AgentState.mode.value == AgentState.Mode.Lock) {
+            Log.i(TAG, "★ 余额恢复 (was=$oldBalance → $balance), Lock 模式自动切回 Child")
+            AgentState.setMode(AgentState.Mode.Child)
+        }
     }
 
     private fun onRulesUpdate(payload: JsonElement?) {

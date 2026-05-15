@@ -25,6 +25,12 @@
     <string name="mode_parent">家长模式</string>
     <string name="mode_lock">已锁定</string>
     <string name="mode_unknown">未知</string>
+    <string name="mode_switch_back_to_child">切回孩子模式</string>
+    <string name="mode_switch_back_from_parent">交回给孩子</string>
+    <string name="mode_switch_back_from_lock">解锁回孩子模式 (需 PIN)</string>
+    <string name="oot_emergency_hint">应急时可:</string>
+    <string name="oot_btn_dial">打电话</string>
+    <string name="oot_btn_sms">发短信</string>
 
     <!-- v0.5.1+ Foreground Service 通知 -->
     <string name="notif_channel_agent">Agent 后台运行</string>

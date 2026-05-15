@@ -4,6 +4,19 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.21 · 2026-05-15
+
+- **Parent → Child 切换 UI** — 家长用 PIN 解 OOT 进 Parent 模式帮孩子查东西后, Dashboard ModeAndFreePassCard 现在显示"交回给孩子"按钮直接切回 Child, 不再卡死. Lock 模式同款按钮但需 PIN (防孩子绕开).
+- **真锁屏 (OS 级)** — "锁屏休息"按钮原来只 setMode(Lock)+退桌面, 孩子在桌面还能切 app. 现在调 NinoAccessibilityService.lockScreenNow() → `GLOBAL_ACTION_LOCK_SCREEN` (API 28+) 触发系统锁屏, 解锁要手机 PIN/指纹. API 28 以下 fallback 回 Home.
+- **Lock 模式跨 app 强拉** — AccessibilityService 把 isLocked 判定改为 `outOfToken || mode==Lock`. 之前 Lock 模式没强拉, 孩子能跑掉; 现在跟 OOT 同款拦截, 切到任何非系统-passthrough 的 app 立刻被拉回 NinoGame Lock 屏.
+- **OOT 锁屏页加应急按钮** — "打电话" / "发短信" 两个 OutlinedButton, 点开走 Intent.ACTION_DIAL / smsto:, AccessibilityService passthrough 已允许 dialer/sms 包不被强拉回. 跟 OS 紧急 SOS 同思路, 给孩子留紧急通讯出路.
+- **转 token 后 Lock 自动解** — wallet_update 处理时 `balance 从 ≤0 跌到 >0` + 当前 Lock 模式 → 自动 setMode(Child). 修家长反馈 "我转了 token 但手机 App 还是锁着的". 0→正这条边触发, 避免本来余额就 >0 时孩子主动锁屏被立刻解.
+
+## infra: dev-adb-reverse.ps1 · 2026-05-15
+
+- 新增 `infra/dev-adb-reverse.ps1` — Windows PC 真机 / 模拟器 dev 反向端口转发脚本. 自动找 adb (PATH / 常见 Android SDK 路径), 对每个已连接设备 reverse 8088/8080/8081 → 127.0.0.1.
+- 为什么需要: Docker Desktop on Windows 11 (尤其 Insider 26200) WSL2 backend 的端口 bind 实际只在 127.0.0.1, LAN IP + netsh portproxy + 防火墙开放后 PC 自己用 LAN IP 都 timeout. adb reverse 走 USB 通道完全绕过. 之后 Android App Pair 页 Backend URL 填 `http://127.0.0.1:8088` 即可.
+
 ## Android v0.5.20 · 2026-05-15
 
 - **OOT 锁屏主动触发 — 不打开 App 也能锁** — 用户反馈"0 token 时也可以在外面乱玩, 不打开本 APP 就没事". v0.5.19 OOT 强拉只在 AccessibilityService.onAccessibilityEvent (窗口切换) 时检查, 用户已经在 Chrome 玩 + balance 刚跌到 0 时窗口没切 → 锁屏不触发, 孩子能继续玩到自己主动换 app.

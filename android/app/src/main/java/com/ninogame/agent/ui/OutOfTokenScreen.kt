@@ -20,8 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Sms
+import android.net.Uri
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -47,7 +50,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.ninogame.agent.R
 import com.ninogame.agent.service.AgentState
+import com.ninogame.agent.service.NinoAccessibilityService
 import kotlinx.coroutines.launch
+import androidx.compose.material3.OutlinedButton
 
 /** Token 耗尽锁屏覆盖 — 跟 Windows agent ui/out_of_token_dialog.py 同语义.
  *
@@ -181,6 +186,36 @@ fun OutOfTokenScreen(modifier: Modifier = Modifier) {
                         Icon(Icons.Filled.Bedtime, contentDescription = null)
                         Text("  " + stringResource(R.string.oot_btn_rest))
                     }
+
+                    // v0.5.21+ 应急按钮区 — 拨号 / 短信, 跟 OS 紧急 SOS 思路一致.
+                    // AccessibilityService passthrough 已允许 dialer / sms 包, 点击
+                    // 跳进去不会被强拉回; 切回 NinoGame 或切到其它 app 会被锁回.
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        stringResource(R.string.oot_emergency_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = { openDialer(ctx) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Call, contentDescription = null)
+                            Text("  " + stringResource(R.string.oot_btn_dial))
+                        }
+                        OutlinedButton(
+                            onClick = { openSms(ctx) },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Sms, contentDescription = null)
+                            Text("  " + stringResource(R.string.oot_btn_sms))
+                        }
+                    }
                 }
             }
         }
@@ -215,16 +250,37 @@ fun OutOfTokenScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** "锁屏休息": 切 Lock 模式 + 退到桌面.
- *  Lock 模式让 outOfToken 派生为 false, overlay 自动消失.
- *  孩子还得等 server 发 wallet_update (家长批了 unlock 或日补) 或手动重启 App
- *  + 家长在后台明确动作才能恢复 Child. 跟"关机"的休息效果一致但不动设备电源. */
+/** "锁屏休息": 切 Lock 模式 + 触发 OS 级真锁屏 (GLOBAL_ACTION_LOCK_SCREEN).
+ *  v0.5.21+: 之前只是切 Lock 模式 + 退桌面, 孩子在桌面还能自由切 app (虽然
+ *  AccessibilityService 现在 Lock 模式也强拉回 NinoGame, 但屏幕没真锁).
+ *  现在: 切 Lock + 调 NinoAccessibilityService.lockScreenNow() 让 OS 锁屏,
+ *  孩子要输手机 PIN/指纹才能解, 解锁后回到 NinoGame Lock 屏 (没真 PIN 切回 Child). */
 private fun doRest(ctx: Context) {
     AgentState.setMode(AgentState.Mode.Lock)
-    // 退到桌面 — 不是强制 (Android 普通 App 没那种权限), 是温和地"我自己跳走"
-    val home = Intent(Intent.ACTION_MAIN).apply {
-        addCategory(Intent.CATEGORY_HOME)
+    // 优先 OS 锁屏 (API 28+); 失败 fallback 退桌面
+    if (!NinoAccessibilityService.lockScreenNow()) {
+        val home = Intent(Intent.ACTION_MAIN).apply {
+            addCategory(Intent.CATEGORY_HOME)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        runCatching { ctx.startActivity(home) }
+    }
+}
+
+/** 打开拨号 App — AccessibilityService passthrough 允许 dialer/phone,
+ *  点开后不会被强拉回 NinoGame, 但切到第三方 app 会被锁回. */
+private fun openDialer(ctx: Context) {
+    val intent = Intent(Intent.ACTION_DIAL).apply {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK
     }
-    runCatching { ctx.startActivity(home) }
+    runCatching { ctx.startActivity(intent) }
+}
+
+/** 打开短信 App. */
+private fun openSms(ctx: Context) {
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        data = Uri.parse("smsto:")
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+    }
+    runCatching { ctx.startActivity(intent) }
 }
