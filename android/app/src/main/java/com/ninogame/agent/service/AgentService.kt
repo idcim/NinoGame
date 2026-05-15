@@ -67,6 +67,11 @@ class AgentService : Service() {
     private var tokenTicker: TokenTicker? = null
     private var screenReceiver: ScreenStateReceiver? = null
 
+    /** v0.5.22+ 低水位提醒 flag — Win agent main._low_balance_warned 同语义.
+     *  0 < balance ≤ 10 第一次到时弹一次, 回升到 >10 重置, 避免每个 tick 都弹. */
+    private var lowBalanceWarned: Boolean = false
+    private val lowBalanceThreshold: Int get() = 10  // TODO: Stage 3c 接 settings.low_balance_warn_threshold
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     /** v0.5.12+ 显式 START_STICKY — 进程被 OOM/ROM 杀掉后 Android 自动重新创建
@@ -338,6 +343,22 @@ class AgentService : Service() {
         if (balance > 0 && wasOut && AgentState.mode.value == AgentState.Mode.Lock) {
             Log.i(TAG, "★ 余额恢复 (was=$oldBalance → $balance), Lock 模式自动切回 Child")
             AgentState.setMode(AgentState.Mode.Child)
+        }
+
+        // v0.5.22+ 低水位提醒 — 跟 Win agent main._on_wallet_update 对齐.
+        // 0 < balance ≤ 10 + 未提醒过 → 弹温和通知 (warn channel, DEFAULT 优先级).
+        // balance > 10 → 重置 flag, 下次再到阈值时再提醒. balance ≤ 0 已在 OOT 处理.
+        if (balance in 1..lowBalanceThreshold) {
+            if (!lowBalanceWarned) {
+                lowBalanceWarned = true
+                Log.i(TAG, "★ 低水位提醒: balance=$balance ≤ $lowBalanceThreshold")
+                BlockNotifier.notifyLowBalance(this, balance)
+            }
+        } else if (balance > lowBalanceThreshold) {
+            if (lowBalanceWarned) {
+                lowBalanceWarned = false
+                Log.i(TAG, "balance=$balance > 阈值, 重置低水位 flag")
+            }
         }
     }
 

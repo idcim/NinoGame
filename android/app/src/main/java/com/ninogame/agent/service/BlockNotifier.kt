@@ -18,7 +18,9 @@ import com.ninogame.agent.R
 object BlockNotifier {
 
     private const val CHANNEL_ID = "block"
+    private const val WARN_CHANNEL_ID = "warn"
     private const val NOTIF_ID_BASE = 2000
+    private const val LOW_BALANCE_NOTIF_ID = NOTIF_ID_BASE + 0xFFE  // 固定 id 让低水位提醒聚合
     private const val DEDUPE_WINDOW_MS = 5_000L
 
     private val lastNotifMs = mutableMapOf<String, Long>()
@@ -94,6 +96,36 @@ object BlockNotifier {
         nm.notify(NOTIF_ID_BASE + 0xFFF, n)  // 固定 id 让 OOT 通知聚合一条, 不刷屏
     }
 
+    /** v0.5.22+ 低水位提醒 — Win agent main._on_wallet_update 同款行为. 文案
+     *  对齐 ("还剩 N token, 快用完了"). 单独 channel "warn" IMPORTANCE_DEFAULT,
+     *  比 OOT 的 "block" HIGH 温和一档, 用户可以单独关. AgentService 判断
+     *  flag (lowBalanceWarned) 不在这里重复 dedupe. */
+    fun notifyLowBalance(ctx: Context, balance: Int) {
+        ensureWarnChannel(ctx)
+        val pendingFlags =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            else PendingIntent.FLAG_UPDATE_CURRENT
+        val openApp = PendingIntent.getActivity(
+            ctx, 0,
+            Intent(ctx, MainActivity::class.java),
+            pendingFlags,
+        )
+        val body = ctx.getString(R.string.low_balance_notif_body, balance)
+        val n = NotificationCompat.Builder(ctx, WARN_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentTitle(ctx.getString(R.string.low_balance_notif_title))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(openApp)
+            .build()
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(LOW_BALANCE_NOTIF_ID, n)
+    }
+
     private fun ensureChannel(ctx: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -104,6 +136,20 @@ object BlockNotifier {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = ctx.getString(R.string.block_notif_channel_desc)
+        }
+        nm.createNotificationChannel(ch)
+    }
+
+    private fun ensureWarnChannel(ctx: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (nm.getNotificationChannel(WARN_CHANNEL_ID) != null) return
+        val ch = NotificationChannel(
+            WARN_CHANNEL_ID,
+            ctx.getString(R.string.warn_notif_channel),
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = ctx.getString(R.string.warn_notif_channel_desc)
         }
         nm.createNotificationChannel(ch)
     }

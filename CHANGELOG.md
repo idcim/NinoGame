@@ -4,6 +4,12 @@
 > Backend 主版本号当前在 v0.4.x; Android Agent 在 v0.5.x; Windows Agent 在 v0.4.x. 各端独立演进, 但通过 hello_ack / WS 协议保持兼容。
 > 详细 commit 在 git log 里, 这里只保留"对用户有意义的变化"。
 
+## Android v0.5.22 · 2026-05-15
+
+- **低水位提醒 (10 token)** — 跟 Win agent `main._on_wallet_update` 行为对齐, 文案同款. `0 < balance ≤ 10 + 未提醒过` → 弹通知 (标题"NinoGame · token 快用完", 正文"还剩 N token, 快用完了。想继续可以申请游戏时间, 或者休息一下做点别的。"). `balance > 10` 重置 flag, 下次再到阈值时再提醒. `balance ≤ 0` 走 OOT 链路, 不重复提醒.
+- 单独 channel "warn" (IMPORTANCE_DEFAULT, PRIORITY_DEFAULT), 比 OOT 的 "block" channel (HIGH) 温和一档. 用户可以单独关掉提醒不影响拦截通知.
+- 阈值当前 hardcoded 10, Stage 3c 接 `settings_update.low_balance_warn_threshold` 字段后家长可调.
+
 ## Android v0.5.21 · 2026-05-15
 
 - **Parent → Child 切换 UI** — 家长用 PIN 解 OOT 进 Parent 模式帮孩子查东西后, Dashboard ModeAndFreePassCard 现在显示"交回给孩子"按钮直接切回 Child, 不再卡死. Lock 模式同款按钮但需 PIN (防孩子绕开).
